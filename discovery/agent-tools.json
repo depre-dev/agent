@@ -1,0 +1,41 @@
+{
+  "name": "Polkadot Agent Treasury Platform",
+  "version": "0.1.0",
+  "protocols": [
+    "mcp",
+    "a2a",
+    "http"
+  ],
+  "onboarding": {
+    "entrypoint": "/onboarding",
+    "starterFlow": [
+      "connect-wallet",
+      "fetch-account-summary",
+      "run-preflight-job",
+      "claim-sponsored-starter-job",
+      "submit-structured-work",
+      "poll-verification-status"
+    ]
+  },
+  "tools": [
+    "getPlatformCapabilities",
+    "getAccountSummary",
+    "recommendJobs",
+    "getJobDefinition",
+    "preflightJob",
+    "explainEligibility",
+    "estimateNetReward",
+    "reserveForJob",
+    "claimJob",
+    "submitWork",
+    "resumeSession",
+    "allocateIdleFunds",
+    "getBorrowCapacity",
+    "borrow",
+    "repay",
+    "getReputation",
+    "verifySubmission",
+    "getVerificationResult",
+    "listVerifierHandlers"
+  ]
+}

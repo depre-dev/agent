@@ -1,0 +1,83 @@
+# Polkadot Agent Platform
+
+This repository contains a greenfield implementation of an agent-first treasury and job runtime:
+
+- Foundry contracts for account, escrow, policy, strategy registry, and reputation
+- A shared service layer exposed through MCP, A2A, and HTTP
+- Discovery and indexing scaffolds for later hosted deployment
+
+## Local deployment flow
+
+1. Start a local Anvil chain:
+
+```bash
+./scripts/start_anvil.sh
+```
+
+2. In another terminal, deploy and configure the contract suite:
+
+```bash
+./scripts/deploy_contracts.sh
+```
+
+3. Export the addresses returned by the deploy script and write a server env file:
+
+```bash
+export AGENT_ACCOUNT_ADDRESS=0x...
+export ESCROW_CORE_ADDRESS=0x...
+export REPUTATION_SBT_ADDRESS=0x...
+export MOCK_DOT_ADDRESS=0x...
+./scripts/write_server_env.sh
+```
+
+4. Start the service:
+
+```bash
+cd mcp-server
+set -a
+source .env.local
+set +a
+npm run start:http
+```
+
+The HTTP adapter will use live on-chain reads and signed writes whenever the env file contains a valid RPC URL, signer key, and deployed contract addresses.
+
+If you want durable sessions and verifier results, also set:
+
+```bash
+REDIS_URL=redis://...
+REDIS_NAMESPACE=agent-platform
+```
+
+Without `REDIS_URL`, the service falls back to in-memory state for local development.
+
+To verify Redis-backed resumability across separate runtimes:
+
+```bash
+cd mcp-server
+set -a
+source .env.local
+export REDIS_URL=redis://...
+set +a
+npm run check:redis
+```
+
+That check creates a session in one runtime, verifies it, then loads the same session/result through a second runtime to prove persistence.
+
+## End-to-end local demo
+
+With Anvil running and `mcp-server/.env.local` populated, run:
+
+```bash
+cd mcp-server
+set -a
+source .env.local
+set +a
+npm run demo:e2e
+```
+
+The demo mints mock DOT, deposits into `AgentAccountCore`, creates a funded job, claims it as a worker, submits work, resolves escrow through the verifier role, and checks that payout plus SBT minting completed.
+
+## Render deployment
+
+A starter Render configuration is included at [render.yaml](/Users/pascalkuriger/repo/Polkadot/render.yaml) and a concise deployment checklist lives in [RENDER_DEPLOY.md](/Users/pascalkuriger/repo/Polkadot/mcp-server/RENDER_DEPLOY.md).

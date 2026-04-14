@@ -1,0 +1,76 @@
+import { createServer } from "node:http";
+import { createPlatformRuntime } from "../../services/bootstrap.js";
+
+const { platformService: service, verifierService, stateStore } = createPlatformRuntime();
+const port = Number(process.env.PORT ?? 8787);
+
+function respond(response, statusCode, payload) {
+  response.writeHead(statusCode, { "content-type": "application/json" });
+  response.end(JSON.stringify(payload, null, 2));
+}
+
+const server = createServer(async (request, response) => {
+  const url = new URL(request.url ?? "/", "http://localhost");
+
+  try {
+    if (request.method === "GET" && url.pathname === "/health") {
+      return respond(response, 200, {
+        status: "ok",
+        persistence: stateStore.constructor.name
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/onboarding") {
+      return respond(response, 200, service.getPlatformCapabilities());
+    }
+
+    if (request.method === "GET" && url.pathname === "/account") {
+      return respond(response, 200, await service.getAccountSummary(url.searchParams.get("wallet") ?? "0xagent"));
+    }
+
+    if (request.method === "GET" && url.pathname === "/jobs/recommendations") {
+      return respond(response, 200, await service.recommendJobs(url.searchParams.get("wallet") ?? "0xagent"));
+    }
+
+    if (request.method === "GET" && url.pathname === "/jobs/definition") {
+      return respond(response, 200, service.getJobDefinition(url.searchParams.get("jobId") ?? ""));
+    }
+
+    if (request.method === "POST" && url.pathname === "/jobs/claim") {
+      const wallet = url.searchParams.get("wallet") ?? "0xagent";
+      const jobId = url.searchParams.get("jobId") ?? "";
+      const idempotencyKey = url.searchParams.get("idempotencyKey") ?? `${wallet}:${jobId}`;
+      return respond(response, 200, await service.claimJob(wallet, jobId, "http", idempotencyKey));
+    }
+
+    if (request.method === "POST" && url.pathname === "/jobs/submit") {
+      const sessionId = url.searchParams.get("sessionId") ?? "";
+      const evidence = url.searchParams.get("evidence") ?? "submitted-via-http";
+      return respond(response, 200, await service.submitWork(sessionId, "http", evidence));
+    }
+
+    if (request.method === "POST" && url.pathname === "/verifier/run") {
+      const sessionId = url.searchParams.get("sessionId") ?? "";
+      const evidence = url.searchParams.get("evidence") ?? "";
+      const metadataURI = url.searchParams.get("metadataURI") ?? "ipfs://pending-badge";
+      return respond(response, 200, await verifierService.verifySubmission({ sessionId, evidence, metadataURI }));
+    }
+
+    if (request.method === "GET" && url.pathname === "/verifier/result") {
+      const sessionId = url.searchParams.get("sessionId") ?? "";
+      return respond(response, 200, await verifierService.getResult(sessionId) ?? { status: "not_found" });
+    }
+
+    if (request.method === "GET" && url.pathname === "/verifier/handlers") {
+      return respond(response, 200, { handlers: verifierService.listHandlers() });
+    }
+
+    return respond(response, 404, { error: "not_found" });
+  } catch (error) {
+    return respond(response, 500, { error: error.message ?? "internal_error" });
+  }
+});
+
+server.listen(port, () => {
+  console.log(`HTTP adapter listening on :${port}`);
+});

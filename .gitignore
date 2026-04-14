@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.local
+.env.*
+!.env.example
+
+node_modules/
+cache/
+out/
+broadcast/
+
+*.log
+

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUTPUT_FILE="${1:-mcp-server/.env.local}"
+
+RPC_URL_VALUE="${RPC_URL:-http://127.0.0.1:8545}"
+SIGNER_KEY_VALUE="${SIGNER_PRIVATE_KEY:-${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}}"
+
+required_vars=(
+  AGENT_ACCOUNT_ADDRESS
+  ESCROW_CORE_ADDRESS
+  REPUTATION_SBT_ADDRESS
+  MOCK_DOT_ADDRESS
+)
+
+for var_name in "${required_vars[@]}"; do
+  if [[ -z "${!var_name:-}" ]]; then
+    echo "Missing required environment variable: $var_name" >&2
+    exit 1
+  fi
+done
+
+cat > "$OUTPUT_FILE" <<EOF
+RPC_URL=$RPC_URL_VALUE
+SIGNER_PRIVATE_KEY=$SIGNER_KEY_VALUE
+AGENT_ACCOUNT_ADDRESS=$AGENT_ACCOUNT_ADDRESS
+ESCROW_CORE_ADDRESS=$ESCROW_CORE_ADDRESS
+REPUTATION_SBT_ADDRESS=$REPUTATION_SBT_ADDRESS
+SUPPORTED_ASSETS=DOT:$MOCK_DOT_ADDRESS
+EOF
+
+echo "Wrote $OUTPUT_FILE"
+

@@ -1,0 +1,43 @@
+import { VerifierRegistry } from "./verifier-handlers.js";
+
+export class VerifierService {
+  constructor(platformService, blockchainGateway = undefined, registry = new VerifierRegistry()) {
+    this.platformService = platformService;
+    this.blockchainGateway = blockchainGateway;
+    this.registry = registry;
+    this.stateStore = platformService.stateStore;
+  }
+
+  async verifySubmission({ sessionId, evidence = "", metadataURI = "ipfs://pending-badge" }) {
+    const session = await this.platformService.resumeSession(sessionId);
+    const job = this.platformService.getJobDefinition(session.jobId);
+    const verdict = this.registry.evaluate(job, evidence);
+
+    if (this.blockchainGateway?.isEnabled() && this.blockchainGateway.resolveSinglePayout) {
+      await this.blockchainGateway.resolveSinglePayout(
+        session.jobId,
+        verdict.outcome === "approved",
+        verdict.reasonCode,
+        metadataURI
+      );
+    }
+
+    const updatedSession = await this.platformService.ingestVerification(verdict);
+    const result = {
+      ...verdict,
+      sessionId,
+      metadataURI,
+      session: updatedSession ?? session
+    };
+
+    return this.stateStore.upsertVerificationResult(sessionId, result);
+  }
+
+  async getResult(sessionId) {
+    return this.stateStore.getVerificationResult(sessionId);
+  }
+
+  listHandlers() {
+    return this.registry.listHandlers();
+  }
+}

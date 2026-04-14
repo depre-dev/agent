@@ -1,0 +1,11 @@
+{
+  "name": "polkadot-agent-platform",
+  "private": true,
+  "workspaces": [
+    "mcp-server"
+  ],
+  "scripts": {
+    "test:contracts": "source /Users/pascalkuriger/.zshenv && forge test"
+  }
+}
+

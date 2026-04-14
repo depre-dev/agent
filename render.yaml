@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: polkadot-agent-platform
+    runtime: node
+    rootDir: mcp-server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start:http
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: REDIS_NAMESPACE
+        value: agent-platform
+      - key: RPC_URL
+        sync: false
+      - key: SIGNER_PRIVATE_KEY
+        sync: false
+      - key: AGENT_ACCOUNT_ADDRESS
+        sync: false
+      - key: ESCROW_CORE_ADDRESS
+        sync: false
+      - key: REPUTATION_SBT_ADDRESS
+        sync: false
+      - key: SUPPORTED_ASSETS
+        sync: false
+      - key: REDIS_URL
+        sync: false
+

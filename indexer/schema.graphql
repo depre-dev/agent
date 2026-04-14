@@ -1,0 +1,44 @@
+type Job @entity {
+  id: ID!
+  poster: String!
+  worker: String
+  category: String!
+  tier: String!
+  rewardAsset: String!
+  rewardAmount: BigInt!
+  verifierMode: String!
+  state: String!
+}
+
+type JobSession @entity {
+  id: ID!
+  jobId: String!
+  wallet: String!
+  status: String!
+  idempotencyKey: String!
+}
+
+type VerificationRun @entity {
+  id: ID!
+  jobId: String!
+  outcome: String!
+  reasonCode: String!
+  score: Int!
+}
+
+type Payout @entity {
+  id: ID!
+  jobId: String!
+  asset: String!
+  amount: BigInt!
+  recipient: String!
+}
+
+type ReputationSnapshot @entity {
+  id: ID!
+  wallet: String!
+  skill: Int!
+  reliability: Int!
+  economic: Int!
+  tier: String!
+}
