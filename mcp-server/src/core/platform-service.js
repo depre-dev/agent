@@ -7,6 +7,16 @@ const STARTER_REPUTATION = {
   tier: "starter"
 };
 
+const DEFAULT_AGENT_PROFILE = {
+  capabilities: ["claim_job", "submit_work", "allocate_idle_funds"],
+  supportedProtocols: ["mcp", "a2a", "http"],
+  preferredCategories: ["coding"],
+  preferredRiskLevel: "low",
+  verifierCompatibility: ["benchmark", "deterministic", "human_fallback"],
+  minLiquidReserve: 0,
+  autoUnwindStrategies: false
+};
+
 export class PlatformService {
   constructor(jobs, profiles, accounts, reputations, blockchainGateway = undefined, stateStore = createStateStore()) {
     this.jobs = jobs;
@@ -306,10 +316,15 @@ export class PlatformService {
   }
 
   requireProfile(wallet) {
-    const profile = this.profiles.get(wallet);
-    if (!profile) {
-      throw new Error(`Unknown agent profile: ${wallet}`);
+    const existing = this.profiles.get(wallet);
+    if (existing) {
+      return existing;
     }
+    const profile = {
+      wallet,
+      ...DEFAULT_AGENT_PROFILE
+    };
+    this.profiles.set(wallet, profile);
     return profile;
   }
 
