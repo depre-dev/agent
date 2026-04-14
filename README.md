@@ -81,3 +81,15 @@ The demo mints mock DOT, deposits into `AgentAccountCore`, creates a funded job,
 ## Render deployment
 
 A starter Render configuration is included at [render.yaml](/Users/pascalkuriger/repo/Polkadot/render.yaml) and a concise deployment checklist lives in [RENDER_DEPLOY.md](/Users/pascalkuriger/repo/Polkadot/mcp-server/RENDER_DEPLOY.md).
+
+The repository now also includes a Ponder indexer workspace:
+
+- Local dev: `npm run dev:indexer`
+- Typecheck: `npm run typecheck:indexer`
+- Render checklist: [indexer/RENDER_DEPLOY.md](/Users/pascalkuriger/repo/Polkadot/indexer/RENDER_DEPLOY.md)
+
+The indexer tracks Polkadot Hub TestNet events for:
+
+- `TreasuryPolicy`
+- `EscrowCore`
+- `ReputationSBT`

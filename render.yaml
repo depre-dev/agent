@@ -26,4 +26,18 @@ services:
         sync: false
       - key: REDIS_URL
         sync: false
-
+  - type: web
+    name: polkadot-agent-indexer
+    runtime: node
+    rootDir: indexer
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: PONDER_RPC_URL_420420417
+        value: https://eth-rpc-testnet.polkadot.io/
+      - key: DATABASE_URL
+        sync: false

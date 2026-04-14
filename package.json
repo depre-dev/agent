@@ -2,10 +2,13 @@
   "name": "polkadot-agent-platform",
   "private": true,
   "workspaces": [
-    "mcp-server"
+    "mcp-server",
+    "indexer"
   ],
   "scripts": {
-    "test:contracts": "source /Users/pascalkuriger/.zshenv && forge test"
+    "test:contracts": "source /Users/pascalkuriger/.zshenv && forge test",
+    "dev:indexer": "npm --workspace indexer run dev",
+    "start:indexer": "npm --workspace indexer run start",
+    "typecheck:indexer": "npm --workspace indexer run typecheck"
   }
 }
-
