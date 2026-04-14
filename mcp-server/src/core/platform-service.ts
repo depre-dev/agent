@@ -43,6 +43,7 @@ export class PlatformService {
       borrow(asset: string, amount: number): Promise<void>;
       repay(asset: string, amount: number): Promise<void>;
       claimJob(jobId: string): Promise<void>;
+      ensureJob?(job: JobDefinition): Promise<unknown>;
       submitWork(jobId: string, evidence: string): Promise<void>;
       resolveSinglePayout?(jobId: string, approved: boolean, reasonCode: string, metadataURI: string): Promise<void>;
     },
@@ -210,7 +211,11 @@ export class PlatformService {
     if (existing) {
       return existing;
     }
+    const job = this.requireJob(jobId);
     if (this.blockchainGateway?.isEnabled()) {
+      if (this.blockchainGateway.ensureJob) {
+        await this.blockchainGateway.ensureJob(job);
+      }
       await this.blockchainGateway.claimJob(jobId);
     }
 

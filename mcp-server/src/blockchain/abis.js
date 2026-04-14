@@ -21,3 +21,9 @@ export const REPUTATION_SBT_ABI = [
   "function reputations(address account) view returns (uint256 skill, uint256 reliability, uint256 economic)",
   "function categoryLevels(address account, bytes32 category) view returns (uint256)"
 ];
+
+export const ERC20_MOCK_ABI = [
+  "function balanceOf(address account) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function mint(address to, uint256 amount)"
+];

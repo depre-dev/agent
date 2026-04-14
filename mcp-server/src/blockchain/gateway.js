@@ -1,5 +1,5 @@
-import { Contract, JsonRpcProvider, Wallet, id, keccak256, toUtf8Bytes } from "ethers";
-import { AGENT_ACCOUNT_ABI, ESCROW_CORE_ABI, REPUTATION_SBT_ABI } from "./abis.js";
+import { Contract, JsonRpcProvider, Wallet, id, keccak256, toUtf8Bytes, ZeroAddress } from "ethers";
+import { AGENT_ACCOUNT_ABI, ERC20_MOCK_ABI, ESCROW_CORE_ABI, REPUTATION_SBT_ABI } from "./abis.js";
 import { loadBlockchainConfig } from "./config.js";
 
 export class BlockchainGateway {
@@ -106,6 +106,48 @@ export class BlockchainGateway {
     await tx.wait();
   }
 
+  async ensureJob(job) {
+    this.requireSigner("ensureJob");
+    const asset = this.requireAsset(job.rewardAsset);
+    const live = await this.getJob(job.id);
+    if (live.state !== 0) {
+      return live;
+    }
+
+    const totalRequired = Number(job.rewardAmount ?? 0);
+    if (totalRequired <= 0) {
+      throw new Error(`Job ${job.id} has no fundable reward`);
+    }
+
+    const token = new Contract(asset.address, ERC20_MOCK_ABI, this.signer);
+    const signerAddress = await this.signer.getAddress();
+    const signerPosition = await this.accountContract.positions(signerAddress, asset.address);
+    const liquid = Number(signerPosition.liquid);
+    const shortfall = Math.max(totalRequired - liquid, 0);
+
+    if (shortfall > 0) {
+      const mintTx = await token.mint(signerAddress, shortfall);
+      await mintTx.wait();
+      const approveTx = await token.approve(this.config.agentAccountAddress, shortfall);
+      await approveTx.wait();
+      const depositTx = await this.accountContract.deposit(asset.address, shortfall);
+      await depositTx.wait();
+    }
+
+    const createTx = await this.escrowContract.createSinglePayoutJob(
+      this.toJobId(job.id),
+      asset.address,
+      job.rewardAmount,
+      0,
+      0,
+      job.claimTtlSeconds,
+      id(job.verifierMode),
+      id(job.category)
+    );
+    await createTx.wait();
+    return this.getJob(job.id);
+  }
+
   async submitWork(jobId, evidence) {
     this.requireSigner("submitWork");
     const tx = await this.escrowContract.submitWork(this.toJobId(jobId), keccak256(toUtf8Bytes(evidence)));
@@ -128,6 +170,7 @@ export class BlockchainGateway {
     return {
       poster: job.poster,
       worker: job.worker,
+      asset: job.asset,
       reward: Number(job.reward),
       state: Number(job.state),
       claimExpiry: Number(job.claimExpiry)

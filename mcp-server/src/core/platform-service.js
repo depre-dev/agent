@@ -189,7 +189,11 @@ export class PlatformService {
     if (existing) {
       return existing;
     }
+    const job = this.requireJob(jobId);
     if (this.blockchainGateway?.isEnabled()) {
+      if (this.blockchainGateway.ensureJob) {
+        await this.blockchainGateway.ensureJob(job);
+      }
       await this.blockchainGateway.claimJob(jobId);
     }
 
