@@ -2,6 +2,10 @@ import { persistUiState, state } from "./state.js";
 import { buildEvidenceTemplate, describeVerifier } from "./job-utils.js";
 import { formatAmount, setActionStatus, setFeedback, setText } from "./ui-helpers.js";
 
+function outcomeTone(status) {
+  return ["approved", "resolved", "closed"].includes(status) ? "eligible-yes" : "eligible-no";
+}
+
 export function renderRecommendations(recommendations) {
   const root = document.getElementById("job-list");
   if (!root) return;
@@ -87,7 +91,7 @@ export function renderHistory(entries) {
         <article class="history-card ${entry.sessionId === state.session?.sessionId ? "job-selected" : ""}">
           <div class="job-topline">
             <p class="job-id">${entry.jobId}</p>
-            <span class="eligibility-pill ${entry.status === "resolved" ? "eligible-yes" : "eligible-no"}">
+            <span class="eligibility-pill ${outcomeTone(entry.verification?.outcome ?? entry.status)}">
               ${entry.status}
             </span>
           </div>
@@ -146,6 +150,10 @@ export function renderJobDetail(job, jobHistory) {
         <dd>${job.verifierMode}</dd>
       </div>
       <div class="detail-stat">
+        <dt>Claim stake</dt>
+        <dd>${formatAmount(job.preflight?.claimStake)} ${job.rewardAsset}</dd>
+      </div>
+      <div class="detail-stat">
         <dt>Runs / approved</dt>
         <dd>${jobHistory.length} / ${approvedRuns}</dd>
       </div>
@@ -156,6 +164,10 @@ export function renderJobDetail(job, jobHistory) {
       <div class="detail-stat detail-span">
         <dt>Verifier rules</dt>
         <dd>${describeVerifier(job)}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Worker liquidity</dt>
+        <dd>${formatAmount(job.preflight?.availableLiquidity)} ${job.rewardAsset} available before claim</dd>
       </div>
       <div class="detail-stat detail-span">
         <dt>Latest run</dt>
@@ -177,7 +189,7 @@ export function renderJobDetail(job, jobHistory) {
         <article class="job-run-card ${entry.sessionId === state.session?.sessionId ? "job-selected" : ""}">
           <div class="job-topline">
             <p class="job-id">${entry.sessionId}</p>
-            <span class="eligibility-pill ${entry.verification?.outcome === "approved" ? "eligible-yes" : "eligible-no"}">
+            <span class="eligibility-pill ${outcomeTone(entry.verification?.outcome ?? entry.status)}">
               ${entry.verification?.outcome ?? entry.status}
             </span>
           </div>
@@ -255,7 +267,7 @@ export function renderCatalogJobActivity(job, entries) {
         <article class="job-run-card ${entry.sessionId === state.session?.sessionId ? "job-selected" : ""}">
           <div class="job-topline">
             <p class="job-id">${entry.wallet ?? "unknown_wallet"}</p>
-            <span class="eligibility-pill ${entry.verification?.outcome === "approved" ? "eligible-yes" : "eligible-no"}">
+            <span class="eligibility-pill ${outcomeTone(entry.verification?.outcome ?? entry.status)}">
               ${entry.verification?.outcome ?? entry.status}
             </span>
           </div>
@@ -288,6 +300,7 @@ export function updateAccount(account) {
   setText("liquid-dot", formatAmount(account.liquid?.DOT));
   setText("reserved-dot", formatAmount(account.reserved?.DOT));
   setText("allocated-dot", formatAmount(account.strategyAllocated?.DOT));
+  setText("staked-dot", formatAmount(account.jobStakeLocked?.DOT));
   setText("debt-dot", formatAmount(account.debtOutstanding?.DOT));
 }
 
@@ -318,10 +331,11 @@ export function refreshActionPanel() {
   const hasSession = Boolean(state.session?.sessionId);
   const hasSubmitted = sessionStatus === "submitted" || sessionStatus === "resolved" || sessionStatus === "verifying" || sessionStatus === "disputed";
   const hasVerification = Boolean(state.verification?.outcome);
+  const canVerify = hasSession && sessionStatus === "submitted" && !hasVerification;
 
   claimButton.disabled = !hasJob;
   submitButton.disabled = !hasSession;
-  verifyButton.disabled = !hasSession || sessionStatus === "claimed";
+  verifyButton.disabled = !canVerify;
   refreshButton.disabled = !hasSession;
 
   if (!hasJob) {
@@ -331,7 +345,16 @@ export function refreshActionPanel() {
 
   if (hasVerification) {
     const approved = state.verification.outcome === "approved";
-    setActionStatus(approved ? "Verified" : "Needs review", approved ? "status-ok" : "status-pending");
+    const rejected = state.verification.outcome === "rejected";
+    setActionStatus(
+      approved ? "Verified" : rejected ? "Pending dispute window" : "Needs review",
+      approved ? "status-ok" : "status-pending"
+    );
+    return;
+  }
+
+  if (sessionStatus === "rejected") {
+    setActionStatus("Pending dispute window", "status-pending");
     return;
   }
 
@@ -354,12 +377,14 @@ export function updateSelectedJob(job) {
   state.selectedJobId = job?.id ?? "";
   setText("selected-job-id", job?.id ?? "-");
   setText("selected-reward", job ? `${formatAmount(job.rewardAmount)} ${job.rewardAsset}` : "-");
+  setText("selected-claim-stake", job?.preflight ? `${formatAmount(job.preflight.claimStake)} ${job.rewardAsset}` : "-");
+  setText("selected-liquidity", job?.preflight ? `${formatAmount(job.preflight.availableLiquidity)} ${job.rewardAsset}` : "-");
   setText("selected-verifier", job?.verifierMode ?? "-");
   setText("selected-schema", job?.outputSchemaRef ?? "-");
   setText(
     "selected-job-copy",
     job
-      ? `${job.category} job, ${job.claimTtlSeconds}s claim TTL, ${job.retryLimit} retry limit.`
+      ? `${job.category} job, ${job.claimTtlSeconds}s claim TTL, ${job.retryLimit} retry limit, ${formatAmount(job.preflight?.claimStake ?? 0)} ${job.rewardAsset} stake.`
       : "Select a recommended job to load its requirements and run the claim-to-verify flow."
   );
 

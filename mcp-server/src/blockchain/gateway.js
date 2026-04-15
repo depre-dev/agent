@@ -1,7 +1,7 @@
-import { Contract, JsonRpcProvider, Wallet, id, keccak256, toUtf8Bytes, ZeroAddress } from "ethers";
-import { AGENT_ACCOUNT_ABI, ERC20_MOCK_ABI, ESCROW_CORE_ABI, REPUTATION_SBT_ABI } from "./abis.js";
+import { Contract, JsonRpcProvider, Wallet, id, keccak256, toUtf8Bytes } from "ethers";
+import { AGENT_ACCOUNT_ABI, ERC20_MOCK_ABI, ESCROW_CORE_ABI, REPUTATION_SBT_ABI, TREASURY_POLICY_ABI } from "./abis.js";
 import { loadBlockchainConfig } from "./config.js";
-import { BlockchainRevertError, ConfigError, ExternalServiceError, ValidationError } from "../core/errors.js";
+import { BlockchainRevertError, ConfigError, ExternalServiceError, InsufficientLiquidityError, ValidationError } from "../core/errors.js";
 
 export class BlockchainGateway {
   constructor(config = loadBlockchainConfig()) {
@@ -9,6 +9,7 @@ export class BlockchainGateway {
     if (!config.enabled) {
       this.provider = undefined;
       this.signer = undefined;
+      this.policyContract = undefined;
       this.accountContract = undefined;
       this.escrowContract = undefined;
       this.reputationContract = undefined;
@@ -22,6 +23,11 @@ export class BlockchainGateway {
     this.accountContract = new Contract(
       config.agentAccountAddress,
       AGENT_ACCOUNT_ABI,
+      this.signer ?? this.provider
+    );
+    this.policyContract = new Contract(
+      config.treasuryPolicyAddress,
+      TREASURY_POLICY_ABI,
       this.signer ?? this.provider
     );
     this.escrowContract = new Contract(
@@ -76,6 +82,7 @@ export class BlockchainGateway {
       const reserved = {};
       const strategyAllocated = {};
       const collateralLocked = {};
+      const jobStakeLocked = {};
       const debtOutstanding = {};
 
       for (const asset of this.config.supportedAssets) {
@@ -84,6 +91,7 @@ export class BlockchainGateway {
         reserved[asset.symbol] = Number(position.reserved);
         strategyAllocated[asset.symbol] = Number(position.strategyAllocated);
         collateralLocked[asset.symbol] = Number(position.collateralLocked);
+        jobStakeLocked[asset.symbol] = Number(position.jobStakeLocked);
         debtOutstanding[asset.symbol] = Number(position.debtOutstanding);
       }
 
@@ -93,8 +101,34 @@ export class BlockchainGateway {
         reserved,
         strategyAllocated,
         collateralLocked,
+        jobStakeLocked,
         debtOutstanding
       };
+    });
+  }
+
+  async getDefaultClaimStakeBps() {
+    return this.withGatewayError("getDefaultClaimStakeBps", async () => Number(await this.policyContract.defaultClaimStakeBps()));
+  }
+
+  async ensureClaimStakeLiquidity(assetSymbol, amount) {
+    return this.withGatewayError("ensureClaimStakeLiquidity", async () => {
+      if (amount <= 0) {
+        return true;
+      }
+      this.requireSigner("ensureClaimStakeLiquidity");
+      const asset = this.requireAsset(assetSymbol);
+      const signerAddress = await this.signer.getAddress();
+      const position = await this.accountContract.positions(signerAddress, asset.address);
+      const available = Number(position.liquid);
+      if (available < amount) {
+        throw new InsufficientLiquidityError(assetSymbol, {
+          required: amount,
+          available,
+          account: signerAddress
+        });
+      }
+      return true;
     });
   }
 
@@ -151,7 +185,7 @@ export class BlockchainGateway {
     });
   }
 
-  async ensureJob(job, instanceJobId = job.id) {
+  async ensureJob(job, instanceJobId = job.id, claimStakeAmount = 0) {
     return this.withGatewayError("ensureJob", async () => {
       this.requireSigner("ensureJob");
       const asset = this.requireAsset(job.rewardAsset);
@@ -160,7 +194,7 @@ export class BlockchainGateway {
         return live;
       }
 
-      const totalRequired = Number(job.rewardAmount ?? 0);
+      const totalRequired = Number(job.rewardAmount ?? 0) + Number(claimStakeAmount ?? 0);
       if (totalRequired <= 0) {
         throw new ValidationError(`Job ${job.id} has no fundable reward`);
       }
@@ -224,6 +258,8 @@ export class BlockchainGateway {
         worker: job.worker,
         asset: job.asset,
         reward: Number(job.reward),
+        claimStake: Number(job.claimStake),
+        claimStakeBps: Number(job.claimStakeBps),
         state: Number(job.state),
         claimExpiry: Number(job.claimExpiry)
       };
@@ -256,6 +292,9 @@ export class BlockchainGateway {
   }
 
   toJobId(jobId) {
+    if (typeof jobId === "string" && /^0x[0-9a-fA-F]{64}$/.test(jobId)) {
+      return jobId;
+    }
     return id(jobId);
   }
 

@@ -28,6 +28,7 @@ The `mcp-server` workspace currently uses a JavaScript runtime source tree. Ther
 export AGENT_ACCOUNT_ADDRESS=0x...
 export ESCROW_CORE_ADDRESS=0x...
 export REPUTATION_SBT_ADDRESS=0x...
+export TREASURY_POLICY_ADDRESS=0x...
 export MOCK_DOT_ADDRESS=0x...
 ./scripts/write_server_env.sh
 ```
@@ -43,6 +44,8 @@ npm run start:http
 ```
 
 The HTTP adapter will use live on-chain reads and signed writes whenever the env file contains a valid RPC URL, signer key, and deployed contract addresses.
+
+The live API now also exposes a push-only SSE stream at `/events` behind the app proxy as `/api/events`.
 
 If you want durable sessions and verifier results, also set:
 
@@ -138,6 +141,11 @@ The indexer tracks Polkadot Hub TestNet events for:
 - `TreasuryPolicy`
 - `EscrowCore`
 - `ReputationSBT`
+- `AgentAccountCore`
+
+## Contract migration note
+
+The foundation extensions for realtime events, terminal reputation slashing, and claim staking change immutable contract storage and events. Existing deployed contract instances should be treated as superseded and redeployed with the updated deploy script before expecting hosted staking/slashing behavior to match this repository.
 
 ## VPS operations
 

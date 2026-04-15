@@ -2,12 +2,20 @@ import { createServer } from "node:http";
 import { createPlatformRuntime } from "../../services/bootstrap.js";
 import { normalizeError } from "../../core/errors.js";
 
-const { platformService: service, verifierService, stateStore, gateway, pimlicoClient } = createPlatformRuntime();
+const { platformService: service, verifierService, stateStore, gateway, pimlicoClient, eventBus } = createPlatformRuntime();
 const port = Number(process.env.PORT ?? 8787);
 
 function respond(response, statusCode, payload) {
   response.writeHead(statusCode, { "content-type": "application/json" });
   response.end(JSON.stringify(payload, null, 2));
+}
+
+function respondSse(response) {
+  response.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive"
+  });
 }
 
 function requireWallet(url) {
@@ -39,6 +47,24 @@ async function readJsonBody(request) {
   }
 }
 
+function writeSseEvent(response, { id, topic, data }) {
+  if (id) {
+    response.write(`id: ${id}\n`);
+  }
+  if (topic) {
+    response.write(`event: ${topic}\n`);
+  }
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function parseTopics(url) {
+  return url.searchParams
+    .get("topics")
+    ?.split(",")
+    .map((topic) => topic.trim())
+    .filter(Boolean) ?? [];
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://localhost");
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
@@ -51,11 +77,13 @@ const server = createServer(async (request, response) => {
         endpoints: [
           "/health",
           "/onboarding",
+          "/events",
           "/account",
           "/reputation",
           "/session",
           "/sessions",
           "/jobs",
+          "/jobs/preflight",
           "/jobs/recommendations",
           "/gas/health",
           "/gas/capabilities",
@@ -86,6 +114,48 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/onboarding") {
       return respond(response, 200, service.getPlatformCapabilities());
+    }
+
+    if (request.method === "GET" && pathname === "/events") {
+      respondSse(response);
+      const filter = {
+        wallet: url.searchParams.get("wallet") ?? undefined,
+        jobId: url.searchParams.get("jobId") ?? undefined,
+        sessionId: url.searchParams.get("sessionId") ?? undefined,
+        topics: parseTopics(url)
+      };
+      const lastEventId = request.headers["last-event-id"];
+      const replay = eventBus?.replay?.(filter, lastEventId);
+
+      if (replay?.gap) {
+        writeSseEvent(response, {
+          id: `gap-${Date.now()}`,
+          topic: "gap",
+          data: {
+            topic: "gap",
+            lastDelivered: lastEventId ?? null
+          }
+        });
+      }
+
+      for (const event of replay?.events ?? []) {
+        writeSseEvent(response, { id: event.id, topic: event.topic, data: event });
+      }
+
+      const heartbeat = setInterval(() => {
+        response.write(": ping\n\n");
+      }, 15_000);
+
+      const unsubscribe = eventBus?.subscribe?.(filter, (event) => {
+        writeSseEvent(response, { id: event.id, topic: event.topic, data: event });
+      });
+
+      request.on("close", () => {
+        clearInterval(heartbeat);
+        unsubscribe?.();
+        response.end();
+      });
+      return;
     }
 
     if (request.method === "GET" && pathname === "/account") {
@@ -126,6 +196,14 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/jobs/recommendations") {
       return respond(response, 200, await service.recommendJobs(requireWallet(url)));
+    }
+
+    if (request.method === "GET" && pathname === "/jobs/preflight") {
+      return respond(
+        response,
+        200,
+        await service.preflightJob(requireWallet(url), url.searchParams.get("jobId") ?? "")
+      );
     }
 
     if (request.method === "GET" && pathname === "/jobs") {

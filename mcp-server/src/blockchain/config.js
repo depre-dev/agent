@@ -22,6 +22,7 @@ export function loadBlockchainConfig(env = process.env) {
   const requiredFields = [
     "RPC_URL",
     "SIGNER_PRIVATE_KEY",
+    "TREASURY_POLICY_ADDRESS",
     "AGENT_ACCOUNT_ADDRESS",
     "ESCROW_CORE_ADDRESS",
     "REPUTATION_SBT_ADDRESS",
@@ -48,6 +49,7 @@ export function loadBlockchainConfig(env = process.env) {
     enabled,
     rpcUrl: env.RPC_URL ?? "",
     signerPrivateKey: env.SIGNER_PRIVATE_KEY ?? "",
+    treasuryPolicyAddress: env.TREASURY_POLICY_ADDRESS ?? "",
     agentAccountAddress: env.AGENT_ACCOUNT_ADDRESS ?? "",
     escrowCoreAddress: env.ESCROW_CORE_ADDRESS ?? "",
     reputationSbtAddress: env.REPUTATION_SBT_ADDRESS ?? "",

@@ -28,6 +28,73 @@ export class AccountMutationService {
     return account;
   }
 
+  async lockJobStake(wallet, asset, amount, posterWallet = undefined) {
+    if (this.blockchainGateway?.isEnabled()) {
+      return this.getAccountSummary(wallet);
+    }
+
+    if (amount <= 0) {
+      return this.getAccountSummary(wallet);
+    }
+
+    const account = await this.getAccountSummary(wallet);
+    const liquid = account.liquid[asset] ?? 0;
+    if (liquid < amount) {
+      throw new InsufficientLiquidityError(asset, {
+        wallet,
+        required: amount,
+        available: liquid,
+        posterWallet
+      });
+    }
+
+    account.liquid[asset] = liquid - amount;
+    account.jobStakeLocked[asset] = (account.jobStakeLocked[asset] ?? 0) + amount;
+    this.accounts.set(wallet, account);
+    return account;
+  }
+
+  async releaseJobStake(wallet, asset, amount) {
+    if (this.blockchainGateway?.isEnabled()) {
+      return this.getAccountSummary(wallet);
+    }
+
+    if (amount <= 0) {
+      return this.getAccountSummary(wallet);
+    }
+
+    const account = await this.getAccountSummary(wallet);
+    const locked = account.jobStakeLocked[asset] ?? 0;
+    if (locked < amount) {
+      throw new ConflictError(`Release amount exceeds locked stake for ${asset}`, "stake_release_exceeds_locked");
+    }
+
+    account.jobStakeLocked[asset] = locked - amount;
+    account.liquid[asset] = (account.liquid[asset] ?? 0) + amount;
+    this.accounts.set(wallet, account);
+    return account;
+  }
+
+  async slashJobStake(wallet, asset, amount) {
+    if (this.blockchainGateway?.isEnabled()) {
+      return this.getAccountSummary(wallet);
+    }
+
+    if (amount <= 0) {
+      return this.getAccountSummary(wallet);
+    }
+
+    const account = await this.getAccountSummary(wallet);
+    const locked = account.jobStakeLocked[asset] ?? 0;
+    if (locked < amount) {
+      throw new ConflictError(`Slash amount exceeds locked stake for ${asset}`, "stake_slash_exceeds_locked");
+    }
+
+    account.jobStakeLocked[asset] = locked - amount;
+    this.accounts.set(wallet, account);
+    return account;
+  }
+
   async allocateIdleFunds(wallet, asset, amount, strategyId = "default-low-risk") {
     if (this.blockchainGateway?.isEnabled()) {
       return this.blockchainGateway.allocateIdleFunds(wallet, strategyId, amount);

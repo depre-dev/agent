@@ -13,6 +13,7 @@ export class MemoryStateStore {
     this.sessions = new Map();
     this.idempotency = new Map();
     this.jobSessions = new Map();
+    this.chainJobSessions = new Map();
     this.jobSessionHistory = new Map();
     this.walletSessions = new Map();
     this.verificationResults = new Map();
@@ -32,6 +33,9 @@ export class MemoryStateStore {
     this.sessions.set(persistedSession.sessionId, persistedSession);
     this.idempotency.set(persistedSession.idempotencyKey, persistedSession.sessionId);
     this.jobSessions.set(persistedSession.jobId, persistedSession.sessionId);
+    if (persistedSession.chainJobId) {
+      this.chainJobSessions.set(persistedSession.chainJobId, persistedSession.sessionId);
+    }
 
     const existingJobHistory = this.jobSessionHistory.get(persistedSession.jobId) ?? [];
     this.jobSessionHistory.set(
@@ -55,6 +59,11 @@ export class MemoryStateStore {
 
   async findSessionByJobId(jobId) {
     const sessionId = this.jobSessions.get(jobId);
+    return sessionId ? this.sessions.get(sessionId) : undefined;
+  }
+
+  async findSessionByChainJobId(chainJobId) {
+    const sessionId = this.chainJobSessions.get(chainJobId);
     return sessionId ? this.sessions.get(sessionId) : undefined;
   }
 
@@ -130,6 +139,9 @@ export class RedisStateStore {
     await this.client.set(this.key("session", persistedSession.sessionId), JSON.stringify(persistedSession));
     await this.client.set(this.key("idempotency", persistedSession.idempotencyKey), persistedSession.sessionId);
     await this.client.set(this.key("job", persistedSession.jobId), persistedSession.sessionId);
+    if (persistedSession.chainJobId) {
+      await this.client.set(this.key("chain-job", persistedSession.chainJobId), persistedSession.sessionId);
+    }
     await this.client.zAdd(this.key("job-sessions", persistedSession.jobId), {
       score: Date.now(),
       value: persistedSession.sessionId
@@ -150,6 +162,12 @@ export class RedisStateStore {
   async findSessionByJobId(jobId) {
     await this.connect();
     const sessionId = await this.client.get(this.key("job", jobId));
+    return sessionId ? this.getSession(sessionId) : undefined;
+  }
+
+  async findSessionByChainJobId(chainJobId) {
+    await this.connect();
+    const sessionId = await this.client.get(this.key("chain-job", chainJobId));
     return sessionId ? this.getSession(sessionId) : undefined;
   }
 

@@ -1,6 +1,7 @@
 import { createConfig } from "ponder";
 
 import {
+  AgentAccountCoreAbi,
   EscrowCoreAbi,
   ReputationSbtAbi,
   TreasuryPolicyAbi
@@ -15,6 +16,20 @@ const parseStartBlock = (value: string | undefined, fallback: number | "latest")
 
 const lowMemoryMode = process.env.PONDER_LOW_MEMORY === "true";
 const includeTreasury = process.env.PONDER_ENABLE_TREASURY !== "false";
+const treasuryPolicyAddress =
+  (process.env.PONDER_TREASURY_POLICY_ADDRESS ??
+    process.env.TREASURY_POLICY_ADDRESS ??
+    "0xE190AC334CC5Be502A2e7b03Bc447d9E1Be6954D") as `0x${string}`;
+const escrowCoreAddress =
+  (process.env.PONDER_ESCROW_CORE_ADDRESS ??
+    process.env.ESCROW_CORE_ADDRESS ??
+    "0x642566F1A6FDff76D49C6e062f7464609455E0eC") as `0x${string}`;
+const agentAccountAddress =
+  (process.env.PONDER_AGENT_ACCOUNT_ADDRESS ?? process.env.AGENT_ACCOUNT_ADDRESS ?? "0xd89569B4a217B87f313A75EA36B9BF230Df2DaEe") as `0x${string}`;
+const reputationSbtAddress =
+  (process.env.PONDER_REPUTATION_SBT_ADDRESS ??
+    process.env.REPUTATION_SBT_ADDRESS ??
+    "0xb3035d5272854f3eB725db4965Db244059bB11FC") as `0x${string}`;
 
 const treasuryStartBlock = parseStartBlock(
   process.env.PONDER_START_BLOCK_TREASURY,
@@ -43,19 +58,25 @@ export default createConfig({
     TreasuryPolicy: {
       chain: "polkadotHubTestnet",
       abi: TreasuryPolicyAbi,
-      address: "0xE190AC334CC5Be502A2e7b03Bc447d9E1Be6954D",
+      address: treasuryPolicyAddress,
       startBlock: treasuryStartBlock
     },
     EscrowCore: {
       chain: "polkadotHubTestnet",
       abi: EscrowCoreAbi,
-      address: "0x642566F1A6FDff76D49C6e062f7464609455E0eC",
+      address: escrowCoreAddress,
+      startBlock: escrowStartBlock
+    },
+    AgentAccountCore: {
+      chain: "polkadotHubTestnet",
+      abi: AgentAccountCoreAbi,
+      address: agentAccountAddress,
       startBlock: escrowStartBlock
     },
     ReputationSBT: {
       chain: "polkadotHubTestnet",
       abi: ReputationSbtAbi,
-      address: "0xb3035d5272854f3eB725db4965Db244059bB11FC",
+      address: reputationSbtAddress,
       startBlock: reputationStartBlock
     }
   }

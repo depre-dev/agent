@@ -7,6 +7,11 @@ contract TreasuryPolicy {
     uint256 public dailyOutflowCap;
     uint256 public perAccountBorrowCap;
     uint256 public minimumCollateralRatioBps;
+    uint16 public defaultClaimStakeBps;
+    uint256 public rejectionSkillPenalty;
+    uint256 public rejectionReliabilityPenalty;
+    uint256 public disputeLossSkillPenalty;
+    uint256 public disputeLossReliabilityPenalty;
 
     mapping(address => bool) public approvedAssets;
     mapping(address => bool) public approvedStrategies;
@@ -27,6 +32,11 @@ contract TreasuryPolicy {
     event DailyOutflowCapUpdated(uint256 newCap);
     event PerAccountBorrowCapUpdated(uint256 newCap);
     event MinimumCollateralRatioUpdated(uint256 newRatioBps);
+    event DefaultClaimStakeBpsUpdated(uint16 newClaimStakeBps);
+    event RejectionSkillPenaltyUpdated(uint256 newPenalty);
+    event RejectionReliabilityPenaltyUpdated(uint256 newPenalty);
+    event DisputeLossSkillPenaltyUpdated(uint256 newPenalty);
+    event DisputeLossReliabilityPenaltyUpdated(uint256 newPenalty);
     event OutflowRecorded(uint256 day, uint256 amount, uint256 newTotal);
 
     error Unauthorized();
@@ -38,6 +48,11 @@ contract TreasuryPolicy {
         dailyOutflowCap = type(uint256).max;
         perAccountBorrowCap = type(uint256).max;
         minimumCollateralRatioBps = 15_000;
+        defaultClaimStakeBps = 500;
+        rejectionSkillPenalty = 10;
+        rejectionReliabilityPenalty = 20;
+        disputeLossSkillPenalty = 30;
+        disputeLossReliabilityPenalty = 50;
     }
 
     modifier onlyOwner() {
@@ -102,6 +117,32 @@ contract TreasuryPolicy {
         emit MinimumCollateralRatioUpdated(ratioBps);
     }
 
+    function setDefaultClaimStakeBps(uint16 claimStakeBps) external onlyOwner {
+        require(claimStakeBps <= 10_000, "INVALID_BPS");
+        defaultClaimStakeBps = claimStakeBps;
+        emit DefaultClaimStakeBpsUpdated(claimStakeBps);
+    }
+
+    function setRejectionSkillPenalty(uint256 penalty) external onlyOwner {
+        rejectionSkillPenalty = penalty;
+        emit RejectionSkillPenaltyUpdated(penalty);
+    }
+
+    function setRejectionReliabilityPenalty(uint256 penalty) external onlyOwner {
+        rejectionReliabilityPenalty = penalty;
+        emit RejectionReliabilityPenaltyUpdated(penalty);
+    }
+
+    function setDisputeLossSkillPenalty(uint256 penalty) external onlyOwner {
+        disputeLossSkillPenalty = penalty;
+        emit DisputeLossSkillPenaltyUpdated(penalty);
+    }
+
+    function setDisputeLossReliabilityPenalty(uint256 penalty) external onlyOwner {
+        disputeLossReliabilityPenalty = penalty;
+        emit DisputeLossReliabilityPenaltyUpdated(penalty);
+    }
+
     function recordOutflow(uint256 amount) external whenNotPaused {
         if (!serviceOperators[msg.sender]) revert Unauthorized();
         uint256 dayNumber = block.timestamp / 1 days;
@@ -114,4 +155,3 @@ contract TreasuryPolicy {
         emit OutflowRecorded(dayNumber, amount, outflowToday);
     }
 }
-

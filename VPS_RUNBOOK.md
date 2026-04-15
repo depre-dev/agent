@@ -20,6 +20,7 @@ This runbook captures the production-like setup currently running on the OVH VPS
 - Discovery: [https://averray.com/.well-known/agent-tools.json](https://averray.com/.well-known/agent-tools.json)
 - App: [https://app.averray.com](https://app.averray.com)
 - API: [https://api.averray.com](https://api.averray.com)
+- API SSE: [https://app.averray.com/api/events?wallet=0x...](https://app.averray.com/api/events?wallet=0x...)
 - Indexer: [https://index.averray.com](https://index.averray.com)
 - Gas sponsor health: [https://api.averray.com/gas/health](https://api.averray.com/gas/health)
 
@@ -70,6 +71,8 @@ This will:
 1. fast-forward the repo to `origin/main`
 2. rebuild `agent-backend`
 3. hit the live API health endpoint
+
+Note: the staking and slashing contract changes require a contract redeploy and refreshed backend env values, not just a backend image rebuild.
 
 ### Remote hosted-stack smoke test
 
@@ -147,6 +150,20 @@ Optional gas sponsorship vars for `/gas/*` endpoints:
 - `PIMLICO_ENTRY_POINT`
 - `PIMLICO_SPONSORSHIP_POLICY_ID`
 - `PIMLICO_CHAIN_ID`
+
+Required contract env vars for the current live-chain backend:
+
+- `TREASURY_POLICY_ADDRESS`
+- `AGENT_ACCOUNT_ADDRESS`
+- `ESCROW_CORE_ADDRESS`
+- `REPUTATION_SBT_ADDRESS`
+
+Matching contract env vars for the indexer:
+
+- `PONDER_TREASURY_POLICY_ADDRESS`
+- `PONDER_ESCROW_CORE_ADDRESS`
+- `PONDER_AGENT_ACCOUNT_ADDRESS`
+- `PONDER_REPUTATION_SBT_ADDRESS`
 
 Do not commit server secrets back into the repository.
 

@@ -51,6 +51,8 @@ const syncJob = async ({
     contingencyReserve,
     released,
     claimExpiry,
+    claimStake,
+    claimStakeBps,
     payoutMode,
     state
   ] = live;
@@ -71,6 +73,8 @@ const syncJob = async ({
       contingencyReserve,
       released,
       claimExpiry,
+      claimStake,
+      claimStakeBps,
       payoutMode,
       payoutModeLabel: payoutModeLabels[payoutMode] ?? "unknown",
       state,
@@ -85,6 +89,8 @@ const syncJob = async ({
       worker: row.worker,
       released: row.released,
       claimExpiry: row.claimExpiry,
+      claimStake: row.claimStake,
+      claimStakeBps: row.claimStakeBps,
       payoutMode: row.payoutMode,
       payoutModeLabel: row.payoutModeLabel,
       state: row.state,
@@ -118,7 +124,7 @@ ponder.on("EscrowCore:JobClaimed", async ({ event, context }) => {
     jobId: event.args.jobId,
     kind: "JobClaimed",
     actor: event.args.worker,
-    amount: null,
+    amount: event.args.claimStake,
     evidenceHash: null,
     reasonCode: null,
     txHash: event.transaction.hash,
@@ -251,12 +257,86 @@ ponder.on("ReputationSBT:ReputationUpdated", async ({ event, context }) => {
     });
 });
 
+ponder.on("ReputationSBT:ReputationSlashed", async ({ event, context }) => {
+  await context.db.insert(schema.reputationSlash).values({
+    id: toEventId(event.transaction.hash, event.log.logIndex),
+    account: event.args.account,
+    skillDelta: event.args.skillDelta,
+    reliabilityDelta: event.args.reliabilityDelta,
+    economicDelta: event.args.economicDelta,
+    reasonCode: event.args.reasonCode,
+    newSkill: event.args.newSkill,
+    newReliability: event.args.newReliability,
+    newEconomic: event.args.newEconomic,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    timestamp: event.block.timestamp
+  });
+
+  await context.db.insert(schema.reputationSnapshot).values({
+    id: `${toEventId(event.transaction.hash, event.log.logIndex)}-slash`,
+    account: event.args.account,
+    skill: event.args.newSkill,
+    reliability: event.args.newReliability,
+    economic: event.args.newEconomic,
+    tier: toTier(event.args.newSkill),
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    timestamp: event.block.timestamp
+  });
+});
+
 ponder.on("TreasuryPolicy:OutflowRecorded", async ({ event, context }) => {
   await context.db.insert(schema.treasuryOutflow).values({
     id: toEventId(event.transaction.hash, event.log.logIndex),
     day: event.args.day,
     amount: event.args.amount,
     newTotal: event.args.newTotal,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    timestamp: event.block.timestamp
+  });
+});
+
+ponder.on("AgentAccountCore:JobStakeLocked", async ({ event, context }) => {
+  await context.db.insert(schema.jobStakeEvent).values({
+    id: toEventId(event.transaction.hash, event.log.logIndex),
+    account: event.args.account,
+    asset: event.args.asset,
+    kind: "locked",
+    amount: event.args.amount,
+    posterAmount: null,
+    treasuryAmount: null,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    timestamp: event.block.timestamp
+  });
+});
+
+ponder.on("AgentAccountCore:JobStakeReleased", async ({ event, context }) => {
+  await context.db.insert(schema.jobStakeEvent).values({
+    id: toEventId(event.transaction.hash, event.log.logIndex),
+    account: event.args.account,
+    asset: event.args.asset,
+    kind: "released",
+    amount: event.args.amount,
+    posterAmount: null,
+    treasuryAmount: null,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    timestamp: event.block.timestamp
+  });
+});
+
+ponder.on("AgentAccountCore:JobStakeSlashed", async ({ event, context }) => {
+  await context.db.insert(schema.jobStakeEvent).values({
+    id: toEventId(event.transaction.hash, event.log.logIndex),
+    account: event.args.account,
+    asset: event.args.asset,
+    kind: "slashed",
+    amount: event.args.amount,
+    posterAmount: event.args.posterAmount,
+    treasuryAmount: event.args.treasuryAmount,
     txHash: event.transaction.hash,
     blockNumber: event.block.number,
     timestamp: event.block.timestamp

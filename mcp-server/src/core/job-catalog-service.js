@@ -18,11 +18,12 @@ const VALID_TIERS = new Set(["starter", "pro", "elite"]);
 const VALID_VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallback"]);
 
 export class JobCatalogService {
-  constructor(jobs, profiles, getAccountSummary, getReputation) {
+  constructor(jobs, profiles, getAccountSummary, getReputation, getDefaultClaimStakeBps) {
     this.jobs = jobs;
     this.profiles = profiles;
     this.getAccountSummary = getAccountSummary;
     this.getReputation = getReputation;
+    this.getDefaultClaimStakeBps = getDefaultClaimStakeBps;
   }
 
   listJobs() {
@@ -43,12 +44,14 @@ export class JobCatalogService {
     const profile = this.requireProfile(wallet);
     const account = await this.getAccountSummary(wallet);
     const reputation = await this.getReputation(wallet);
+    const claimStakeBps = await this.getDefaultClaimStakeBps();
 
     return Promise.all(this.jobs.map(async (job) => {
       const netReward = await this.estimateNetReward(wallet, job.id);
       const eligible = this.isEligible(job, profile, reputation);
       const liquid = account.liquid[job.rewardAsset] ?? 0;
-      const fitScore = this.computeFitScore(job, profile, reputation, liquid);
+      const claimStake = Math.max((job.rewardAmount * claimStakeBps) / 10_000, 0);
+      const fitScore = this.computeFitScore(job, profile, reputation, liquid, claimStake);
 
       return {
         jobId: job.id,
@@ -72,6 +75,8 @@ export class JobCatalogService {
     const reputation = await this.getReputation(wallet);
     const account = await this.getAccountSummary(wallet);
     const liquid = account.liquid[job.rewardAsset] ?? 0;
+    const claimStakeBps = await this.getDefaultClaimStakeBps();
+    const claimStake = Math.max((job.rewardAmount * claimStakeBps) / 10_000, 0);
     const eligible = this.isEligible(job, profile, reputation);
 
     return {
@@ -80,7 +85,9 @@ export class JobCatalogService {
       eligible,
       netReward: await this.estimateNetReward(wallet, jobId),
       availableLiquidity: liquid,
-      strategyUnwindNeeded: liquid < job.rewardAmount,
+      claimStake,
+      claimStakeBps,
+      strategyUnwindNeeded: liquid < claimStake,
       requiredOutputSchema: job.outputSchemaRef,
       verifierMode: job.verifierMode,
       verifierConfig: job.verifierConfig,
@@ -140,12 +147,12 @@ export class JobCatalogService {
     return profile;
   }
 
-  computeFitScore(job, profile, reputation, liquid) {
+  computeFitScore(job, profile, reputation, liquid, claimStake) {
     let score = 0;
     if (profile.preferredCategories.includes(job.category)) score += 30;
     if (profile.verifierCompatibility.includes(job.verifierMode)) score += 30;
     if ((job.tier === "starter" && reputation.tier === "starter") || reputation.tier === "elite") score += 20;
-    if (liquid >= job.rewardAmount || job.requiresSponsoredGas) score += 20;
+    if (liquid >= claimStake || claimStake === 0) score += 20;
     return score;
   }
 

@@ -1,4 +1,5 @@
 import { DEFAULT_ESCALATION_MESSAGE, DEFAULT_POSTER_TERMS, DEFAULT_WALLET } from "./constants.js";
+import { startEventStream } from "./events.js";
 import { postJson, readJson } from "./http-client.js";
 import { buildEvidenceTemplate, parseTerms } from "./job-utils.js";
 import {
@@ -19,6 +20,9 @@ import {
 } from "./renderers.js";
 import { readPersistedState, state } from "./state.js";
 import { setButtonBusy, setOverallStatus, setText, showToast } from "./ui-helpers.js";
+
+let stopEventStream = undefined;
+let liveRefreshTimer = undefined;
 
 async function runWithBusyButton(button, busyLabel, action) {
   setButtonBusy(button, true, busyLabel);
@@ -57,6 +61,83 @@ async function restoreSession(sessionId) {
   renderCatalogJobActivity(state.selectedJob, state.catalogJobActivity);
 }
 
+async function loadJobDefinitionWithPreflight(jobId) {
+  const [job, preflight] = await Promise.all([
+    readJson(`/api/jobs/definition?jobId=${encodeURIComponent(jobId)}`),
+    readJson(`/api/jobs/preflight?wallet=${encodeURIComponent(state.wallet)}&jobId=${encodeURIComponent(jobId)}`)
+  ]);
+  return {
+    ...job,
+    preflight
+  };
+}
+
+async function refreshWalletPanels() {
+  const [account, reputation, recommendations, history] = await Promise.all([
+    readJson(`/api/account?wallet=${encodeURIComponent(state.wallet)}`),
+    readJson(`/api/reputation?wallet=${encodeURIComponent(state.wallet)}`),
+    readJson(`/api/jobs/recommendations?wallet=${encodeURIComponent(state.wallet)}`),
+    readJson(`/api/sessions?wallet=${encodeURIComponent(state.wallet)}&limit=8`)
+  ]);
+
+  state.recommendations = recommendations;
+  state.history = history;
+
+  updateAccount(account);
+  updateReputation(reputation);
+  renderRecommendations(recommendations);
+  renderHistory(history);
+  setText("job-count", `${recommendations.length} recommendations`);
+  setText("history-count", `${history.length} recent sessions`);
+
+  if (state.selectedJobId) {
+    const job = await loadJobDefinitionWithPreflight(state.selectedJobId);
+    updateSelectedJob(job);
+    await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
+  }
+
+  if (state.session?.sessionId) {
+    await restoreSession(state.session.sessionId);
+  } else {
+    refreshActionPanel();
+  }
+}
+
+function scheduleLiveRefresh(event = undefined) {
+  clearTimeout(liveRefreshTimer);
+  liveRefreshTimer = setTimeout(async () => {
+    try {
+      await refreshWalletPanels();
+      if (event?.topic === "verification.resolved" || event?.topic === "reputation.slashed") {
+        showToast(`${event.topic} received.`, "success");
+      }
+    } catch (error) {
+      console.error(error);
+      setWalletFeedback(error.message ?? "Live refresh failed.", "error");
+    }
+  }, 250);
+}
+
+function restartEventSubscription() {
+  stopEventStream?.();
+  if (!state.wallet) {
+    return;
+  }
+
+  stopEventStream = startEventStream({
+    wallet: state.wallet,
+    onEvent: (event) => {
+      scheduleLiveRefresh(event);
+    },
+    onGap: () => {
+      scheduleLiveRefresh({ topic: "gap" });
+    },
+    onError: () => {
+      setWalletFeedback("Realtime stream reconnecting...", "loading");
+    }
+  });
+}
+
 async function loadHistoryForCurrentWallet() {
   const history = await readJson(`/api/sessions?wallet=${encodeURIComponent(state.wallet)}&limit=8`);
   state.history = history;
@@ -91,7 +172,7 @@ async function loadSelectedCatalogJobActivity() {
 }
 
 async function selectJob(jobId) {
-  const job = await readJson(`/api/jobs/definition?jobId=${encodeURIComponent(jobId)}`);
+  const job = await loadJobDefinitionWithPreflight(jobId);
   updateSelectedJob(job);
 
   const persisted = readPersistedState();
@@ -153,6 +234,8 @@ async function loadWallet(wallet) {
     renderCatalogJobActivity(undefined, []);
     setActionFeedback("No action flow available until recommendations appear.", "neutral");
   }
+
+  restartEventSubscription();
 }
 
 async function loadCatalog() {
@@ -216,6 +299,8 @@ async function verifySelectedWork() {
     "action-feedback",
     result.outcome === "approved"
       ? `Verifier approved the submission with ${result.reasonCode}.`
+      : result.outcome === "rejected"
+        ? `Verifier rejected the submission with ${result.reasonCode}. Stake and reputation remain pending until the dispute window closes.`
       : `Verifier returned ${result.outcome} with ${result.reasonCode}.`
   );
   document.getElementById("action-feedback")?.setAttribute("data-tone", result.outcome === "approved" ? "success" : "neutral");

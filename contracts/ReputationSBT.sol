@@ -29,6 +29,16 @@ contract ReputationSBT {
 
     event BadgeMinted(uint256 indexed tokenId, address indexed account, bytes32 indexed category, uint256 level, string metadataURI);
     event ReputationUpdated(address indexed account, uint256 skill, uint256 reliability, uint256 economic);
+    event ReputationSlashed(
+        address indexed account,
+        uint256 skillDelta,
+        uint256 reliabilityDelta,
+        uint256 economicDelta,
+        bytes32 reasonCode,
+        uint256 newSkill,
+        uint256 newReliability,
+        uint256 newEconomic
+    );
 
     error Unauthorized();
     error Soulbound();
@@ -70,6 +80,29 @@ contract ReputationSBT {
         emit ReputationUpdated(account, skill, reliability, economic);
     }
 
+    function slashReputation(
+        address account,
+        uint256 skillDelta,
+        uint256 reliabilityDelta,
+        uint256 economicDelta,
+        bytes32 reasonCode
+    ) external onlyOperator {
+        ReputationView storage reputation = reputations[account];
+        reputation.skill = _saturatingSubtract(reputation.skill, skillDelta);
+        reputation.reliability = _saturatingSubtract(reputation.reliability, reliabilityDelta);
+        reputation.economic = _saturatingSubtract(reputation.economic, economicDelta);
+        emit ReputationSlashed(
+            account,
+            skillDelta,
+            reliabilityDelta,
+            economicDelta,
+            reasonCode,
+            reputation.skill,
+            reputation.reliability,
+            reputation.economic
+        );
+    }
+
     function tokenURI(uint256 tokenId) external view returns (string memory) {
         return badges[tokenId].metadataURI;
     }
@@ -81,5 +114,11 @@ contract ReputationSBT {
     function safeTransferFrom(address, address, uint256) external pure {
         revert Soulbound();
     }
-}
 
+    function _saturatingSubtract(uint256 value, uint256 delta) internal pure returns (uint256) {
+        if (delta >= value) {
+            return 0;
+        }
+        return value - delta;
+    }
+}

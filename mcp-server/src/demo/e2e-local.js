@@ -13,6 +13,7 @@ const JOB_REWARD = parseUnits("100", 18);
 const OPS_RESERVE = parseUnits("10", 18);
 const CONTINGENCY_RESERVE = parseUnits("5", 18);
 const POSTER_DEPOSIT = parseUnits("1000", 18);
+const WORKER_DEPOSIT = parseUnits("25", 18);
 const DEFAULT_ANVIL_WORKER_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
 function assert(condition, message) {
@@ -59,6 +60,7 @@ async function main() {
   const startingWorkerBalance = await dot.balanceOf(workerWallet.address);
   const startingBadgeBalance = await reputation.balanceOf(workerWallet.address);
   const startingPosterPosition = await account.positions(posterWallet.address, asset.address);
+  const startingWorkerPosition = await account.positions(workerWallet.address, asset.address);
 
   console.log("Minting mock DOT to poster");
   await wait(await dot.mint(posterWallet.address, POSTER_DEPOSIT));
@@ -68,6 +70,13 @@ async function main() {
 
   console.log("Depositing into AgentAccountCore");
   await wait(await account.deposit(asset.address, POSTER_DEPOSIT));
+
+  console.log("Funding worker claim stake");
+  const dotAsWorker = dot.connect(worker);
+  const accountAsWorker = account.connect(worker);
+  await wait(await dot.mint(workerWallet.address, WORKER_DEPOSIT));
+  await wait(await dotAsWorker.approve(config.agentAccountAddress, WORKER_DEPOSIT));
+  await wait(await accountAsWorker.deposit(asset.address, WORKER_DEPOSIT));
 
   console.log("Creating funded single-payout job");
   await wait(await escrow.createSinglePayoutJob(
@@ -85,6 +94,9 @@ async function main() {
   const escrowAsWorker = escrow.connect(worker);
   await wait(await escrowAsWorker.claimJob(jobIdBytes));
 
+  const workerPositionAfterClaim = await account.positions(workerWallet.address, asset.address);
+  assert(workerPositionAfterClaim.jobStakeLocked > startingWorkerPosition.jobStakeLocked, "Expected worker claim stake to lock on claim");
+
   console.log("Submitting work as worker");
   await wait(await escrowAsWorker.submitWork(jobIdBytes, id("complete verified output")));
 
@@ -94,10 +106,12 @@ async function main() {
   const workerBalance = await dot.balanceOf(workerWallet.address);
   const badgeBalance = await reputation.balanceOf(workerWallet.address);
   const posterPosition = await account.positions(posterWallet.address, asset.address);
+  const workerPosition = await account.positions(workerWallet.address, asset.address);
 
   assert(workerBalance - startingWorkerBalance === JOB_REWARD, `Expected worker payout delta ${JOB_REWARD}, got ${workerBalance - startingWorkerBalance}`);
   assert(badgeBalance - startingBadgeBalance === 1n, `Expected one new SBT badge, got ${badgeBalance - startingBadgeBalance}`);
   assert(posterPosition.reserved === startingPosterPosition.reserved, `Expected reserved balance to return to ${startingPosterPosition.reserved}, got ${posterPosition.reserved}`);
+  assert(workerPosition.jobStakeLocked === 0n, `Expected worker stake to be released, got ${workerPosition.jobStakeLocked}`);
 
   console.log("E2E demo passed");
   console.log(JSON.stringify({

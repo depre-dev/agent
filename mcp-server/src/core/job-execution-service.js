@@ -5,10 +5,20 @@ import {
 } from "./errors.js";
 
 export class JobExecutionService {
-  constructor(stateStore, blockchainGateway = undefined, getJobDefinition) {
+  constructor(
+    stateStore,
+    blockchainGateway = undefined,
+    getJobDefinition,
+    eventBus = undefined,
+    accountMutationService = undefined,
+    getDefaultClaimStakeBps = async () => 500
+  ) {
     this.stateStore = stateStore;
     this.blockchainGateway = blockchainGateway;
     this.getJobDefinition = getJobDefinition;
+    this.eventBus = eventBus;
+    this.accountMutationService = accountMutationService;
+    this.getDefaultClaimStakeBps = getDefaultClaimStakeBps;
   }
 
   async claimJob(wallet, jobId, protocol, idempotencyKey) {
@@ -46,16 +56,28 @@ export class JobExecutionService {
         return existingSession;
       }
 
-      const chainJobId = jobId;
+      const liveJobSession = await this.stateStore.findSessionByJobId(jobId);
+      if (liveJobSession && liveJobSession.sessionId !== sessionId) {
+        throw new ConflictError(`Job ${jobId} is already claimed by another wallet.`, "job_already_claimed");
+      }
+
+      const chainJobId = this.blockchainGateway?.isEnabled()
+        ? this.blockchainGateway.toJobId(jobId)
+        : jobId;
+      const claimStakeBps = await this.getDefaultClaimStakeBps();
+      const claimStake = Math.max((Number(job.rewardAmount ?? 0) * claimStakeBps) / 10_000, 0);
       if (this.blockchainGateway?.isEnabled()) {
         const live = await this.blockchainGateway.getJob(jobId);
         if (live.state !== 0 && live.state !== 1) {
           throw new ConflictError(`Job ${jobId} is not claimable in its current on-chain state.`, "job_not_claimable");
         }
         if (this.blockchainGateway.ensureJob) {
-          await this.blockchainGateway.ensureJob(job, chainJobId);
+          await this.blockchainGateway.ensureJob(job, jobId, claimStake);
         }
-        await this.blockchainGateway.claimJob(chainJobId);
+        await this.blockchainGateway.ensureClaimStakeLiquidity?.(job.rewardAsset, claimStake);
+        await this.blockchainGateway.claimJob(jobId);
+      } else if (claimStake > 0) {
+        await this.accountMutationService?.lockJobStake?.(wallet, job.rewardAsset, claimStake, undefined);
       }
 
       const session = {
@@ -63,12 +85,16 @@ export class JobExecutionService {
         wallet,
         jobId,
         chainJobId,
+        claimStake,
+        claimStakeBps,
         idempotencyKey,
         status: "claimed",
         protocolHistory: [protocol]
       };
 
-      return this.stateStore.upsertSession(session);
+      const persisted = await this.stateStore.upsertSession(session);
+      this.publishSessionEvent("session.claimed", persisted);
+      return persisted;
     } finally {
       await this.stateStore.releaseClaimLock?.(sessionLockId, lockOwner);
     }
@@ -80,11 +106,13 @@ export class JobExecutionService {
       await this.blockchainGateway.submitWork(session.chainJobId ?? session.jobId, evidence);
     }
     const protocolHistory = [...new Set([...session.protocolHistory, protocol])];
-    return this.stateStore.upsertSession({
+    const persisted = await this.stateStore.upsertSession({
       ...session,
       status: "submitted",
       protocolHistory
     });
+    this.publishSessionEvent("session.submitted", persisted, { evidence });
+    return persisted;
   }
 
   async resumeSession(sessionId) {
@@ -120,5 +148,29 @@ export class JobExecutionService {
 
   getClaimLockTtlSeconds(job) {
     return Math.max(60, Math.min(Number(job?.claimTtlSeconds ?? 300), 900));
+  }
+
+  publishSessionEvent(topic, session, data = {}) {
+    if (!this.eventBus) {
+      return;
+    }
+
+    this.eventBus.publish({
+      id: `platform-${topic}-${session.sessionId}-${Date.now()}`,
+      topic,
+      wallet: session.wallet,
+      wallets: [session.wallet],
+      jobId: session.jobId,
+      sessionId: session.sessionId,
+      timestamp: new Date().toISOString(),
+      data: {
+        sessionId: session.sessionId,
+        wallet: session.wallet,
+        jobId: session.jobId,
+        status: session.status,
+        protocolHistory: session.protocolHistory,
+        ...data
+      }
+    });
   }
 }

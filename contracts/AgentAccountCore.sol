@@ -18,6 +18,7 @@ contract AgentAccountCore {
         uint256 reserved;
         uint256 strategyAllocated;
         uint256 collateralLocked;
+        uint256 jobStakeLocked;
         uint256 debtOutstanding;
     }
 
@@ -33,6 +34,15 @@ contract AgentAccountCore {
     event StrategyDeallocated(address indexed account, bytes32 indexed strategyId, address indexed asset, uint256 amount);
     event CollateralLocked(address indexed account, address indexed asset, uint256 amount);
     event CollateralUnlocked(address indexed account, address indexed asset, uint256 amount);
+    event JobStakeLocked(address indexed account, address indexed asset, uint256 amount);
+    event JobStakeReleased(address indexed account, address indexed asset, uint256 amount);
+    event JobStakeSlashed(
+        address indexed account,
+        address indexed asset,
+        uint256 amount,
+        uint256 posterAmount,
+        uint256 treasuryAmount
+    );
     event Borrowed(address indexed account, address indexed asset, uint256 amount);
     event Repaid(address indexed account, address indexed asset, uint256 amount);
 
@@ -162,6 +172,67 @@ contract AgentAccountCore {
         require(IERC20Like(asset).transferFrom(msg.sender, address(this), amount), "TRANSFER_FAILED");
         position.debtOutstanding -= amount;
         emit Repaid(msg.sender, asset, amount);
+    }
+
+    function lockJobStake(address account, address asset, uint256 amount)
+        external
+        onlyOperator
+        whenNotPaused
+        onlySupportedAsset(asset)
+    {
+        if (amount == 0) {
+            return;
+        }
+
+        AssetPosition storage position = positions[account][asset];
+        if (position.liquid < amount) revert InsufficientLiquidity();
+        position.liquid -= amount;
+        position.jobStakeLocked += amount;
+        emit JobStakeLocked(account, asset, amount);
+    }
+
+    function releaseJobStake(address account, address asset, uint256 amount)
+        external
+        onlyOperator
+        whenNotPaused
+        onlySupportedAsset(asset)
+    {
+        if (amount == 0) {
+            return;
+        }
+
+        AssetPosition storage position = positions[account][asset];
+        require(position.jobStakeLocked >= amount, "INSUFFICIENT_STAKE");
+        position.jobStakeLocked -= amount;
+        position.liquid += amount;
+        emit JobStakeReleased(account, asset, amount);
+    }
+
+    function slashJobStake(address account, address asset, uint256 amount, address posterRecipient)
+        external
+        onlyOperator
+        whenNotPaused
+        onlySupportedAsset(asset)
+    {
+        if (amount == 0) {
+            return;
+        }
+
+        AssetPosition storage position = positions[account][asset];
+        require(position.jobStakeLocked >= amount, "INSUFFICIENT_STAKE");
+        position.jobStakeLocked -= amount;
+
+        uint256 posterAmount = amount / 2;
+        uint256 treasuryAmount = amount - posterAmount;
+
+        if (posterAmount > 0) {
+            require(IERC20Like(asset).transfer(posterRecipient, posterAmount), "TRANSFER_FAILED");
+        }
+        if (treasuryAmount > 0) {
+            policy.recordOutflow(treasuryAmount);
+        }
+
+        emit JobStakeSlashed(account, asset, amount, posterAmount, treasuryAmount);
     }
 
     function getBorrowCapacity(address account, address asset) external view returns (uint256) {

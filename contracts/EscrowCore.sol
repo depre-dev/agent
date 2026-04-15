@@ -7,6 +7,8 @@ import {ReputationSBT} from "./ReputationSBT.sol";
 
 contract EscrowCore {
     uint256 public constant DISPUTE_WINDOW = 1 days;
+    bytes32 public constant REASON_REJECTED = bytes32("REJECTED");
+    bytes32 public constant REASON_DISPUTE_LOST = bytes32("DISPUTE_LOST");
 
     TreasuryPolicy public immutable policy;
     AgentAccountCore public immutable accounts;
@@ -38,11 +40,13 @@ contract EscrowCore {
         uint256 contingencyReserve;
         uint256 released;
         uint256 claimExpiry;
+        uint256 claimStake;
+        uint16 claimStakeBps;
         PayoutMode payoutMode;
         JobState state;
     }
 
-    mapping(bytes32 => JobEscrow) public jobs;
+    mapping(bytes32 => JobEscrow) internal _jobs;
     mapping(bytes32 => uint256[]) public milestoneAmounts;
     mapping(bytes32 => mapping(uint256 => bool)) public milestoneReleased;
     mapping(bytes32 => mapping(bytes32 => bool)) public settlementExecuted;
@@ -51,7 +55,7 @@ contract EscrowCore {
     mapping(bytes32 => uint256) public rejectionTimestamps;
 
     event JobFunded(bytes32 indexed jobId, address indexed poster, address indexed asset, uint256 totalReserved, PayoutMode payoutMode);
-    event JobClaimed(bytes32 indexed jobId, address indexed worker, uint256 claimExpiry);
+    event JobClaimed(bytes32 indexed jobId, address indexed worker, uint256 claimExpiry, uint256 claimStake);
     event WorkSubmitted(bytes32 indexed jobId, address indexed worker, bytes32 evidenceHash);
     event JobReopened(bytes32 indexed jobId);
     event JobRejected(bytes32 indexed jobId, bytes32 reasonCode);
@@ -79,9 +83,13 @@ contract EscrowCore {
     }
 
     modifier onlyParticipant(bytes32 jobId) {
-        JobEscrow memory job = jobs[jobId];
+        JobEscrow memory job = _jobs[jobId];
         if (msg.sender != job.poster && msg.sender != job.worker) revert Unauthorized();
         _;
+    }
+
+    function jobs(bytes32 jobId) external view returns (JobEscrow memory) {
+        return _jobs[jobId];
     }
 
     function createSinglePayoutJob(
@@ -94,8 +102,8 @@ contract EscrowCore {
         bytes32 verifierMode,
         bytes32 category
     ) external {
-        if (jobs[jobId].state != JobState.None) revert InvalidState();
-        jobs[jobId] = JobEscrow({
+        if (_jobs[jobId].state != JobState.None) revert InvalidState();
+        _jobs[jobId] = JobEscrow({
             poster: msg.sender,
             worker: address(0),
             asset: asset,
@@ -105,7 +113,9 @@ contract EscrowCore {
             opsReserve: opsReserve,
             contingencyReserve: contingencyReserve,
             released: 0,
-            claimExpiry: claimTtl,
+            claimExpiry: 0,
+            claimStake: 0,
+            claimStakeBps: 0,
             payoutMode: PayoutMode.Single,
             state: JobState.Open
         });
@@ -126,13 +136,13 @@ contract EscrowCore {
         bytes32 verifierMode,
         bytes32 category
     ) external {
-        if (jobs[jobId].state != JobState.None) revert InvalidState();
+        if (_jobs[jobId].state != JobState.None) revert InvalidState();
         uint256 reward;
         for (uint256 i = 0; i < milestones.length; i++) {
             milestoneAmounts[jobId].push(milestones[i]);
             reward += milestones[i];
         }
-        jobs[jobId] = JobEscrow({
+        _jobs[jobId] = JobEscrow({
             poster: msg.sender,
             worker: address(0),
             asset: asset,
@@ -142,7 +152,9 @@ contract EscrowCore {
             opsReserve: opsReserve,
             contingencyReserve: contingencyReserve,
             released: 0,
-            claimExpiry: claimTtl,
+            claimExpiry: 0,
+            claimStake: 0,
+            claimStakeBps: 0,
             payoutMode: PayoutMode.Milestone,
             state: JobState.Open
         });
@@ -153,17 +165,26 @@ contract EscrowCore {
     }
 
     function claimJob(bytes32 jobId) external {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state == JobState.None) revert UnknownJob();
         if (job.state != JobState.Open) revert InvalidState();
+
+        uint16 claimStakeBps = policy.defaultClaimStakeBps();
+        uint256 claimStake = (job.reward * claimStakeBps) / 10_000;
+        if (claimStake > 0) {
+            accounts.lockJobStake(msg.sender, job.asset, claimStake);
+        }
+
         job.worker = msg.sender;
+        job.claimStake = claimStake;
+        job.claimStakeBps = claimStakeBps;
         job.claimExpiry = block.timestamp + claimTtls[jobId];
         job.state = JobState.Claimed;
-        emit JobClaimed(jobId, msg.sender, job.claimExpiry);
+        emit JobClaimed(jobId, msg.sender, job.claimExpiry, claimStake);
     }
 
     function submitWork(bytes32 jobId, bytes32 evidenceHash) external {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Claimed) revert InvalidState();
         if (msg.sender != job.worker) revert Unauthorized();
         latestEvidence[jobId] = evidenceHash;
@@ -172,17 +193,24 @@ contract EscrowCore {
     }
 
     function handleClaimTimeout(bytes32 jobId) external {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Claimed) revert InvalidState();
         require(block.timestamp > job.claimExpiry, "NOT_EXPIRED");
+
+        if (job.claimStake > 0) {
+            accounts.slashJobStake(job.worker, job.asset, job.claimStake, job.poster);
+        }
+
         job.worker = address(0);
         job.claimExpiry = 0;
+        job.claimStake = 0;
+        job.claimStakeBps = 0;
         job.state = JobState.Open;
         emit JobReopened(jobId);
     }
 
     function resolveSinglePayout(bytes32 jobId, bool approved, bytes32 reasonCode, string calldata metadataURI) external onlyVerifier {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Submitted || job.payoutMode != PayoutMode.Single) revert InvalidState();
 
         if (!approved) {
@@ -199,6 +227,7 @@ contract EscrowCore {
         job.released = job.reward;
         job.state = JobState.Closed;
 
+        _releaseClaimStake(job);
         accounts.settleReservedTo(job.poster, job.asset, job.worker, job.reward);
         if (job.opsReserve > 0) {
             accounts.refundReserved(job.poster, job.asset, job.opsReserve);
@@ -214,7 +243,7 @@ contract EscrowCore {
     }
 
     function resolveMilestone(bytes32 jobId, uint256 milestoneIndex, bool approved, bytes32 reasonCode, string calldata metadataURI) external onlyVerifier {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Submitted || job.payoutMode != PayoutMode.Milestone) revert InvalidState();
         if (milestoneReleased[jobId][milestoneIndex]) revert InvalidState();
 
@@ -244,6 +273,7 @@ contract EscrowCore {
 
         if (allReleased) {
             job.state = JobState.Closed;
+            _releaseClaimStake(job);
             if (job.opsReserve > 0) {
                 accounts.refundReserved(job.poster, job.asset, job.opsReserve);
             }
@@ -260,7 +290,7 @@ contract EscrowCore {
     }
 
     function openDispute(bytes32 jobId) external onlyParticipant(jobId) {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Rejected && job.state != JobState.Submitted) revert InvalidState();
         rejectionTimestamps[jobId] = 0;
         job.state = JobState.Disputed;
@@ -268,11 +298,12 @@ contract EscrowCore {
     }
 
     function finalizeRejectedJob(bytes32 jobId) external {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Rejected) revert InvalidState();
         require(rejectionTimestamps[jobId] != 0, "NO_REJECTION_TIMESTAMP");
         require(block.timestamp > rejectionTimestamps[jobId] + DISPUTE_WINDOW, "DISPUTE_WINDOW_ACTIVE");
 
+        _slashRejectedWorker(job);
         _refundPosterBalances(job);
         rejectionTimestamps[jobId] = 0;
         job.claimExpiry = 0;
@@ -281,12 +312,16 @@ contract EscrowCore {
     }
 
     function resolveDispute(bytes32 jobId, uint256 workerPayout, bytes32 reasonCode, string calldata metadataURI) external onlyArbitrator {
-        JobEscrow storage job = jobs[jobId];
+        JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Disputed) revert InvalidState();
         require(workerPayout <= (job.reward - job.released), "EXCESS_PAYOUT");
         if (workerPayout > 0) {
             accounts.settleReservedTo(job.poster, job.asset, job.worker, workerPayout);
             job.released += workerPayout;
+            _releaseClaimStake(job);
+        } else {
+            _slashDisputedWorker(job);
+            emit JobRejected(jobId, reasonCode);
         }
 
         _refundPosterBalances(job);
@@ -297,7 +332,6 @@ contract EscrowCore {
             reputation.mintBadge(job.worker, job.category, 1, metadataURI);
         }
         emit JobClosed(jobId, job.worker, job.released);
-        emit JobRejected(jobId, reasonCode);
     }
 
     function _refundPosterBalances(JobEscrow storage job) internal {
@@ -311,5 +345,51 @@ contract EscrowCore {
         if (job.contingencyReserve > 0) {
             accounts.refundReserved(job.poster, job.asset, job.contingencyReserve);
         }
+    }
+
+    function _releaseClaimStake(JobEscrow storage job) internal {
+        if (job.claimStake > 0 && job.worker != address(0)) {
+            accounts.releaseJobStake(job.worker, job.asset, job.claimStake);
+            job.claimStake = 0;
+            job.claimStakeBps = 0;
+        }
+    }
+
+    function _slashRejectedWorker(JobEscrow storage job) internal {
+        if (job.worker == address(0)) {
+            return;
+        }
+
+        if (job.claimStake > 0) {
+            accounts.slashJobStake(job.worker, job.asset, job.claimStake, job.poster);
+            job.claimStake = 0;
+            job.claimStakeBps = 0;
+        }
+        reputation.slashReputation(
+            job.worker,
+            policy.rejectionSkillPenalty(),
+            policy.rejectionReliabilityPenalty(),
+            0,
+            REASON_REJECTED
+        );
+    }
+
+    function _slashDisputedWorker(JobEscrow storage job) internal {
+        if (job.worker == address(0)) {
+            return;
+        }
+
+        if (job.claimStake > 0) {
+            accounts.slashJobStake(job.worker, job.asset, job.claimStake, job.poster);
+            job.claimStake = 0;
+            job.claimStakeBps = 0;
+        }
+        reputation.slashReputation(
+            job.worker,
+            policy.disputeLossSkillPenalty(),
+            policy.disputeLossReliabilityPenalty(),
+            0,
+            REASON_DISPUTE_LOST
+        );
     }
 }

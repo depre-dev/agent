@@ -4,6 +4,8 @@ import { BlockchainGateway } from "../blockchain/gateway.js";
 import { VerifierService } from "./verifier-service.js";
 import { loadLocalEnv } from "./env-loader.js";
 import { PimlicoClient } from "./pimlico-client.js";
+import { EventBus } from "../core/event-bus.js";
+import { EventListener } from "../blockchain/event-listener.js";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,6 +71,7 @@ const accounts = new Map([
     reserved: { DOT: 0 },
     strategyAllocated: { DOT: 5 },
     collateralLocked: { DOT: 10 },
+    jobStakeLocked: { DOT: 0 },
     debtOutstanding: { DOT: 0 }
   }]
 ]);
@@ -85,14 +88,18 @@ const reputations = new Map([
 export function createPlatformService() {
   const gateway = new BlockchainGateway();
   const stateStore = createStateStore();
-  return new PlatformService(jobs, profiles, accounts, reputations, gateway, stateStore);
+  const eventBus = new EventBus();
+  return new PlatformService(jobs, profiles, accounts, reputations, gateway, stateStore, eventBus);
 }
 
 export function createPlatformRuntime() {
   const gateway = new BlockchainGateway();
   const pimlicoClient = new PimlicoClient();
   const stateStore = createStateStore();
-  const platformService = new PlatformService(jobs, profiles, accounts, reputations, gateway, stateStore);
+  const eventBus = new EventBus();
+  const platformService = new PlatformService(jobs, profiles, accounts, reputations, gateway, stateStore, eventBus);
   const verifierService = new VerifierService(platformService, stateStore, gateway);
-  return { platformService, verifierService, gateway, pimlicoClient, stateStore };
+  const eventListener = gateway.isEnabled() ? new EventListener(gateway, eventBus, stateStore) : undefined;
+  void eventListener?.start?.();
+  return { platformService, verifierService, gateway, pimlicoClient, stateStore, eventBus, eventListener };
 }

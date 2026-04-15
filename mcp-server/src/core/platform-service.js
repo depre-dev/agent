@@ -12,13 +12,14 @@ const STARTER_REPUTATION = {
 };
 
 export class PlatformService {
-  constructor(jobs, profiles, accounts, reputations, blockchainGateway = undefined, stateStore = createStateStore()) {
+  constructor(jobs, profiles, accounts, reputations, blockchainGateway = undefined, stateStore = createStateStore(), eventBus = undefined) {
     this.jobs = jobs;
     this.profiles = profiles;
     this.accounts = accounts;
     this.reputations = reputations;
     this.blockchainGateway = blockchainGateway;
     this.stateStore = stateStore;
+    this.eventBus = eventBus;
 
     this.accountMutationService = new AccountMutationService(
       this.accounts,
@@ -29,14 +30,18 @@ export class PlatformService {
       this.jobs,
       this.profiles,
       this.getAccountSummary.bind(this),
-      this.getReputation.bind(this)
+      this.getReputation.bind(this),
+      this.getDefaultClaimStakeBps.bind(this)
     );
     this.jobExecutionService = new JobExecutionService(
       this.stateStore,
       this.blockchainGateway,
-      this.getJobDefinition.bind(this)
+      this.getJobDefinition.bind(this),
+      this.eventBus,
+      this.accountMutationService,
+      this.getDefaultClaimStakeBps.bind(this)
     );
-    this.verificationIngestionService = new VerificationIngestionService(this.stateStore);
+    this.verificationIngestionService = new VerificationIngestionService(this.stateStore, this.eventBus);
   }
 
   getPlatformCapabilities() {
@@ -131,8 +136,16 @@ export class PlatformService {
       reserved: {},
       strategyAllocated: {},
       collateralLocked: {},
+      jobStakeLocked: {},
       debtOutstanding: {}
     };
+  }
+
+  async getDefaultClaimStakeBps() {
+    if (this.blockchainGateway?.isEnabled()) {
+      return this.blockchainGateway.getDefaultClaimStakeBps();
+    }
+    return 500;
   }
 
   async getReputation(wallet) {

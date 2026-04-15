@@ -1,6 +1,7 @@
 export class VerificationIngestionService {
-  constructor(stateStore) {
+  constructor(stateStore, eventBus = undefined) {
     this.stateStore = stateStore;
+    this.eventBus = eventBus;
   }
 
   async ingest(verdict) {
@@ -13,11 +14,26 @@ export class VerificationIngestionService {
       ? "resolved"
       : verdict.outcome === "disputed"
         ? "disputed"
-        : "verifying";
+        : "rejected";
 
-    return this.stateStore.upsertSession({
+    const updatedSession = await this.stateStore.upsertSession({
       ...session,
       status
     });
+    this.eventBus?.publish({
+      id: `platform-verification-${updatedSession.sessionId}-${Date.now()}`,
+      topic: "verification.resolved",
+      wallet: updatedSession.wallet,
+      wallets: [updatedSession.wallet],
+      jobId: updatedSession.jobId,
+      sessionId: updatedSession.sessionId,
+      timestamp: new Date().toISOString(),
+      data: {
+        outcome: verdict.outcome,
+        reasonCode: verdict.reasonCode,
+        status
+      }
+    });
+    return updatedSession;
   }
 }
