@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+.git
+.gitignore
+.DS_Store
+coverage
+.ponder
+.pglite
+mcp-server/.env.local
+indexer/.env.local
