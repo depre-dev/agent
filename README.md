@@ -6,6 +6,8 @@ This repository contains a greenfield implementation of an agent-first treasury 
 - A shared service layer exposed through MCP, A2A, and HTTP
 - Discovery and indexing scaffolds for later hosted deployment
 
+The `mcp-server` workspace currently uses a JavaScript runtime source tree. There is no parallel TypeScript build step to maintain.
+
 ## Local deployment flow
 
 1. Start a local Anvil chain:
