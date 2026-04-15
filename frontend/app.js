@@ -1,305 +1,18 @@
-const DEFAULT_WALLET = "0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519";
-const UI_STATE_KEY = "averray:ui-state";
-
-const DEFAULT_POSTER_TERMS = {
-  benchmark: "complete\nverified\nsummary",
-  deterministic: "governance-approved-summary\nvote-yes rationale",
-  human_fallback: ""
-};
-
-const DEFAULT_ESCALATION_MESSAGE = "Escalate to a human reviewer if the submission is contested.";
-
-const state = {
-  wallet: DEFAULT_WALLET,
-  recommendations: [],
-  catalog: [],
-  selectedJobId: "",
-  selectedJob: undefined,
-  session: undefined,
-  verification: undefined
-};
-
-const formatAmount = (value) => {
-  const amount = Number(value ?? 0);
-  return Number.isFinite(amount) ? amount.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "-";
-};
-
-const setText = (id, value) => {
-  const element = document.getElementById(id);
-  if (element) element.textContent = value;
-};
-
-const setOverallStatus = (label, className) => {
-  const pill = document.getElementById("system-pill");
-  if (!pill) return;
-  pill.textContent = label;
-  pill.className = `status-pill ${className}`;
-};
-
-const setActionStatus = (label, className) => {
-  const pill = document.getElementById("action-pill");
-  if (!pill) return;
-  pill.textContent = label;
-  pill.className = `status-pill ${className}`;
-};
-
-function persistUiState() {
-  localStorage.setItem(
-    UI_STATE_KEY,
-    JSON.stringify({
-      wallet: state.wallet,
-      selectedJobId: state.selectedJobId,
-      sessionId: state.session?.sessionId ?? ""
-    })
-  );
-}
-
-function readPersistedState() {
-  try {
-    return JSON.parse(localStorage.getItem(UI_STATE_KEY) ?? "{}");
-  } catch {
-    return {};
-  }
-}
-
-async function requestJson(path, init = {}) {
-  const headers = new Headers(init.headers ?? {});
-  headers.set("accept", "application/json");
-  if (init.body && !headers.has("content-type")) {
-    headers.set("content-type", "application/json");
-  }
-
-  const response = await fetch(path, {
-    ...init,
-    headers
-  });
-
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : undefined;
-
-  if (!response.ok) {
-    throw new Error(payload?.error ?? payload?.status ?? `${path} returned ${response.status}`);
-  }
-
-  return payload;
-}
-
-async function readJson(path) {
-  return requestJson(path);
-}
-
-async function postJson(path, body = undefined) {
-  return requestJson(path, {
-    method: "POST",
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-}
-
-function buildEvidenceTemplate(job) {
-  if (!job) return "";
-
-  if (job.verifierConfig?.handler === "benchmark") {
-    return `complete verified output for ${job.id}`;
-  }
-
-  if (job.verifierConfig?.handler === "deterministic") {
-    return (job.verifierConfig.expectedOutputs ?? []).join(" ");
-  }
-
-  return `submission for ${job.id}`;
-}
-
-function describeVerifier(job) {
-  if (!job?.verifierConfig) return "Verifier config unavailable.";
-
-  if (job.verifierConfig.handler === "benchmark") {
-    return `Keywords: ${job.verifierConfig.requiredKeywords.join(", ")}. Need ${job.verifierConfig.minimumMatches} matches.`;
-  }
-
-  if (job.verifierConfig.handler === "deterministic") {
-    return `Expected outputs (${job.verifierConfig.matchMode}): ${job.verifierConfig.expectedOutputs.join(", ")}.`;
-  }
-
-  return job.verifierConfig.escalationMessage;
-}
-
-function parseTerms(value) {
-  return String(value ?? "")
-    .split("\n")
-    .map((term) => term.trim())
-    .filter(Boolean);
-}
-
-function renderRecommendations(recommendations) {
-  const root = document.getElementById("job-list");
-  if (!root) return;
-
-  if (!recommendations.length) {
-    root.innerHTML = '<p class="empty-state">No recommendations returned for this wallet yet.</p>';
-    return;
-  }
-
-  root.innerHTML = recommendations
-    .map(
-      (job) => `
-        <article class="job-card ${job.jobId === state.selectedJobId ? "job-selected" : ""}">
-          <div class="job-topline">
-            <p class="job-id">${job.jobId}</p>
-            <span class="eligibility-pill ${job.eligible ? "eligible-yes" : "eligible-no"}">
-              ${job.eligible ? "Eligible" : "Blocked"}
-            </span>
-          </div>
-          <div class="job-metrics">
-            <span>Fit score ${job.fitScore}</span>
-            <span>Net reward ${formatAmount(job.netReward)} DOT</span>
-          </div>
-          <div class="job-copy">
-            <p>${job.explanation}</p>
-          </div>
-          <button class="job-select-button" type="button" data-job-id="${job.jobId}">
-            ${job.jobId === state.selectedJobId ? "Selected" : "Select job"}
-          </button>
-        </article>
-      `
-    )
-    .join("");
-}
-
-function renderCatalog(jobs) {
-  const root = document.getElementById("catalog-list");
-  if (!root) return;
-
-  if (!jobs.length) {
-    root.innerHTML = '<p class="empty-state">No jobs are live yet.</p>';
-    return;
-  }
-
-  root.innerHTML = jobs
-    .map(
-      (job) => `
-        <article class="catalog-card ${job.id === state.selectedJobId ? "job-selected" : ""}">
-          <div class="job-topline">
-            <h3>${job.id}</h3>
-            <span class="eligibility-pill ${job.requiresSponsoredGas ? "eligible-yes" : "eligible-no"}">
-              ${job.requiresSponsoredGas ? "Sponsored gas" : "Self-funded gas"}
-            </span>
-          </div>
-          <div class="catalog-meta">
-            <span>${job.category}</span>
-            <span>${job.tier}</span>
-            <span>${formatAmount(job.rewardAmount)} ${job.rewardAsset}</span>
-            <span>${job.verifierMode}</span>
-          </div>
-          <p>${describeVerifier(job)}</p>
-          <button class="job-select-button" type="button" data-catalog-job-id="${job.id}">
-            ${job.id === state.selectedJobId ? "Loaded in flow" : "Load in flow"}
-          </button>
-        </article>
-      `
-    )
-    .join("");
-}
-
-function updateReputation(reputation) {
-  setText("rep-skill", formatAmount(reputation.skill));
-  setText("rep-reliability", formatAmount(reputation.reliability));
-  setText("rep-economic", formatAmount(reputation.economic));
-  setText("tier-badge", reputation.tier ?? "starter");
-
-  const badge = document.getElementById("tier-badge");
-  if (!badge) return;
-  badge.className = `tier-badge ${reputation.tier === "starter" ? "tier-warn" : "tier-ok"}`;
-}
-
-function updateAccount(account) {
-  setText("liquid-dot", formatAmount(account.liquid?.DOT));
-  setText("reserved-dot", formatAmount(account.reserved?.DOT));
-  setText("allocated-dot", formatAmount(account.strategyAllocated?.DOT));
-  setText("debt-dot", formatAmount(account.debtOutstanding?.DOT));
-}
-
-function applySessionState(session = undefined) {
-  state.session = session;
-  setText("session-id", session?.sessionId ?? "-");
-  setText("session-status", session?.status ?? "-");
-  persistUiState();
-}
-
-function applyVerificationState(result = undefined) {
-  state.verification = result;
-  setText("verification-outcome", result?.outcome ?? "-");
-  setText("verification-reason", result?.reasonCode ?? "-");
-  if (result?.session) {
-    applySessionState(result.session);
-  }
-}
-
-function refreshActionPanel() {
-  const claimButton = document.getElementById("claim-button");
-  const submitButton = document.getElementById("submit-button");
-  const verifyButton = document.getElementById("verify-button");
-  const refreshButton = document.getElementById("refresh-session-button");
-
-  const hasJob = Boolean(state.selectedJob);
-  const sessionStatus = state.session?.status ?? "";
-  const hasSession = Boolean(state.session?.sessionId);
-  const hasSubmitted = sessionStatus === "submitted" || sessionStatus === "resolved" || sessionStatus === "verifying" || sessionStatus === "disputed";
-  const hasVerification = Boolean(state.verification?.outcome);
-
-  claimButton.disabled = !hasJob;
-  submitButton.disabled = !hasSession;
-  verifyButton.disabled = !hasSession || sessionStatus === "claimed";
-  refreshButton.disabled = !hasSession;
-
-  if (!hasJob) {
-    setActionStatus("Awaiting job", "status-pending");
-    return;
-  }
-
-  if (hasVerification) {
-    const approved = state.verification.outcome === "approved";
-    setActionStatus(approved ? "Verified" : "Needs review", approved ? "status-ok" : "status-pending");
-    return;
-  }
-
-  if (hasSubmitted) {
-    setActionStatus("Submitted", "status-ok");
-    return;
-  }
-
-  if (hasSession) {
-    setActionStatus("Claimed", "status-ok");
-    return;
-  }
-
-  setActionStatus("Ready", "status-pending");
-}
-
-function updateSelectedJob(job) {
-  const previousJobId = state.selectedJobId;
-  state.selectedJob = job;
-  state.selectedJobId = job?.id ?? "";
-  setText("selected-job-id", job?.id ?? "-");
-  setText("selected-reward", job ? `${formatAmount(job.rewardAmount)} ${job.rewardAsset}` : "-");
-  setText("selected-verifier", job?.verifierMode ?? "-");
-  setText("selected-schema", job?.outputSchemaRef ?? "-");
-  setText(
-    "selected-job-copy",
-    job
-      ? `${job.category} job, ${job.claimTtlSeconds}s claim TTL, ${job.retryLimit} retry limit.`
-      : "Select a recommended job to load its requirements and run the claim-to-verify flow."
-  );
-
-  const evidenceInput = document.getElementById("evidence-input");
-  if (evidenceInput && job && (previousJobId !== job.id || !evidenceInput.value.trim())) {
-    evidenceInput.value = buildEvidenceTemplate(job);
-  }
-
-  renderRecommendations(state.recommendations);
-  renderCatalog(state.catalog);
-  persistUiState();
-  refreshActionPanel();
-}
+import { DEFAULT_ESCALATION_MESSAGE, DEFAULT_POSTER_TERMS, DEFAULT_WALLET } from "./constants.js";
+import { postJson, readJson } from "./http-client.js";
+import { buildEvidenceTemplate, parseTerms } from "./job-utils.js";
+import {
+  applySessionState,
+  applyVerificationState,
+  refreshActionPanel,
+  renderCatalog,
+  renderRecommendations,
+  updateAccount,
+  updateReputation,
+  updateSelectedJob
+} from "./renderers.js";
+import { readPersistedState, state } from "./state.js";
+import { setOverallStatus, setText } from "./ui-helpers.js";
 
 async function restoreSession(sessionId) {
   if (!sessionId) {
@@ -331,9 +44,8 @@ async function selectJob(jobId) {
   updateSelectedJob(job);
 
   const persisted = readPersistedState();
-  const expectedSessionId = persisted.wallet === state.wallet && persisted.selectedJobId === job.id
-    ? persisted.sessionId
-    : "";
+  const expectedSessionId =
+    persisted.wallet === state.wallet && persisted.selectedJobId === job.id ? persisted.sessionId : "";
 
   if (expectedSessionId) {
     try {
@@ -499,53 +211,7 @@ async function createPosterJob() {
   setText("poster-feedback", `Created ${job.id} and loaded it into the execution flow.`);
 }
 
-async function boot() {
-  const walletInput = document.getElementById("wallet-input");
-  const walletForm = document.getElementById("wallet-form");
-  const jobList = document.getElementById("job-list");
-  const claimButton = document.getElementById("claim-button");
-  const submitButton = document.getElementById("submit-button");
-  const verifyButton = document.getElementById("verify-button");
-  const refreshButton = document.getElementById("refresh-session-button");
-  const posterForm = document.getElementById("poster-form");
-  const refreshCatalogButton = document.getElementById("refresh-catalog-button");
-  const catalogList = document.getElementById("catalog-list");
-  const verifierModeSelect = document.getElementById("poster-verifier-mode");
-  const initialWallet = localStorage.getItem("averray:last-wallet") || DEFAULT_WALLET;
-
-  if (walletInput) walletInput.value = initialWallet;
-  syncPosterDefaults(true);
-
-  try {
-    const [health, onboarding, index] = await Promise.all([
-      readJson("/api/health"),
-      readJson("/api/onboarding"),
-      readJson("/index/")
-    ]);
-
-    setText("api-status", health.status === "ok" ? "Healthy" : "Unexpected");
-    setText("index-status", index.status === "ok" ? "Serving" : "Unexpected");
-    setText("protocol-status", onboarding.protocols.join(" / ").toUpperCase());
-    setText("starter-flow", `${onboarding.onboarding.starterFlow.length} live steps`);
-    setOverallStatus("Online", "status-ok");
-  } catch (error) {
-    console.error(error);
-    setText("api-status", "Unavailable");
-    setText("index-status", "Unavailable");
-    setText("protocol-status", "Check routes");
-    setText("starter-flow", "Waiting for API");
-    setOverallStatus("Attention needed", "status-pending");
-  }
-
-  try {
-    await Promise.all([loadWallet(initialWallet), loadCatalog()]);
-  } catch (error) {
-    console.error(error);
-    setText("wallet-feedback", error.message ?? "Failed to load wallet data.");
-    renderRecommendations([]);
-    setText("poster-feedback", error.message ?? "Failed to load poster workspace.");
-  }
-
+function wireWalletForm(walletForm, walletInput) {
   walletForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const wallet = walletInput?.value?.trim();
@@ -561,7 +227,9 @@ async function boot() {
       setText("wallet-feedback", error.message ?? "Failed to load wallet data.");
     }
   });
+}
 
+function wireJobSelection(jobList) {
   jobList?.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-job-id]");
     if (!button) return;
@@ -573,7 +241,9 @@ async function boot() {
       setText("action-feedback", error.message ?? "Failed to load job definition.");
     }
   });
+}
 
+function wireCatalogSelection(catalogList) {
   catalogList?.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-catalog-job-id]");
     if (!button) return;
@@ -586,7 +256,9 @@ async function boot() {
       setText("poster-feedback", error.message ?? "Failed to load catalog job.");
     }
   });
+}
 
+function wireActionButtons({ claimButton, submitButton, verifyButton, refreshButton }) {
   claimButton?.addEventListener("click", async () => {
     try {
       await claimSelectedJob();
@@ -622,7 +294,9 @@ async function boot() {
       setText("action-feedback", error.message ?? "Refresh failed.");
     }
   });
+}
 
+function wirePosterControls({ posterForm, refreshCatalogButton, verifierModeSelect }) {
   posterForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
@@ -647,7 +321,60 @@ async function boot() {
   verifierModeSelect?.addEventListener("change", () => {
     syncPosterDefaults(true);
   });
+}
 
+async function loadPlatformStatus() {
+  try {
+    const [health, onboarding, index] = await Promise.all([readJson("/api/health"), readJson("/api/onboarding"), readJson("/index/")]);
+
+    setText("api-status", health.status === "ok" ? "Healthy" : "Unexpected");
+    setText("index-status", index.status === "ok" ? "Serving" : "Unexpected");
+    setText("protocol-status", onboarding.protocols.join(" / ").toUpperCase());
+    setText("starter-flow", `${onboarding.onboarding.starterFlow.length} live steps`);
+    setOverallStatus("Online", "status-ok");
+  } catch (error) {
+    console.error(error);
+    setText("api-status", "Unavailable");
+    setText("index-status", "Unavailable");
+    setText("protocol-status", "Check routes");
+    setText("starter-flow", "Waiting for API");
+    setOverallStatus("Attention needed", "status-pending");
+  }
+}
+
+async function boot() {
+  const walletInput = document.getElementById("wallet-input");
+  const walletForm = document.getElementById("wallet-form");
+  const jobList = document.getElementById("job-list");
+  const claimButton = document.getElementById("claim-button");
+  const submitButton = document.getElementById("submit-button");
+  const verifyButton = document.getElementById("verify-button");
+  const refreshButton = document.getElementById("refresh-session-button");
+  const posterForm = document.getElementById("poster-form");
+  const refreshCatalogButton = document.getElementById("refresh-catalog-button");
+  const catalogList = document.getElementById("catalog-list");
+  const verifierModeSelect = document.getElementById("poster-verifier-mode");
+  const initialWallet = localStorage.getItem("averray:last-wallet") || DEFAULT_WALLET;
+
+  if (walletInput) walletInput.value = initialWallet;
+  syncPosterDefaults(true);
+
+  await loadPlatformStatus();
+
+  try {
+    await Promise.all([loadWallet(initialWallet), loadCatalog()]);
+  } catch (error) {
+    console.error(error);
+    setText("wallet-feedback", error.message ?? "Failed to load wallet data.");
+    renderRecommendations([]);
+    setText("poster-feedback", error.message ?? "Failed to load poster workspace.");
+  }
+
+  wireWalletForm(walletForm, walletInput);
+  wireJobSelection(jobList);
+  wireCatalogSelection(catalogList);
+  wireActionButtons({ claimButton, submitButton, verifyButton, refreshButton });
+  wirePosterControls({ posterForm, refreshCatalogButton, verifierModeSelect });
   refreshActionPanel();
 }
 
