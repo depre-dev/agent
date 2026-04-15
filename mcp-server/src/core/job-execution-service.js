@@ -23,7 +23,7 @@ export class JobExecutionService {
 
   async claimJob(wallet, jobId, protocol, idempotencyKey) {
     const existing = await this.stateStore.findSessionByIdempotencyKey(idempotencyKey);
-    if (existing) {
+    if (existing && !this.isTerminalSession(existing)) {
       return existing;
     }
 
@@ -47,12 +47,18 @@ export class JobExecutionService {
 
     try {
       const replay = await this.stateStore.findSessionByIdempotencyKey(idempotencyKey);
-      if (replay) {
+      if (replay && !this.isTerminalSession(replay)) {
         return replay;
       }
 
       const existingSession = await this.stateStore.getSession(sessionId);
       if (existingSession) {
+        if (this.isTerminalSession(existingSession)) {
+          throw new ConflictError(
+            `Job ${jobId} already has a completed session for this wallet. Create or select a different job to run again.`,
+            "job_session_completed"
+          );
+        }
         return existingSession;
       }
 
@@ -148,6 +154,10 @@ export class JobExecutionService {
 
   getClaimLockTtlSeconds(job) {
     return Math.max(60, Math.min(Number(job?.claimTtlSeconds ?? 300), 900));
+  }
+
+  isTerminalSession(session) {
+    return ["resolved", "rejected", "closed", "expired", "timed_out"].includes(session?.status);
   }
 
   publishSessionEvent(topic, session, data = {}) {
