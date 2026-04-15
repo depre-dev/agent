@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
 import { createPlatformRuntime } from "../../services/bootstrap.js";
+import { normalizeError } from "../../core/errors.js";
 
-const { platformService: service, verifierService, stateStore } = createPlatformRuntime();
+const { platformService: service, verifierService, stateStore, gateway } = createPlatformRuntime();
 const port = Number(process.env.PORT ?? 8787);
 
 function respond(response, statusCode, payload) {
@@ -52,9 +53,17 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && pathname === "/health") {
-      return respond(response, 200, {
-        status: "ok",
-        persistence: stateStore.constructor.name
+      const [storeHealth, chainHealth] = await Promise.all([
+        stateStore.healthCheck?.() ?? { ok: true, backend: stateStore.constructor.name },
+        gateway?.healthCheck?.() ?? { ok: true, backend: "blockchain", enabled: false, mode: "disabled" }
+      ]);
+      const overallOk = Boolean(storeHealth.ok) && Boolean(chainHealth.ok);
+      return respond(response, overallOk ? 200 : 503, {
+        status: overallOk ? "ok" : "degraded",
+        components: {
+          stateStore: storeHealth,
+          blockchain: chainHealth
+        }
       });
     }
 
@@ -75,10 +84,11 @@ const server = createServer(async (request, response) => {
       try {
         return respond(response, 200, await service.resumeSession(sessionId));
       } catch (error) {
-        if ((error.message ?? "").startsWith("Unknown session:")) {
+        const normalized = normalizeError(error);
+        if (normalized.code === "session_not_found") {
           return respond(response, 404, { status: "not_found", sessionId });
         }
-        throw error;
+        throw normalized;
       }
     }
 
@@ -130,13 +140,12 @@ const server = createServer(async (request, response) => {
 
     return respond(response, 404, { error: "not_found" });
   } catch (error) {
-    if (error.name === "ValidationError") {
-      return respond(response, 400, { error: error.message ?? "invalid_request" });
-    }
-    if (error.name === "ConflictError") {
-      return respond(response, 409, { error: error.message ?? "conflict" });
-    }
-    return respond(response, 500, { error: error.message ?? "internal_error" });
+    const normalized = normalizeError(error);
+    return respond(response, normalized.statusCode ?? 500, {
+      error: normalized.code ?? "internal_error",
+      message: normalized.message ?? "internal_error",
+      details: normalized.details
+    });
   }
 });
 

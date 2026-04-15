@@ -1,6 +1,7 @@
 import { Contract, JsonRpcProvider, Wallet, id, keccak256, toUtf8Bytes, ZeroAddress } from "ethers";
 import { AGENT_ACCOUNT_ABI, ERC20_MOCK_ABI, ESCROW_CORE_ABI, REPUTATION_SBT_ABI } from "./abis.js";
 import { loadBlockchainConfig } from "./config.js";
+import { BlockchainRevertError, ConfigError, ExternalServiceError, ValidationError } from "../core/errors.js";
 
 export class BlockchainGateway {
   constructor(config = loadBlockchainConfig()) {
@@ -39,164 +40,218 @@ export class BlockchainGateway {
     return this.config.enabled;
   }
 
-  async getAccountSummary(wallet) {
-    const liquid = {};
-    const reserved = {};
-    const strategyAllocated = {};
-    const collateralLocked = {};
-    const debtOutstanding = {};
-
-    for (const asset of this.config.supportedAssets) {
-      const position = await this.accountContract.positions(wallet, asset.address);
-      liquid[asset.symbol] = Number(position.liquid);
-      reserved[asset.symbol] = Number(position.reserved);
-      strategyAllocated[asset.symbol] = Number(position.strategyAllocated);
-      collateralLocked[asset.symbol] = Number(position.collateralLocked);
-      debtOutstanding[asset.symbol] = Number(position.debtOutstanding);
+  async healthCheck() {
+    if (!this.isEnabled()) {
+      return {
+        ok: true,
+        backend: "blockchain",
+        enabled: false,
+        mode: "disabled"
+      };
     }
 
-    return {
-      wallet,
-      liquid,
-      reserved,
-      strategyAllocated,
-      collateralLocked,
-      debtOutstanding
-    };
+    try {
+      const blockNumber = await this.provider.getBlockNumber();
+      return {
+        ok: true,
+        backend: "blockchain",
+        enabled: true,
+        blockNumber,
+        signerConfigured: Boolean(this.signer)
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        backend: "blockchain",
+        enabled: true,
+        signerConfigured: Boolean(this.signer),
+        error: this.wrapGatewayError("healthCheck", error).message
+      };
+    }
+  }
+
+  async getAccountSummary(wallet) {
+    return this.withGatewayError("getAccountSummary", async () => {
+      const liquid = {};
+      const reserved = {};
+      const strategyAllocated = {};
+      const collateralLocked = {};
+      const debtOutstanding = {};
+
+      for (const asset of this.config.supportedAssets) {
+        const position = await this.accountContract.positions(wallet, asset.address);
+        liquid[asset.symbol] = Number(position.liquid);
+        reserved[asset.symbol] = Number(position.reserved);
+        strategyAllocated[asset.symbol] = Number(position.strategyAllocated);
+        collateralLocked[asset.symbol] = Number(position.collateralLocked);
+        debtOutstanding[asset.symbol] = Number(position.debtOutstanding);
+      }
+
+      return {
+        wallet,
+        liquid,
+        reserved,
+        strategyAllocated,
+        collateralLocked,
+        debtOutstanding
+      };
+    });
   }
 
   async getBorrowCapacity(wallet, assetSymbol) {
-    const asset = this.requireAsset(assetSymbol);
-    const value = await this.accountContract.getBorrowCapacity(wallet, asset.address);
-    return Number(value);
+    return this.withGatewayError("getBorrowCapacity", async () => {
+      const asset = this.requireAsset(assetSymbol);
+      const value = await this.accountContract.getBorrowCapacity(wallet, asset.address);
+      return Number(value);
+    });
   }
 
   async reserveForJob(wallet, assetSymbol, amount) {
-    this.requireSigner("reserveForJob");
-    const asset = this.requireAsset(assetSymbol);
-    const tx = await this.accountContract.reserveForJob(wallet, asset.address, amount);
-    await tx.wait();
-    return this.getAccountSummary(wallet);
+    return this.withGatewayError("reserveForJob", async () => {
+      this.requireSigner("reserveForJob");
+      const asset = this.requireAsset(assetSymbol);
+      const tx = await this.accountContract.reserveForJob(wallet, asset.address, amount);
+      await tx.wait();
+      return this.getAccountSummary(wallet);
+    });
   }
 
   async allocateIdleFunds(wallet, strategyId, amount) {
-    this.requireSigner("allocateIdleFunds");
-    const tx = await this.accountContract.allocateIdleFunds(wallet, id(strategyId), amount);
-    await tx.wait();
-    return this.getAccountSummary(wallet);
+    return this.withGatewayError("allocateIdleFunds", async () => {
+      this.requireSigner("allocateIdleFunds");
+      const tx = await this.accountContract.allocateIdleFunds(wallet, id(strategyId), amount);
+      await tx.wait();
+      return this.getAccountSummary(wallet);
+    });
   }
 
   async borrow(assetSymbol, amount) {
-    this.requireSigner("borrow");
-    const asset = this.requireAsset(assetSymbol);
-    const tx = await this.accountContract.borrow(asset.address, amount);
-    await tx.wait();
+    return this.withGatewayError("borrow", async () => {
+      this.requireSigner("borrow");
+      const asset = this.requireAsset(assetSymbol);
+      const tx = await this.accountContract.borrow(asset.address, amount);
+      await tx.wait();
+    });
   }
 
   async repay(assetSymbol, amount) {
-    this.requireSigner("repay");
-    const asset = this.requireAsset(assetSymbol);
-    const tx = await this.accountContract.repay(asset.address, amount);
-    await tx.wait();
+    return this.withGatewayError("repay", async () => {
+      this.requireSigner("repay");
+      const asset = this.requireAsset(assetSymbol);
+      const tx = await this.accountContract.repay(asset.address, amount);
+      await tx.wait();
+    });
   }
 
   async claimJob(jobId) {
-    this.requireSigner("claimJob");
-    const tx = await this.escrowContract.claimJob(this.toJobId(jobId));
-    await tx.wait();
+    return this.withGatewayError("claimJob", async () => {
+      this.requireSigner("claimJob");
+      const tx = await this.escrowContract.claimJob(this.toJobId(jobId));
+      await tx.wait();
+    });
   }
 
   async ensureJob(job, instanceJobId = job.id) {
-    this.requireSigner("ensureJob");
-    const asset = this.requireAsset(job.rewardAsset);
-    const live = await this.getJob(instanceJobId);
-    if (live.state !== 0) {
-      return live;
-    }
+    return this.withGatewayError("ensureJob", async () => {
+      this.requireSigner("ensureJob");
+      const asset = this.requireAsset(job.rewardAsset);
+      const live = await this.getJob(instanceJobId);
+      if (live.state !== 0) {
+        return live;
+      }
 
-    const totalRequired = Number(job.rewardAmount ?? 0);
-    if (totalRequired <= 0) {
-      throw new Error(`Job ${job.id} has no fundable reward`);
-    }
+      const totalRequired = Number(job.rewardAmount ?? 0);
+      if (totalRequired <= 0) {
+        throw new ValidationError(`Job ${job.id} has no fundable reward`);
+      }
 
-    const token = new Contract(asset.address, ERC20_MOCK_ABI, this.signer);
-    const signerAddress = await this.signer.getAddress();
-    const signerPosition = await this.accountContract.positions(signerAddress, asset.address);
-    const liquid = Number(signerPosition.liquid);
-    const shortfall = Math.max(totalRequired - liquid, 0);
+      const token = new Contract(asset.address, ERC20_MOCK_ABI, this.signer);
+      const signerAddress = await this.signer.getAddress();
+      const signerPosition = await this.accountContract.positions(signerAddress, asset.address);
+      const liquid = Number(signerPosition.liquid);
+      const shortfall = Math.max(totalRequired - liquid, 0);
 
-    if (shortfall > 0) {
-      const mintTx = await token.mint(signerAddress, shortfall);
-      await mintTx.wait();
-      const approveTx = await token.approve(this.config.agentAccountAddress, shortfall);
-      await approveTx.wait();
-      const depositTx = await this.accountContract.deposit(asset.address, shortfall);
-      await depositTx.wait();
-    }
+      if (shortfall > 0) {
+        const mintTx = await token.mint(signerAddress, shortfall);
+        await mintTx.wait();
+        const approveTx = await token.approve(this.config.agentAccountAddress, shortfall);
+        await approveTx.wait();
+        const depositTx = await this.accountContract.deposit(asset.address, shortfall);
+        await depositTx.wait();
+      }
 
-    const createTx = await this.escrowContract.createSinglePayoutJob(
-      this.toJobId(instanceJobId),
-      asset.address,
-      job.rewardAmount,
-      0,
-      0,
-      job.claimTtlSeconds,
-      id(job.verifierMode),
-      id(job.category)
-    );
-    await createTx.wait();
-    return this.getJob(instanceJobId);
+      const createTx = await this.escrowContract.createSinglePayoutJob(
+        this.toJobId(instanceJobId),
+        asset.address,
+        job.rewardAmount,
+        0,
+        0,
+        job.claimTtlSeconds,
+        id(job.verifierMode),
+        id(job.category)
+      );
+      await createTx.wait();
+      return this.getJob(instanceJobId);
+    });
   }
 
   async submitWork(jobId, evidence) {
-    this.requireSigner("submitWork");
-    const tx = await this.escrowContract.submitWork(this.toJobId(jobId), keccak256(toUtf8Bytes(evidence)));
-    await tx.wait();
+    return this.withGatewayError("submitWork", async () => {
+      this.requireSigner("submitWork");
+      const tx = await this.escrowContract.submitWork(this.toJobId(jobId), keccak256(toUtf8Bytes(evidence)));
+      await tx.wait();
+    });
   }
 
   async resolveSinglePayout(jobId, approved, reasonCode, metadataURI) {
-    this.requireSigner("resolveSinglePayout");
-    const tx = await this.escrowContract.resolveSinglePayout(
-      this.toJobId(jobId),
-      approved,
-      this.toReasonCode(reasonCode),
-      metadataURI
-    );
-    await tx.wait();
+    return this.withGatewayError("resolveSinglePayout", async () => {
+      this.requireSigner("resolveSinglePayout");
+      const tx = await this.escrowContract.resolveSinglePayout(
+        this.toJobId(jobId),
+        approved,
+        this.toReasonCode(reasonCode),
+        metadataURI
+      );
+      await tx.wait();
+    });
   }
 
   async getJob(jobId) {
-    const job = await this.escrowContract.jobs(this.toJobId(jobId));
-    return {
-      poster: job.poster,
-      worker: job.worker,
-      asset: job.asset,
-      reward: Number(job.reward),
-      state: Number(job.state),
-      claimExpiry: Number(job.claimExpiry)
-    };
+    return this.withGatewayError("getJob", async () => {
+      const job = await this.escrowContract.jobs(this.toJobId(jobId));
+      return {
+        poster: job.poster,
+        worker: job.worker,
+        asset: job.asset,
+        reward: Number(job.reward),
+        state: Number(job.state),
+        claimExpiry: Number(job.claimExpiry)
+      };
+    });
   }
 
   async getReputation(wallet) {
-    const rep = await this.reputationContract.reputations(wallet);
-    return {
-      skill: Number(rep.skill),
-      reliability: Number(rep.reliability),
-      economic: Number(rep.economic)
-    };
+    return this.withGatewayError("getReputation", async () => {
+      const rep = await this.reputationContract.reputations(wallet);
+      return {
+        skill: Number(rep.skill),
+        reliability: Number(rep.reliability),
+        economic: Number(rep.economic)
+      };
+    });
   }
 
   requireAsset(symbol) {
     const asset = this.config.supportedAssets.find((candidate) => candidate.symbol === symbol);
     if (!asset) {
-      throw new Error(`Unsupported asset symbol: ${symbol}`);
+      throw new ValidationError(`Unsupported asset symbol: ${symbol}`);
     }
     return asset;
   }
 
   requireSigner(operation) {
     if (!this.signer) {
-      throw new Error(`${operation} requires SIGNER_PRIVATE_KEY`);
+      throw new ConfigError(`${operation} requires SIGNER_PRIVATE_KEY`);
     }
   }
 
@@ -206,5 +261,49 @@ export class BlockchainGateway {
 
   toReasonCode(reasonCode) {
     return id(reasonCode);
+  }
+
+  async withGatewayError(operation, action) {
+    try {
+      return await action();
+    } catch (error) {
+      throw this.wrapGatewayError(operation, error);
+    }
+  }
+
+  wrapGatewayError(operation, error) {
+    if (error?.name && error.statusCode) {
+      return error;
+    }
+
+    const reason = this.extractGatewayReason(error);
+    const message = `${operation} failed: ${reason}`;
+
+    if (
+      `${error?.code ?? ""}`.includes("CALL_EXCEPTION") ||
+      /revert|execution reverted|estimateGas|insufficient funds|nonce/i.test(reason)
+    ) {
+      return new BlockchainRevertError(message, {
+        operation,
+        rawCode: error?.code,
+        rawReason: reason
+      });
+    }
+
+    return new ExternalServiceError(message, "blockchain_unavailable", {
+      operation,
+      rawCode: error?.code
+    });
+  }
+
+  extractGatewayReason(error) {
+    return (
+      error?.reason ||
+      error?.shortMessage ||
+      error?.info?.error?.message ||
+      error?.info?.payload?.method ||
+      error?.message ||
+      "unknown_error"
+    );
   }
 }

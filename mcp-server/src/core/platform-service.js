@@ -1,5 +1,12 @@
 import { createStateStore } from "./state-store.js";
 import { randomUUID } from "node:crypto";
+import {
+  BorrowCapacityExceededError,
+  ConflictError,
+  InsufficientLiquidityError,
+  NotFoundError,
+  ValidationError
+} from "./errors.js";
 
 const STARTER_REPUTATION = {
   skill: 0,
@@ -20,18 +27,6 @@ const DEFAULT_AGENT_PROFILE = {
 
 const VALID_TIERS = new Set(["starter", "pro", "elite"]);
 const VALID_VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallback"]);
-
-function createValidationError(message) {
-  const error = new Error(message);
-  error.name = "ValidationError";
-  return error;
-}
-
-function createConflictError(message) {
-  const error = new Error(message);
-  error.name = "ConflictError";
-  return error;
-}
 
 export class PlatformService {
   constructor(jobs, profiles, accounts, reputations, blockchainGateway = undefined, stateStore = createStateStore()) {
@@ -88,7 +83,7 @@ export class PlatformService {
   createJob(input) {
     const job = this.normalizeJobInput(input);
     if (this.jobs.some((candidate) => candidate.id === job.id)) {
-      throw createValidationError(`Job already exists: ${job.id}`);
+      throw new ConflictError(`Job already exists: ${job.id}`, "job_exists");
     }
 
     this.jobs.unshift(job);
@@ -128,7 +123,7 @@ export class PlatformService {
     const account = await this.getAccountSummary(wallet);
     const liquid = account.liquid[asset] ?? 0;
     if (liquid < amount) {
-      throw new Error(`Insufficient liquid balance for ${asset}`);
+      throw new InsufficientLiquidityError(asset);
     }
     account.liquid[asset] = liquid - amount;
     account.reserved[asset] = (account.reserved[asset] ?? 0) + amount;
@@ -237,7 +232,7 @@ export class PlatformService {
       if (racedSession) {
         return racedSession;
       }
-      throw createConflictError(`Claim already in progress for ${sessionId}`);
+      throw new ConflictError(`Claim already in progress for ${sessionId}`, "claim_in_progress");
     }
 
     try {
@@ -303,7 +298,7 @@ export class PlatformService {
     const account = await this.getAccountSummary(wallet);
     const liquid = account.liquid[asset] ?? 0;
     if (liquid < amount) {
-      throw new Error(`Insufficient liquid balance for ${asset}`);
+      throw new InsufficientLiquidityError(asset);
     }
     account.liquid[asset] = liquid - amount;
     account.strategyAllocated[asset] = (account.strategyAllocated[asset] ?? 0) + amount;
@@ -324,7 +319,7 @@ export class PlatformService {
   async borrow(wallet, asset, amount) {
     const capacity = await this.getBorrowCapacity(wallet, asset);
     if (capacity < amount) {
-      throw new Error(`Borrow capacity exceeded for ${asset}`);
+      throw new BorrowCapacityExceededError(asset);
     }
     if (this.blockchainGateway?.isEnabled()) {
       await this.blockchainGateway.borrow(asset, amount);
@@ -346,7 +341,7 @@ export class PlatformService {
     const account = await this.getAccountSummary(wallet);
     const outstanding = account.debtOutstanding[asset] ?? 0;
     if (outstanding < amount) {
-      throw new Error(`Repay amount exceeds debt for ${asset}`);
+      throw new ConflictError(`Repay amount exceeds debt for ${asset}`, "repay_amount_exceeds_debt");
     }
 
     account.debtOutstanding[asset] = outstanding - amount;
@@ -405,7 +400,7 @@ export class PlatformService {
   requireJob(jobId) {
     const job = this.jobs.find((candidate) => candidate.id === jobId);
     if (!job) {
-      throw new Error(`Unknown job: ${jobId}`);
+      throw new NotFoundError(`Unknown job: ${jobId}`, "job_not_found");
     }
     return job;
   }
@@ -413,7 +408,7 @@ export class PlatformService {
   async requireSession(sessionId) {
     const session = await this.stateStore.getSession(sessionId);
     if (!session) {
-      throw new Error(`Unknown session: ${sessionId}`);
+      throw new NotFoundError(`Unknown session: ${sessionId}`, "session_not_found");
     }
     return session;
   }
@@ -429,25 +424,25 @@ export class PlatformService {
     const rewardAsset = String(input?.rewardAsset ?? "DOT").trim().toUpperCase();
 
     if (!id) {
-      throw createValidationError("Job id is required.");
+      throw new ValidationError("Job id is required.");
     }
     if (!category) {
-      throw createValidationError("Category is required.");
+      throw new ValidationError("Category is required.");
     }
     if (!VALID_TIERS.has(tier)) {
-      throw createValidationError(`Invalid tier: ${tier}`);
+      throw new ValidationError(`Invalid tier: ${tier}`);
     }
     if (!VALID_VERIFIER_MODES.has(verifierMode)) {
-      throw createValidationError(`Invalid verifier mode: ${verifierMode}`);
+      throw new ValidationError(`Invalid verifier mode: ${verifierMode}`);
     }
     if (!Number.isFinite(rewardAmount) || rewardAmount <= 0) {
-      throw createValidationError("Reward amount must be greater than zero.");
+      throw new ValidationError("Reward amount must be greater than zero.");
     }
     if (!Number.isInteger(claimTtlSeconds) || claimTtlSeconds < 60) {
-      throw createValidationError("Claim TTL must be at least 60 seconds.");
+      throw new ValidationError("Claim TTL must be at least 60 seconds.");
     }
     if (!Number.isInteger(retryLimit) || retryLimit < 0) {
-      throw createValidationError("Retry limit must be zero or higher.");
+      throw new ValidationError("Retry limit must be zero or higher.");
     }
 
     return {
@@ -474,10 +469,10 @@ export class PlatformService {
     if (verifierMode === "benchmark") {
       const minimumMatches = Number(input?.verifierMinimumMatches ?? Math.min(verifierTerms.length || 1, 2));
       if (!verifierTerms.length) {
-        throw createValidationError("Benchmark jobs need at least one verifier keyword.");
+        throw new ValidationError("Benchmark jobs need at least one verifier keyword.");
       }
       if (!Number.isInteger(minimumMatches) || minimumMatches < 1) {
-        throw createValidationError("Benchmark minimum matches must be at least 1.");
+        throw new ValidationError("Benchmark minimum matches must be at least 1.");
       }
       return {
         handler: "benchmark",
@@ -489,10 +484,10 @@ export class PlatformService {
     if (verifierMode === "deterministic") {
       const matchMode = String(input?.verifierMatchMode ?? "contains_all").trim();
       if (!verifierTerms.length) {
-        throw createValidationError("Deterministic jobs need at least one expected output.");
+        throw new ValidationError("Deterministic jobs need at least one expected output.");
       }
       if (!["exact", "contains_all"].includes(matchMode)) {
-        throw createValidationError(`Invalid deterministic match mode: ${matchMode}`);
+        throw new ValidationError(`Invalid deterministic match mode: ${matchMode}`);
       }
       return {
         handler: "deterministic",

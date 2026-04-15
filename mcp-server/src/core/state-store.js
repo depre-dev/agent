@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import { ExternalServiceError } from "./errors.js";
 
 export class MemoryStateStore {
   constructor() {
@@ -58,6 +59,14 @@ export class MemoryStateStore {
     if (existing?.owner === owner) {
       this.claimLocks.delete(lockId);
     }
+  }
+
+  async healthCheck() {
+    return {
+      ok: true,
+      backend: "memory",
+      mode: "ephemeral"
+    };
   }
 }
 
@@ -122,6 +131,25 @@ export class RedisStateStore {
     const existing = await this.client.get(key);
     if (existing === owner) {
       await this.client.del(key);
+    }
+  }
+
+  async healthCheck() {
+    try {
+      await this.connect();
+      const reply = await this.client.ping();
+      return {
+        ok: reply === "PONG",
+        backend: "redis",
+        mode: "durable"
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        backend: "redis",
+        mode: "durable",
+        error: new ExternalServiceError(`Redis health check failed: ${error?.message ?? "unknown_error"}`).message
+      };
     }
   }
 
