@@ -106,6 +106,95 @@ export function renderHistory(entries) {
     .join("");
 }
 
+export function renderJobDetail(job, jobHistory) {
+  const summaryRoot = document.getElementById("job-detail-summary");
+  const historyRoot = document.getElementById("job-detail-history");
+  const historyCount = document.getElementById("job-detail-count");
+
+  if (!summaryRoot || !historyRoot || !historyCount) return;
+
+  if (!job) {
+    summaryRoot.innerHTML = '<p class="empty-state">Select a job to inspect its verifier, rules, and recent runs.</p>';
+    historyRoot.innerHTML = '<p class="empty-state">No job selected yet.</p>';
+    historyCount.textContent = "Awaiting selection";
+    return;
+  }
+
+  const approvedRuns = jobHistory.filter((entry) => entry.verification?.outcome === "approved").length;
+  const latestRun = jobHistory[0];
+
+  summaryRoot.innerHTML = `
+    <div class="job-detail-grid">
+      <div class="detail-stat">
+        <dt>Tier</dt>
+        <dd>${job.tier}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Claim TTL</dt>
+        <dd>${job.claimTtlSeconds}s</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Retry limit</dt>
+        <dd>${job.retryLimit}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Gas</dt>
+        <dd>${job.requiresSponsoredGas ? "Sponsored" : "Self-funded"}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Verifier</dt>
+        <dd>${job.verifierMode}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Runs / approved</dt>
+        <dd>${jobHistory.length} / ${approvedRuns}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Output schema</dt>
+        <dd>${job.outputSchemaRef}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Verifier rules</dt>
+        <dd>${describeVerifier(job)}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Latest run</dt>
+        <dd>${latestRun ? `${latestRun.status} · ${latestRun.verification?.reasonCode ?? "pending verification"}` : "No runs yet for this wallet."}</dd>
+      </div>
+    </div>
+  `;
+
+  historyCount.textContent = `${jobHistory.length} runs for this job`;
+
+  if (!jobHistory.length) {
+    historyRoot.innerHTML = '<p class="empty-state">No runs recorded for this job and wallet yet.</p>';
+    return;
+  }
+
+  historyRoot.innerHTML = jobHistory
+    .map(
+      (entry) => `
+        <article class="job-run-card ${entry.sessionId === state.session?.sessionId ? "job-selected" : ""}">
+          <div class="job-topline">
+            <p class="job-id">${entry.sessionId}</p>
+            <span class="eligibility-pill ${entry.verification?.outcome === "approved" ? "eligible-yes" : "eligible-no"}">
+              ${entry.verification?.outcome ?? entry.status}
+            </span>
+          </div>
+          <div class="catalog-meta">
+            <span>${entry.status}</span>
+            <span>${entry.verification?.reasonCode ?? "pending"}</span>
+            <span>${entry.updatedAt ? new Date(entry.updatedAt).toLocaleString("en-CH", { dateStyle: "short", timeStyle: "short" }) : "-"}</span>
+          </div>
+          <button class="job-select-button" type="button" data-session-id="${entry.sessionId}">
+            ${entry.sessionId === state.session?.sessionId ? "Current run" : "Open run"}
+          </button>
+        </article>
+      `
+    )
+    .join("");
+}
+
 export function updateReputation(reputation) {
   setText("rep-skill", formatAmount(reputation.skill));
   setText("rep-reliability", formatAmount(reputation.reliability));

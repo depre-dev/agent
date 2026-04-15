@@ -5,6 +5,7 @@ export const state = {
   recommendations: [],
   catalog: [],
   history: [],
+  jobHistory: [],
   selectedJobId: "",
   selectedJob: undefined,
   session: undefined,

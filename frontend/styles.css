@@ -532,6 +532,54 @@ main {
   gap: 1rem;
 }
 
+.job-detail-shell {
+  display: grid;
+  gap: 1rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--line);
+}
+
+.job-detail-summary,
+.job-detail-history {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.job-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.detail-stat,
+.job-run-card {
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.detail-stat dt {
+  margin: 0 0 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.detail-stat dd {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.detail-span {
+  grid-column: 1 / -1;
+}
+
 .action-details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -794,6 +842,7 @@ main {
   .status-grid,
   .stats-grid,
   .detail-grid,
+  .job-detail-grid,
   .form-grid,
   .action-details {
     grid-template-columns: 1fr;

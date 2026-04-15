@@ -96,7 +96,12 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && pathname === "/sessions") {
       const wallet = url.searchParams.get("wallet") ?? "0xagent";
       const limit = Number(url.searchParams.get("limit") ?? 8);
-      return respond(response, 200, await service.listSessionHistory(wallet, Number.isFinite(limit) ? limit : 8));
+      const jobId = url.searchParams.get("jobId") ?? undefined;
+      return respond(
+        response,
+        200,
+        await service.listSessionHistory(wallet, Number.isFinite(limit) ? limit : 8, jobId)
+      );
     }
 
     if (request.method === "GET" && pathname === "/jobs/recommendations") {

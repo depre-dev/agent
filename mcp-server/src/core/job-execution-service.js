@@ -91,10 +91,13 @@ export class JobExecutionService {
     return this.requireSession(sessionId);
   }
 
-  async listSessionHistory(wallet, limit = 10) {
+  async listSessionHistory(wallet, limit = 10, jobId = undefined) {
     const sessions = await this.stateStore.listSessionsByWallet?.(wallet, limit) ?? [];
+    const filtered = jobId
+      ? sessions.filter((session) => session.jobId === jobId)
+      : sessions;
     return Promise.all(
-      sessions.map(async (session) => ({
+      filtered.map(async (session) => ({
         ...session,
         verification: await this.stateStore.getVerificationResult(session.sessionId) ?? undefined
       }))

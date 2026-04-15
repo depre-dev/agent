@@ -6,6 +6,7 @@ import {
   applyVerificationState,
   refreshActionPanel,
   renderCatalog,
+  renderJobDetail,
   renderHistory,
   renderRecommendations,
   setActionFeedback,
@@ -51,6 +52,7 @@ async function restoreSession(sessionId) {
 
   refreshActionPanel();
   renderHistory(state.history);
+  renderJobDetail(state.selectedJob, state.jobHistory);
 }
 
 async function loadHistoryForCurrentWallet() {
@@ -58,6 +60,20 @@ async function loadHistoryForCurrentWallet() {
   state.history = history;
   renderHistory(history);
   setText("history-count", `${history.length} recent sessions`);
+}
+
+async function loadSelectedJobHistory() {
+  if (!state.selectedJobId) {
+    state.jobHistory = [];
+    renderJobDetail(undefined, []);
+    return;
+  }
+
+  const jobHistory = await readJson(
+    `/api/sessions?wallet=${encodeURIComponent(state.wallet)}&jobId=${encodeURIComponent(state.selectedJobId)}&limit=10`
+  );
+  state.jobHistory = jobHistory;
+  renderJobDetail(state.selectedJob, jobHistory);
 }
 
 async function selectJob(jobId) {
@@ -83,6 +99,7 @@ async function selectJob(jobId) {
   applyVerificationState(undefined);
   setActionFeedback(`Loaded ${job.id}. Claim it when you are ready.`, "neutral");
   refreshActionPanel();
+  await loadSelectedJobHistory();
 }
 
 async function loadWallet(wallet) {
@@ -117,6 +134,7 @@ async function loadWallet(wallet) {
     await selectJob(nextJobId);
   } else if (!state.selectedJobId) {
     updateSelectedJob(undefined);
+    renderJobDetail(undefined, []);
     setActionFeedback("No action flow available until recommendations appear.", "neutral");
   }
 }
@@ -144,6 +162,7 @@ async function claimSelectedJob() {
   showToast(`Claimed ${state.selectedJobId}.`, "success");
   refreshActionPanel();
   await loadHistoryForCurrentWallet();
+  await loadSelectedJobHistory();
 }
 
 async function submitSelectedWork() {
@@ -162,6 +181,7 @@ async function submitSelectedWork() {
   showToast("Submission stored.", "success");
   refreshActionPanel();
   await loadHistoryForCurrentWallet();
+  await loadSelectedJobHistory();
 }
 
 async function verifySelectedWork() {
@@ -189,6 +209,7 @@ async function verifySelectedWork() {
   );
   refreshActionPanel();
   await loadHistoryForCurrentWallet();
+  await loadSelectedJobHistory();
 }
 
 async function refreshCurrentSession() {
@@ -320,6 +341,23 @@ function wireHistorySelection(historyList) {
   });
 }
 
+function wireJobRunSelection() {
+  const detailHistory = document.getElementById("job-detail-history");
+  detailHistory?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-session-id]");
+    if (!button) return;
+
+    try {
+      await restoreSession(button.dataset.sessionId);
+      setActionFeedback(`Loaded run ${button.dataset.sessionId}.`, "success");
+    } catch (error) {
+      console.error(error);
+      setActionFeedback(error.message ?? "Failed to load job run.", "error");
+      showToast(error.message ?? "Failed to load job run.", "error");
+    }
+  });
+}
+
 function wireActionButtons({ claimButton, submitButton, verifyButton, refreshButton }) {
   claimButton?.addEventListener("click", async () => {
     try {
@@ -447,6 +485,7 @@ async function boot() {
   wireJobSelection(jobList);
   wireCatalogSelection(catalogList);
   wireHistorySelection(historyList);
+  wireJobRunSelection();
   wireActionButtons({ claimButton, submitButton, verifyButton, refreshButton });
   wirePosterControls({ posterForm, refreshCatalogButton, verifierModeSelect });
   refreshActionPanel();
