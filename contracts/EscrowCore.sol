@@ -192,6 +192,7 @@ contract EscrowCore {
         emit WorkSubmitted(jobId, msg.sender, evidenceHash);
     }
 
+    /// @dev Permissionless by design so any party can finalize an expired claim and reopen the job.
     function handleClaimTimeout(bytes32 jobId) external {
         JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Claimed) revert InvalidState();

@@ -125,7 +125,7 @@ const server = createServer(async (request, response) => {
         sessionId: url.searchParams.get("sessionId") ?? undefined,
         topics: parseTopics(url)
       };
-      const lastEventId = request.headers["last-event-id"];
+      const lastEventId = request.headers["last-event-id"] ?? url.searchParams.get("lastEventId") ?? undefined;
       const replay = eventBus?.replay?.(filter, lastEventId);
 
       if (replay?.gap) {

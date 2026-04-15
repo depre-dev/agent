@@ -22,31 +22,56 @@ const EVENT_TOPICS = [
 ];
 
 export function startEventStream({ wallet, sessionId, jobId, topics = [], onEvent, onGap, onError }) {
-  const params = new URLSearchParams();
-  if (wallet) params.set("wallet", wallet);
-  if (sessionId) params.set("sessionId", sessionId);
-  if (jobId) params.set("jobId", jobId);
-  if (topics.length) params.set("topics", topics.join(","));
+  let source = undefined;
+  let stopped = false;
+  let reconnectDelayMs = 1000;
+  let reconnectTimer = undefined;
+  let lastEventId = "";
 
-  const source = new EventSource(`/api/events?${params.toString()}`);
+  const connect = () => {
+    clearTimeout(reconnectTimer);
+    if (stopped) {
+      return;
+    }
 
-  for (const topic of EVENT_TOPICS) {
-    source.addEventListener(topic, (event) => {
-      const payload = parseEvent(event);
-      if (topic === "gap") {
-        onGap?.(payload);
-        return;
-      }
-      onEvent?.(payload);
-    });
-  }
+    const params = new URLSearchParams();
+    if (wallet) params.set("wallet", wallet);
+    if (sessionId) params.set("sessionId", sessionId);
+    if (jobId) params.set("jobId", jobId);
+    if (topics.length) params.set("topics", topics.join(","));
+    if (lastEventId) params.set("lastEventId", lastEventId);
 
-  source.onerror = (event) => {
-    onError?.(event);
+    source = new EventSource(`/api/events?${params.toString()}`);
+
+    for (const topic of EVENT_TOPICS) {
+      source.addEventListener(topic, (event) => {
+        if (event.lastEventId) {
+          lastEventId = event.lastEventId;
+        }
+        reconnectDelayMs = 1000;
+        const payload = parseEvent(event);
+        if (topic === "gap") {
+          onGap?.(payload);
+          return;
+        }
+        onEvent?.(payload);
+      });
+    }
+
+    source.onerror = (event) => {
+      onError?.(event);
+      source?.close();
+      reconnectTimer = setTimeout(connect, reconnectDelayMs);
+      reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10_000);
+    };
   };
 
+  connect();
+
   return () => {
-    source.close();
+    stopped = true;
+    clearTimeout(reconnectTimer);
+    source?.close();
   };
 }
 
