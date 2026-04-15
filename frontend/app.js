@@ -6,6 +6,7 @@ import {
   applyVerificationState,
   refreshActionPanel,
   renderCatalog,
+  renderCatalogJobActivity,
   renderJobDetail,
   renderHistory,
   renderRecommendations,
@@ -53,6 +54,7 @@ async function restoreSession(sessionId) {
   refreshActionPanel();
   renderHistory(state.history);
   renderJobDetail(state.selectedJob, state.jobHistory);
+  renderCatalogJobActivity(state.selectedJob, state.catalogJobActivity);
 }
 
 async function loadHistoryForCurrentWallet() {
@@ -76,6 +78,18 @@ async function loadSelectedJobHistory() {
   renderJobDetail(state.selectedJob, jobHistory);
 }
 
+async function loadSelectedCatalogJobActivity() {
+  if (!state.selectedJobId) {
+    state.catalogJobActivity = [];
+    renderCatalogJobActivity(undefined, []);
+    return;
+  }
+
+  const activity = await readJson(`/api/sessions?jobId=${encodeURIComponent(state.selectedJobId)}&limit=12`);
+  state.catalogJobActivity = activity;
+  renderCatalogJobActivity(state.selectedJob, activity);
+}
+
 async function selectJob(jobId) {
   const job = await readJson(`/api/jobs/definition?jobId=${encodeURIComponent(jobId)}`);
   updateSelectedJob(job);
@@ -87,6 +101,7 @@ async function selectJob(jobId) {
   if (expectedSessionId) {
     try {
       await restoreSession(expectedSessionId);
+      await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
       setActionFeedback(`Restored prior session ${expectedSessionId}.`, "success");
       return;
     } catch {
@@ -99,7 +114,7 @@ async function selectJob(jobId) {
   applyVerificationState(undefined);
   setActionFeedback(`Loaded ${job.id}. Claim it when you are ready.`, "neutral");
   refreshActionPanel();
-  await loadSelectedJobHistory();
+  await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
 
 async function loadWallet(wallet) {
@@ -135,6 +150,7 @@ async function loadWallet(wallet) {
   } else if (!state.selectedJobId) {
     updateSelectedJob(undefined);
     renderJobDetail(undefined, []);
+    renderCatalogJobActivity(undefined, []);
     setActionFeedback("No action flow available until recommendations appear.", "neutral");
   }
 }
@@ -162,7 +178,7 @@ async function claimSelectedJob() {
   showToast(`Claimed ${state.selectedJobId}.`, "success");
   refreshActionPanel();
   await loadHistoryForCurrentWallet();
-  await loadSelectedJobHistory();
+  await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
 
 async function submitSelectedWork() {
@@ -181,7 +197,7 @@ async function submitSelectedWork() {
   showToast("Submission stored.", "success");
   refreshActionPanel();
   await loadHistoryForCurrentWallet();
-  await loadSelectedJobHistory();
+  await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
 
 async function verifySelectedWork() {
@@ -209,7 +225,7 @@ async function verifySelectedWork() {
   );
   refreshActionPanel();
   await loadHistoryForCurrentWallet();
-  await loadSelectedJobHistory();
+  await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
 
 async function refreshCurrentSession() {
@@ -330,6 +346,7 @@ function wireHistorySelection(historyList) {
       if (matchingHistory) {
         const job = await readJson(`/api/jobs/definition?jobId=${encodeURIComponent(matchingHistory.jobId)}`);
         updateSelectedJob(job);
+        await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
       }
       await restoreSession(sessionId);
       setActionFeedback(`Loaded session ${sessionId}.`, "success");
@@ -354,6 +371,27 @@ function wireJobRunSelection() {
       console.error(error);
       setActionFeedback(error.message ?? "Failed to load job run.", "error");
       showToast(error.message ?? "Failed to load job run.", "error");
+    }
+  });
+}
+
+function wireCatalogActivitySelection() {
+  const catalogHistory = document.getElementById("catalog-job-history");
+  catalogHistory?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-catalog-session-id]");
+    if (!button) return;
+
+    try {
+      const jobId = button.dataset.catalogJobId;
+      if (jobId && jobId !== state.selectedJobId) {
+        await selectJob(jobId);
+      }
+      await restoreSession(button.dataset.catalogSessionId);
+      setPosterFeedback(`Loaded run ${button.dataset.catalogSessionId} from poster activity.`, "success");
+    } catch (error) {
+      console.error(error);
+      setPosterFeedback(error.message ?? "Failed to load poster run.", "error");
+      showToast(error.message ?? "Failed to load poster run.", "error");
     }
   });
 }
@@ -486,6 +524,7 @@ async function boot() {
   wireCatalogSelection(catalogList);
   wireHistorySelection(historyList);
   wireJobRunSelection();
+  wireCatalogActivitySelection();
   wireActionButtons({ claimButton, submitButton, verifyButton, refreshButton });
   wirePosterControls({ posterForm, refreshCatalogButton, verifierModeSelect });
   refreshActionPanel();

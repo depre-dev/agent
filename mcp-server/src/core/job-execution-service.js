@@ -46,11 +46,11 @@ export class JobExecutionService {
         return existingSession;
       }
 
-      let chainJobId = jobId;
+      const chainJobId = jobId;
       if (this.blockchainGateway?.isEnabled()) {
         const live = await this.blockchainGateway.getJob(jobId);
         if (live.state !== 0 && live.state !== 1) {
-          chainJobId = `${jobId}:${idempotencyKey}`;
+          throw new ConflictError(`Job ${jobId} is not claimable in its current on-chain state.`, "job_not_claimable");
         }
         if (this.blockchainGateway.ensureJob) {
           await this.blockchainGateway.ensureJob(job, chainJobId);
@@ -91,13 +91,19 @@ export class JobExecutionService {
     return this.requireSession(sessionId);
   }
 
-  async listSessionHistory(wallet, limit = 10, jobId = undefined) {
-    const sessions = await this.stateStore.listSessionsByWallet?.(wallet, limit) ?? [];
-    const filtered = jobId
-      ? sessions.filter((session) => session.jobId === jobId)
-      : sessions;
+  async listSessionHistory({ wallet = undefined, limit = 10, jobId = undefined } = {}) {
+    let sessions = [];
+    if (wallet) {
+      sessions = await this.stateStore.listSessionsByWallet?.(wallet, limit) ?? [];
+      if (jobId) {
+        sessions = sessions.filter((session) => session.jobId === jobId);
+      }
+    } else if (jobId) {
+      sessions = await this.stateStore.listSessionsByJob?.(jobId, limit) ?? [];
+    }
+
     return Promise.all(
-      filtered.map(async (session) => ({
+      sessions.map(async (session) => ({
         ...session,
         verification: await this.stateStore.getVerificationResult(session.sessionId) ?? undefined
       }))
@@ -113,6 +119,6 @@ export class JobExecutionService {
   }
 
   getClaimLockTtlSeconds(job) {
-    return Math.max(15, Math.min(Number(job?.claimTtlSeconds ?? 60), 120));
+    return Math.max(60, Math.min(Number(job?.claimTtlSeconds ?? 300), 900));
   }
 }

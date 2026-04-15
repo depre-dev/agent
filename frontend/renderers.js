@@ -195,6 +195,84 @@ export function renderJobDetail(job, jobHistory) {
     .join("");
 }
 
+export function renderCatalogJobActivity(job, entries) {
+  const summaryRoot = document.getElementById("catalog-job-summary");
+  const historyRoot = document.getElementById("catalog-job-history");
+  const countRoot = document.getElementById("catalog-job-count");
+
+  if (!summaryRoot || !historyRoot || !countRoot) return;
+
+  if (!job) {
+    summaryRoot.innerHTML = '<p class="empty-state">Load a catalog job to inspect poster-side activity and worker runs.</p>';
+    historyRoot.innerHTML = '<p class="empty-state">No catalog job selected yet.</p>';
+    countRoot.textContent = "Awaiting selection";
+    return;
+  }
+
+  const approvedRuns = entries.filter((entry) => entry.verification?.outcome === "approved").length;
+  const distinctWallets = new Set(entries.map((entry) => entry.wallet).filter(Boolean)).size;
+  const latestRun = entries[0];
+
+  summaryRoot.innerHTML = `
+    <div class="job-detail-grid">
+      <div class="detail-stat">
+        <dt>Category</dt>
+        <dd>${job.category}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Reward</dt>
+        <dd>${formatAmount(job.rewardAmount)} ${job.rewardAsset}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Verifier</dt>
+        <dd>${job.verifierMode}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Workers / approved</dt>
+        <dd>${distinctWallets} / ${approvedRuns}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Poster summary</dt>
+        <dd>${job.requiresSponsoredGas ? "Sponsored gas enabled" : "Workers self-fund gas"} · TTL ${job.claimTtlSeconds}s · retries ${job.retryLimit}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Latest run</dt>
+        <dd>${latestRun ? `${latestRun.wallet ?? "unknown_wallet"} · ${latestRun.status} · ${latestRun.verification?.reasonCode ?? "pending verification"}` : "No runs recorded for this job yet."}</dd>
+      </div>
+    </div>
+  `;
+
+  countRoot.textContent = `${entries.length} runs across the catalog`;
+
+  if (!entries.length) {
+    historyRoot.innerHTML = '<p class="empty-state">No poster-side activity recorded for this job yet.</p>';
+    return;
+  }
+
+  historyRoot.innerHTML = entries
+    .map(
+      (entry) => `
+        <article class="job-run-card ${entry.sessionId === state.session?.sessionId ? "job-selected" : ""}">
+          <div class="job-topline">
+            <p class="job-id">${entry.wallet ?? "unknown_wallet"}</p>
+            <span class="eligibility-pill ${entry.verification?.outcome === "approved" ? "eligible-yes" : "eligible-no"}">
+              ${entry.verification?.outcome ?? entry.status}
+            </span>
+          </div>
+          <div class="catalog-meta">
+            <span>${entry.sessionId}</span>
+            <span>${entry.verification?.reasonCode ?? "pending"}</span>
+            <span>${entry.updatedAt ? new Date(entry.updatedAt).toLocaleString("en-CH", { dateStyle: "short", timeStyle: "short" }) : "-"}</span>
+          </div>
+          <button class="job-select-button" type="button" data-catalog-session-id="${entry.sessionId}" data-catalog-job-id="${entry.jobId}">
+            ${entry.sessionId === state.session?.sessionId ? "Current run" : "Open run"}
+          </button>
+        </article>
+      `
+    )
+    .join("");
+}
+
 export function updateReputation(reputation) {
   setText("rep-skill", formatAmount(reputation.skill));
   setText("rep-reliability", formatAmount(reputation.reliability));

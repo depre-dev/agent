@@ -6,6 +6,7 @@ export const state = {
   catalog: [],
   history: [],
   jobHistory: [],
+  catalogJobActivity: [],
   selectedJobId: "",
   selectedJob: undefined,
   session: undefined,

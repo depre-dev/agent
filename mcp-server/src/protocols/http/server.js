@@ -10,6 +10,16 @@ function respond(response, statusCode, payload) {
   response.end(JSON.stringify(payload, null, 2));
 }
 
+function requireWallet(url) {
+  const wallet = url.searchParams.get("wallet")?.trim();
+  if (!wallet) {
+    const error = new Error("wallet query parameter is required.");
+    error.name = "ValidationError";
+    throw error;
+  }
+  return wallet;
+}
+
 async function readJsonBody(request) {
   let body = "";
   for await (const chunk of request) {
@@ -73,11 +83,11 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && pathname === "/account") {
-      return respond(response, 200, await service.getAccountSummary(url.searchParams.get("wallet") ?? "0xagent"));
+      return respond(response, 200, await service.getAccountSummary(requireWallet(url)));
     }
 
     if (request.method === "GET" && pathname === "/reputation") {
-      return respond(response, 200, await service.getReputation(url.searchParams.get("wallet") ?? "0xagent"));
+      return respond(response, 200, await service.getReputation(requireWallet(url)));
     }
 
     if (request.method === "GET" && pathname === "/session") {
@@ -94,18 +104,22 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && pathname === "/sessions") {
-      const wallet = url.searchParams.get("wallet") ?? "0xagent";
+      const wallet = url.searchParams.get("wallet") || undefined;
       const limit = Number(url.searchParams.get("limit") ?? 8);
       const jobId = url.searchParams.get("jobId") ?? undefined;
       return respond(
         response,
         200,
-        await service.listSessionHistory(wallet, Number.isFinite(limit) ? limit : 8, jobId)
+        await service.listSessionHistory({
+          wallet,
+          limit: Number.isFinite(limit) ? limit : 8,
+          jobId
+        })
       );
     }
 
     if (request.method === "GET" && pathname === "/jobs/recommendations") {
-      return respond(response, 200, await service.recommendJobs(url.searchParams.get("wallet") ?? "0xagent"));
+      return respond(response, 200, await service.recommendJobs(requireWallet(url)));
     }
 
     if (request.method === "GET" && pathname === "/jobs") {
@@ -122,7 +136,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && pathname === "/jobs/claim") {
-      const wallet = url.searchParams.get("wallet") ?? "0xagent";
+      const wallet = requireWallet(url);
       const jobId = url.searchParams.get("jobId") ?? "";
       const idempotencyKey = url.searchParams.get("idempotencyKey") ?? `${wallet}:${jobId}`;
       return respond(response, 200, await service.claimJob(wallet, jobId, "http", idempotencyKey));

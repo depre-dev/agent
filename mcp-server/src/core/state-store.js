@@ -1,11 +1,19 @@
 import { createClient } from "redis";
 import { ExternalServiceError } from "./errors.js";
 
+const RELEASE_CLAIM_LOCK_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`;
+
 export class MemoryStateStore {
   constructor() {
     this.sessions = new Map();
     this.idempotency = new Map();
     this.jobSessions = new Map();
+    this.jobSessionHistory = new Map();
     this.walletSessions = new Map();
     this.verificationResults = new Map();
     this.claimLocks = new Map();
@@ -24,6 +32,12 @@ export class MemoryStateStore {
     this.sessions.set(persistedSession.sessionId, persistedSession);
     this.idempotency.set(persistedSession.idempotencyKey, persistedSession.sessionId);
     this.jobSessions.set(persistedSession.jobId, persistedSession.sessionId);
+
+    const existingJobHistory = this.jobSessionHistory.get(persistedSession.jobId) ?? [];
+    this.jobSessionHistory.set(
+      persistedSession.jobId,
+      [persistedSession.sessionId, ...existingJobHistory.filter((sessionId) => sessionId !== persistedSession.sessionId)]
+    );
 
     const existing = this.walletSessions.get(persistedSession.wallet) ?? [];
     this.walletSessions.set(
@@ -55,6 +69,11 @@ export class MemoryStateStore {
 
   async listSessionsByWallet(wallet, limit = 10) {
     const sessionIds = (this.walletSessions.get(wallet) ?? []).slice(0, limit);
+    return sessionIds.map((sessionId) => this.sessions.get(sessionId)).filter(Boolean);
+  }
+
+  async listSessionsByJob(jobId, limit = 10) {
+    const sessionIds = (this.jobSessionHistory.get(jobId) ?? []).slice(0, limit);
     return sessionIds.map((sessionId) => this.sessions.get(sessionId)).filter(Boolean);
   }
 
@@ -111,6 +130,10 @@ export class RedisStateStore {
     await this.client.set(this.key("session", persistedSession.sessionId), JSON.stringify(persistedSession));
     await this.client.set(this.key("idempotency", persistedSession.idempotencyKey), persistedSession.sessionId);
     await this.client.set(this.key("job", persistedSession.jobId), persistedSession.sessionId);
+    await this.client.zAdd(this.key("job-sessions", persistedSession.jobId), {
+      score: Date.now(),
+      value: persistedSession.sessionId
+    });
     await this.client.zAdd(this.key("wallet-sessions", persistedSession.wallet), {
       score: Date.now(),
       value: persistedSession.sessionId
@@ -151,6 +174,15 @@ export class RedisStateStore {
     return sessions.filter(Boolean);
   }
 
+  async listSessionsByJob(jobId, limit = 10) {
+    await this.connect();
+    const sessionIds = await this.client.zRange(this.key("job-sessions", jobId), 0, Math.max(limit - 1, 0), {
+      REV: true
+    });
+    const sessions = await Promise.all(sessionIds.map((sessionId) => this.getSession(sessionId)));
+    return sessions.filter(Boolean);
+  }
+
   async acquireClaimLock(lockId, owner, ttlSeconds = 30) {
     await this.connect();
     const reply = await this.client.set(this.key("claim-lock", lockId), owner, {
@@ -163,10 +195,10 @@ export class RedisStateStore {
   async releaseClaimLock(lockId, owner) {
     await this.connect();
     const key = this.key("claim-lock", lockId);
-    const existing = await this.client.get(key);
-    if (existing === owner) {
-      await this.client.del(key);
-    }
+    await this.client.eval(RELEASE_CLAIM_LOCK_SCRIPT, {
+      keys: [key],
+      arguments: [owner]
+    });
   }
 
   async healthCheck() {
