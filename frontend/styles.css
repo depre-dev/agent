@@ -234,6 +234,14 @@ main {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(20rem, 0.9fr);
   gap: 1.5rem;
+  align-items: start;
+}
+
+.operator-panel,
+.recommendation-panel {
+  display: grid;
+  gap: 1.25rem;
+  align-content: start;
 }
 
 .section-note {
@@ -243,7 +251,7 @@ main {
 }
 
 .wallet-form {
-  margin: 1.2rem 0 1.4rem;
+  margin: 0;
 }
 
 .wallet-row {
@@ -388,8 +396,8 @@ main {
 }
 
 .action-shell {
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: 0;
+  padding-top: 1.15rem;
   border-top: 1px solid var(--line);
   display: grid;
   gap: 1rem;
@@ -458,6 +466,14 @@ main {
 .job-select-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.action-shell .wallet-feedback {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.5);
+  overflow-wrap: anywhere;
 }
 
 .roadmap {
