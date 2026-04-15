@@ -6,6 +6,7 @@ export class MemoryStateStore {
     this.idempotency = new Map();
     this.jobSessions = new Map();
     this.verificationResults = new Map();
+    this.claimLocks = new Map();
   }
 
   async getSession(sessionId) {
@@ -36,6 +37,27 @@ export class MemoryStateStore {
   async upsertVerificationResult(sessionId, result) {
     this.verificationResults.set(sessionId, result);
     return result;
+  }
+
+  async acquireClaimLock(lockId, owner, ttlSeconds = 30) {
+    const now = Date.now();
+    const existing = this.claimLocks.get(lockId);
+    if (existing && existing.expiresAt > now && existing.owner !== owner) {
+      return false;
+    }
+
+    this.claimLocks.set(lockId, {
+      owner,
+      expiresAt: now + (ttlSeconds * 1000)
+    });
+    return true;
+  }
+
+  async releaseClaimLock(lockId, owner) {
+    const existing = this.claimLocks.get(lockId);
+    if (existing?.owner === owner) {
+      this.claimLocks.delete(lockId);
+    }
   }
 }
 
@@ -85,6 +107,24 @@ export class RedisStateStore {
     return result;
   }
 
+  async acquireClaimLock(lockId, owner, ttlSeconds = 30) {
+    await this.connect();
+    const reply = await this.client.set(this.key("claim-lock", lockId), owner, {
+      NX: true,
+      EX: ttlSeconds
+    });
+    return reply === "OK";
+  }
+
+  async releaseClaimLock(lockId, owner) {
+    await this.connect();
+    const key = this.key("claim-lock", lockId);
+    const existing = await this.client.get(key);
+    if (existing === owner) {
+      await this.client.del(key);
+    }
+  }
+
   async connect() {
     if (!this.connectionPromise) {
       this.connectionPromise = this.client.connect();
@@ -103,4 +143,3 @@ export function createStateStore(env = process.env) {
   }
   return new MemoryStateStore();
 }
-

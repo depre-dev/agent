@@ -1,4 +1,5 @@
 import { createStateStore } from "./state-store.js";
+import { randomUUID } from "node:crypto";
 
 const STARTER_REPUTATION = {
   skill: 0,
@@ -23,6 +24,12 @@ const VALID_VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallb
 function createValidationError(message) {
   const error = new Error(message);
   error.name = "ValidationError";
+  return error;
+}
+
+function createConflictError(message) {
+  const error = new Error(message);
+  error.name = "ConflictError";
   return error;
 }
 
@@ -214,30 +221,62 @@ export class PlatformService {
     if (existing) {
       return existing;
     }
+
     const job = this.requireJob(jobId);
-    let chainJobId = jobId;
-    if (this.blockchainGateway?.isEnabled()) {
-      const live = await this.blockchainGateway.getJob(jobId);
-      if (live.state !== 0 && live.state !== 1) {
-        chainJobId = `${jobId}:${idempotencyKey}`;
+    const sessionId = `${jobId}:${wallet}`;
+    const sessionLockId = sessionId;
+    const lockOwner = randomUUID();
+    const lockAcquired = await this.stateStore.acquireClaimLock?.(
+      sessionLockId,
+      lockOwner,
+      this.getClaimLockTtlSeconds(job)
+    );
+
+    if (lockAcquired === false) {
+      const racedSession = await this.stateStore.getSession(sessionId);
+      if (racedSession) {
+        return racedSession;
       }
-      if (this.blockchainGateway.ensureJob) {
-        await this.blockchainGateway.ensureJob(job, chainJobId);
-      }
-      await this.blockchainGateway.claimJob(chainJobId);
+      throw createConflictError(`Claim already in progress for ${sessionId}`);
     }
 
-    const session = {
-      sessionId: `${jobId}:${wallet}`,
-      wallet,
-      jobId,
-      chainJobId,
-      idempotencyKey,
-      status: "claimed",
-      protocolHistory: [protocol]
-    };
+    try {
+      const replay = await this.stateStore.findSessionByIdempotencyKey(idempotencyKey);
+      if (replay) {
+        return replay;
+      }
 
-    return this.stateStore.upsertSession(session);
+      const existingSession = await this.stateStore.getSession(sessionId);
+      if (existingSession) {
+        return existingSession;
+      }
+
+      let chainJobId = jobId;
+      if (this.blockchainGateway?.isEnabled()) {
+        const live = await this.blockchainGateway.getJob(jobId);
+        if (live.state !== 0 && live.state !== 1) {
+          chainJobId = `${jobId}:${idempotencyKey}`;
+        }
+        if (this.blockchainGateway.ensureJob) {
+          await this.blockchainGateway.ensureJob(job, chainJobId);
+        }
+        await this.blockchainGateway.claimJob(chainJobId);
+      }
+
+      const session = {
+        sessionId,
+        wallet,
+        jobId,
+        chainJobId,
+        idempotencyKey,
+        status: "claimed",
+        protocolHistory: [protocol]
+      };
+
+      return this.stateStore.upsertSession(session);
+    } finally {
+      await this.stateStore.releaseClaimLock?.(sessionLockId, lockOwner);
+    }
   }
 
   async submitWork(sessionId, protocol, evidence = "submitted-via-service") {
@@ -475,5 +514,9 @@ export class PlatformService {
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "");
+  }
+
+  getClaimLockTtlSeconds(job) {
+    return Math.max(15, Math.min(Number(job?.claimTtlSeconds ?? 60), 120));
   }
 }

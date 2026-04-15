@@ -133,6 +133,9 @@ const server = createServer(async (request, response) => {
     if (error.name === "ValidationError") {
       return respond(response, 400, { error: error.message ?? "invalid_request" });
     }
+    if (error.name === "ConflictError") {
+      return respond(response, 409, { error: error.message ?? "conflict" });
+    }
     return respond(response, 500, { error: error.message ?? "internal_error" });
   }
 });
