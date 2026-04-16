@@ -547,7 +547,7 @@ export function renderCatalog(jobs) {
   if (!root) return;
 
   if (!jobs.length) {
-    root.innerHTML = '<p class="empty-state">No jobs are live yet. Publish one from the poster panel to seed the catalog.</p>';
+    root.innerHTML = '<p class="empty-state">No jobs are live yet. Publish one from the poster panel to seed the live catalog.</p>';
     return;
   }
 
@@ -639,7 +639,7 @@ export function renderJobDetail(job, jobHistory) {
   if (!job) {
     summaryRoot.innerHTML = '<p class="empty-state">Select a job to inspect its verifier rules, stake requirement, and recent run history for this wallet.</p>';
     historyRoot.innerHTML = '<p class="empty-state">Job-specific run history will appear here after you select a job.</p>';
-    historyCount.textContent = "Awaiting selection";
+    historyCount.textContent = "No job selected";
     return;
   }
 
@@ -690,7 +690,7 @@ export function renderJobDetail(job, jobHistory) {
       </div>
       <div class="detail-stat detail-span">
         <dt>Latest run</dt>
-        <dd>${latestRun ? `${latestRun.status} · ${latestRun.verification?.reasonCode ?? "pending verification"}` : "No runs yet for this wallet."}</dd>
+        <dd>${latestRun ? `${latestRun.status} · ${latestRun.verification?.reasonCode ?? "pending verification"}` : "This wallet has not run the selected job yet."}</dd>
       </div>
     </div>
   `;
@@ -736,7 +736,7 @@ export function renderCatalogJobActivity(job, entries) {
   if (!job) {
     summaryRoot.innerHTML = '<p class="empty-state">Load any catalog job to inspect worker activity, outcomes, and poster-side monitoring metrics.</p>';
     historyRoot.innerHTML = '<p class="empty-state">Poster-side run activity will appear here after you load a catalog job.</p>';
-    countRoot.textContent = "Awaiting selection";
+    countRoot.textContent = "No job selected";
     return;
   }
 
@@ -781,7 +781,7 @@ export function renderCatalogJobActivity(job, entries) {
       </div>
       <div class="detail-stat detail-span">
         <dt>Latest run</dt>
-        <dd>${latestRun ? `${latestRun.wallet ?? "unknown_wallet"} · ${latestRun.status} · ${latestRun.verification?.reasonCode ?? "pending verification"}` : "No runs recorded for this job yet."}</dd>
+        <dd>${latestRun ? `${latestRun.wallet ?? "unknown_wallet"} · ${latestRun.status} · ${latestRun.verification?.reasonCode ?? "pending verification"}` : "No worker runs have been recorded for this job yet."}</dd>
       </div>
       <div class="detail-stat detail-span">
         <dt>Monitoring focus</dt>

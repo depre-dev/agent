@@ -47,19 +47,19 @@
           <dl class="status-grid">
             <div>
               <dt>API</dt>
-              <dd id="api-status">Loading</dd>
+              <dd id="api-status">Checking</dd>
             </div>
             <div>
               <dt>Indexer</dt>
-              <dd id="index-status">Loading</dd>
+              <dd id="index-status">Checking</dd>
             </div>
             <div>
               <dt>Protocols</dt>
-              <dd id="protocol-status">Loading</dd>
+              <dd id="protocol-status">Checking</dd>
             </div>
             <div>
               <dt>Starter flow</dt>
-              <dd id="starter-flow">Loading</dd>
+              <dd id="starter-flow">Checking</dd>
             </div>
           </dl>
         </aside>
@@ -217,7 +217,7 @@
               <section class="detail-card">
                 <div class="detail-head">
                   <h3>Reputation</h3>
-                  <span id="tier-badge" class="tier-badge">Loading</span>
+                  <span id="tier-badge" class="tier-badge">Checking</span>
                 </div>
                 <dl class="metric-list">
                   <div>
@@ -263,7 +263,7 @@
             <section class="history-shell">
               <div class="detail-head">
                 <h3>Live activity</h3>
-                <span id="activity-count" class="section-note">No live events yet</span>
+                <span id="activity-count" class="section-note">Waiting for live activity</span>
               </div>
               <div id="activity-feed" class="activity-feed">
                 <p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>
@@ -309,7 +309,7 @@
             <section class="action-shell">
               <div class="detail-head">
                 <h3>Execution flow</h3>
-                <span id="action-pill" class="status-pill status-pending">Awaiting job</span>
+                <span id="action-pill" class="status-pill status-pending">Choose a job</span>
               </div>
 
               <p id="selected-job-copy" class="section-note">
@@ -322,7 +322,7 @@
               <div class="execution-summary-grid">
                 <article class="funding-card">
                   <p>Current stage</p>
-                  <strong id="execution-stage">Awaiting job</strong>
+                  <strong id="execution-stage">Choose a job</strong>
                   <span>The present step in the claim-to-verify workflow for the signed-in worker.</span>
                 </article>
                 <article class="funding-card">
@@ -404,7 +404,7 @@
             <section class="job-detail-shell">
               <div class="detail-head">
                 <h3>Session detail</h3>
-                <span id="session-detail-count" class="section-note">Awaiting session</span>
+                <span id="session-detail-count" class="section-note">No session selected</span>
               </div>
               <div id="session-detail-summary" class="job-detail-summary">
                 <p class="empty-state">Claim a job or open a past run to inspect session metadata, settlement status, and impact notes here.</p>
@@ -414,13 +414,13 @@
             <section class="job-detail-shell">
               <div class="detail-head">
                 <h3>Job detail</h3>
-                <span id="job-detail-count" class="section-note">Awaiting selection</span>
+                <span id="job-detail-count" class="section-note">No job selected</span>
               </div>
               <div id="job-detail-summary" class="job-detail-summary">
                 <p class="empty-state">Select a job to inspect its verifier, rules, and recent runs.</p>
               </div>
               <div id="job-detail-history" class="job-detail-history">
-                <p class="empty-state">No job selected yet.</p>
+                <p class="empty-state">Job-specific run history will appear here after you select a job.</p>
               </div>
             </section>
           </article>
@@ -560,14 +560,14 @@ summary</textarea>
                       <option value="disputed">Disputed</option>
                     </select>
                   </label>
-                  <span id="catalog-job-count" class="section-note">Awaiting selection</span>
+                  <span id="catalog-job-count" class="section-note">No job selected</span>
                 </div>
               </div>
               <div id="catalog-job-summary" class="job-detail-summary">
                 <p class="empty-state">Load a catalog job to inspect poster-side activity and worker runs.</p>
               </div>
               <div id="catalog-job-history" class="job-detail-history">
-                <p class="empty-state">No catalog job selected yet.</p>
+                <p class="empty-state">Poster-side run activity will appear here after you load a catalog job.</p>
               </div>
             </section>
           </article>
