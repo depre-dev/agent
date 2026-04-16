@@ -394,7 +394,9 @@ export function renderActivityFeed(entries = state.activity) {
 
   if (!entries.length) {
     root.innerHTML =
-      '<p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>';
+      state.wallet
+        ? '<p class="empty-state">Realtime activity will appear here as this wallet claims jobs, submits evidence, receives verifier outcomes, and moves stake or reputation on-chain.</p>'
+        : '<p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>';
     return;
   }
 
@@ -434,7 +436,9 @@ export function renderSessionDetail() {
   if (!session?.sessionId) {
     count.textContent = "Awaiting session";
     root.innerHTML =
-      '<p class="empty-state">Claim a job or open a past run to inspect session metadata, settlement status, and impact notes here.</p>';
+      state.wallet
+        ? '<p class="empty-state">Open any run from history or claim a job to inspect session metadata, settlement status, and impact notes here.</p>'
+        : '<p class="empty-state">Sign in and open a run to inspect session metadata, settlement status, and impact notes here.</p>';
     return;
   }
 
@@ -506,7 +510,9 @@ export function renderRecommendations(recommendations) {
   if (!root) return;
 
   if (!recommendations.length) {
-    root.innerHTML = '<p class="empty-state">No recommendations returned for this wallet yet.</p>';
+    root.innerHTML = state.wallet
+      ? '<p class="empty-state">No recommendations are ready for this wallet yet. Try funding Mock DOT, raising reputation, or creating a fresh job from the poster panel.</p>'
+      : '<p class="empty-state">Sign in to load recommendations tailored to the active worker wallet.</p>';
     return;
   }
 
@@ -541,7 +547,7 @@ export function renderCatalog(jobs) {
   if (!root) return;
 
   if (!jobs.length) {
-    root.innerHTML = '<p class="empty-state">No jobs are live yet.</p>';
+    root.innerHTML = '<p class="empty-state">No jobs are live yet. Publish one from the poster panel to seed the catalog.</p>';
     return;
   }
 
@@ -587,12 +593,14 @@ export function renderHistory(entries) {
   }
 
   if (!entries.length) {
-    root.innerHTML = '<p class="empty-state">No sessions recorded for this wallet yet.</p>';
+    root.innerHTML = state.wallet
+      ? '<p class="empty-state">This wallet has not run any jobs yet. Claim a job to start building session history.</p>'
+      : '<p class="empty-state">Sign in to load the recent session history for the active worker wallet.</p>';
     return;
   }
 
   if (!filteredEntries.length) {
-    root.innerHTML = '<p class="empty-state">No sessions match the current filter yet.</p>';
+    root.innerHTML = '<p class="empty-state">No sessions match the current filter yet. Switch filters or open another run state from the full history.</p>';
     return;
   }
 
@@ -629,8 +637,8 @@ export function renderJobDetail(job, jobHistory) {
   if (!summaryRoot || !historyRoot || !historyCount) return;
 
   if (!job) {
-    summaryRoot.innerHTML = '<p class="empty-state">Select a job to inspect its verifier, rules, and recent runs.</p>';
-    historyRoot.innerHTML = '<p class="empty-state">No job selected yet.</p>';
+    summaryRoot.innerHTML = '<p class="empty-state">Select a job to inspect its verifier rules, stake requirement, and recent run history for this wallet.</p>';
+    historyRoot.innerHTML = '<p class="empty-state">Job-specific run history will appear here after you select a job.</p>';
     historyCount.textContent = "Awaiting selection";
     return;
   }
@@ -690,7 +698,7 @@ export function renderJobDetail(job, jobHistory) {
   historyCount.textContent = `${jobHistory.length} runs for this job`;
 
   if (!jobHistory.length) {
-    historyRoot.innerHTML = '<p class="empty-state">No runs recorded for this job and wallet yet.</p>';
+    historyRoot.innerHTML = '<p class="empty-state">This wallet has not run the selected job yet. Claim it to create the first session.</p>';
     return;
   }
 
@@ -726,8 +734,8 @@ export function renderCatalogJobActivity(job, entries) {
   if (!summaryRoot || !historyRoot || !countRoot) return;
 
   if (!job) {
-    summaryRoot.innerHTML = '<p class="empty-state">Load a catalog job to inspect poster-side activity and worker runs.</p>';
-    historyRoot.innerHTML = '<p class="empty-state">No catalog job selected yet.</p>';
+    summaryRoot.innerHTML = '<p class="empty-state">Load any catalog job to inspect worker activity, outcomes, and poster-side monitoring metrics.</p>';
+    historyRoot.innerHTML = '<p class="empty-state">Poster-side run activity will appear here after you load a catalog job.</p>';
     countRoot.textContent = "Awaiting selection";
     return;
   }
@@ -789,12 +797,12 @@ export function renderCatalogJobActivity(job, entries) {
   countRoot.textContent = `${filteredEntries.length} ${filterLabel} runs · ${entries.length} total`;
 
   if (!entries.length) {
-    historyRoot.innerHTML = '<p class="empty-state">No poster-side activity recorded for this job yet.</p>';
+    historyRoot.innerHTML = '<p class="empty-state">No worker activity has been recorded for this job yet. Once claims start, runs will appear here.</p>';
     return;
   }
 
   if (!filteredEntries.length) {
-    historyRoot.innerHTML = `<p class="empty-state">No ${filterLabel} runs match the current filter for this job yet.</p>`;
+    historyRoot.innerHTML = `<p class="empty-state">No ${filterLabel} runs match the current filter for this job yet. Switch filters to inspect other worker outcomes.</p>`;
     return;
   }
 
