@@ -14,6 +14,7 @@
  * `onAuthChange(listener)` and update their own DOM.
  */
 
+import { apiUrl } from "./config.js";
 import { debug } from "./ui-helpers.js";
 
 const TOKEN_KEY = "averray:auth-token";
@@ -129,7 +130,7 @@ export async function signIn() {
     throw new Error("Wallet returned no accounts. Unlock the wallet and retry.");
   }
 
-  const nonceResponse = await fetch("/api/auth/nonce", {
+  const nonceResponse = await fetch(apiUrl("/auth/nonce"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ wallet: rawAddress })
@@ -145,7 +146,7 @@ export async function signIn() {
     params: [noncePayload.message, rawAddress]
   });
 
-  const verifyResponse = await fetch("/api/auth/verify", {
+  const verifyResponse = await fetch(apiUrl("/auth/verify"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ message: noncePayload.message, signature })

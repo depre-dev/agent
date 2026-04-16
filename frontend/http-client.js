@@ -1,4 +1,24 @@
 import { getAuthHeader, requestReauth } from "./auth.js";
+import { apiUrl } from "./config.js";
+
+/**
+ * Normalise the caller-supplied path so callers can write:
+ *   readJson("/jobs")             → <apiBase>/jobs
+ *   readJson("/api/jobs")         → <apiBase>/jobs  (legacy, still supported)
+ *   readJson("/index/")           → /index/         (absolute, bypass apiBase)
+ *   readJson("https://…/foo")     → same absolute URL
+ * Any path that begins with `/api/` is treated as the legacy hardcoded form
+ * and rewritten against the configured apiBase so a prod domain change only
+ * requires updating window.__AVERRAY_CONFIG__.apiBaseUrl.
+ */
+function resolvePath(path) {
+  if (!path) return apiUrl("/");
+  if (/^https?:\/\//u.test(path)) return path;
+  if (path.startsWith("/api/")) return apiUrl(path.slice(4));
+  if (path.startsWith("/api")) return apiUrl(path.slice(4) || "/");
+  if (path.startsWith("/")) return path;
+  return apiUrl(`/${path}`);
+}
 
 async function requestJson(path, init = {}, { retryOn401 = true } = {}) {
   const headers = new Headers(init.headers ?? {});
@@ -17,7 +37,7 @@ async function requestJson(path, init = {}, { retryOn401 = true } = {}) {
     }
   }
 
-  const response = await fetch(path, {
+  const response = await fetch(resolvePath(path), {
     ...init,
     headers
   });

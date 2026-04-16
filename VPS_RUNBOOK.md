@@ -66,11 +66,24 @@ cd /srv/agent-stack/app
 ./scripts/ops/redeploy-backend.sh
 ```
 
-This will:
+The script now:
 
-1. fast-forward the repo to `origin/main`
-2. rebuild `agent-backend`
-3. hit the live API health endpoint
+1. Pins the pre-deploy SHA for rollback.
+2. Fast-forwards the repo to `origin/main`.
+3. Rebuilds `agent-backend`.
+4. Polls `HEALTH_URL` (default `https://api.averray.com/health`) for up to
+   `HEALTH_TIMEOUT_SEC` (default 120) seconds.
+5. **Automatically rolls back** to the previous SHA and rebuilds if health
+   never turns green. Set `SKIP_ROLLBACK=1` to leave an unhealthy deploy in
+   place for debugging.
+
+Override defaults via env:
+
+```bash
+HEALTH_URL=https://staging.api.averray.com/health \
+HEALTH_TIMEOUT_SEC=180 \
+./scripts/ops/redeploy-backend.sh
+```
 
 Note: the staking and slashing contract changes require a contract redeploy and refreshed backend env values, not just a backend image rebuild.
 
@@ -244,3 +257,98 @@ At minimum:
 - take a Postgres backup before risky backend or schema changes
 - use the scripted backend redeploy instead of ad-hoc commands
 - verify `api`, `index`, and discovery immediately after deploys
+
+## Observability
+
+- `GET /metrics` on the backend exposes Prometheus text-format metrics:
+  `http_requests_total`, `http_request_duration_ms`, `auth_failures_total`,
+  `rate_limit_rejections_total`, `sse_active_connections`,
+  `state_store_backend`. Leave `METRICS_BEARER_TOKEN` unset for same-network
+  scrapers, or set it to a random token when `/metrics` is publicly reachable.
+- Sentry is opt-in. To enable on the backend:
+  ```bash
+  cd /srv/agent-stack/app/mcp-server
+  npm install @sentry/node
+  # then in backend.env:
+  SENTRY_DSN=https://...
+  SENTRY_ENVIRONMENT=production
+  SENTRY_RELEASE=<git sha or tag>
+  ```
+  The error path only ships 5xx exceptions to Sentry; 4xx auth failures stay in
+  logs + metrics.
+- Frontend Sentry: uncomment the Sentry CDN `<script>` in `frontend/index.html`
+  and set `sentryDsn` under `window.__AVERRAY_CONFIG__`.
+- Structured logs are JSON on stdout with a per-request `requestId`. Filter with
+  `docker compose logs backend | jq 'select(.requestId == "...")'`.
+
+## Monthly backup-restore drill
+
+Verifying that backups are restorable is the only way to know they work. Run
+this on the first of each month in a disposable target:
+
+```bash
+# 1. Grab the most recent dump
+LATEST=$(ls -1t /srv/agent-stack/backups/postgres/*.sql.gz | head -1)
+
+# 2. Spin up a throwaway Postgres on port 55432
+docker run -d --name pg-restore-test \
+  -e POSTGRES_PASSWORD=test -p 55432:5432 postgres:16
+
+# 3. Pipe the dump in
+gunzip -c "$LATEST" | docker exec -i pg-restore-test \
+  psql -U postgres
+
+# 4. Eyeball a table you care about
+docker exec pg-restore-test psql -U postgres -c "\\dt"
+
+# 5. Tear down
+docker rm -f pg-restore-test
+```
+
+If the restore fails, check `docker compose logs postgres` for schema or
+version drift; a failed drill is a P1 — fix it before the next risky change.
+
+## Incident response
+
+### Escalation ladder
+
+1. **Detect** — alert from uptime monitor, Sentry, or user report.
+2. **Stabilise** — if the protocol is moving funds in unexpected ways, call
+   `setPaused(true)` from the pauser hot-key via the multisig/PolkadotJS
+   extension. Pause is 1-signature (pauser role) and stops every mutating
+   function on `EscrowCore` and `AgentAccountCore`. Value cannot move while
+   paused.
+3. **Triage** — pull the relevant `requestId` from logs, check `/metrics`
+   for rate-limit or 5xx spikes, verify indexer isn't lagging (`/health` on
+   the indexer service).
+4. **Mitigate** — if code-level: redeploy with fix (auto-rollback on failed
+   health). If config-level: edit `backend.env` and redeploy.
+5. **Post-mortem** — file a note in the repo with: timeline, blast radius,
+   root cause, prevention.
+
+### Contact + roles
+
+Fill these in as the signer set grows:
+
+- Primary oncall: <you>
+- Backup oncall: <TBD>
+- Multisig signers: <TBD>
+- External party auth (if any): <TBD>
+
+### Commands you'll reach for
+
+```bash
+# Pause the protocol (hot-key pauser)
+# From a machine with the pauser private key or PolkadotJS extension access:
+cast send "$TREASURY_POLICY" "setPaused(bool)" true \
+  --rpc-url "$RPC_URL" --private-key "$PAUSER_KEY"
+
+# Unpause once the issue is resolved
+cast send "$TREASURY_POLICY" "setPaused(bool)" false \
+  --rpc-url "$RPC_URL" --private-key "$PAUSER_KEY"
+
+# Force a rollback without health-check
+SKIP_ROLLBACK=1 ./scripts/ops/redeploy-backend.sh  # leave broken build for inspection
+git -C /srv/agent-stack/app checkout <known-good-sha>
+docker compose --project-directory /srv/agent-stack up -d --build backend
+```

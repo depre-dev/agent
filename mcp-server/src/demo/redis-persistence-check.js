@@ -14,8 +14,8 @@ async function main() {
   const namespace = process.env.REDIS_NAMESPACE ?? `agent-platform-check-${Date.now()}`;
   process.env.REDIS_NAMESPACE = namespace;
 
-  const runtimeA = createPlatformRuntime();
-  const runtimeB = createPlatformRuntime();
+  const runtimeA = await createPlatformRuntime();
+  const runtimeB = await createPlatformRuntime();
 
   const firstSession = await runtimeA.platformService.claimJob(
     "0xagent",

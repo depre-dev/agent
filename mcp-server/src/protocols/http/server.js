@@ -25,8 +25,18 @@ const {
   rateLimitConfig,
   httpConfig,
   trustProxy,
-  logger
-} = createPlatformRuntime();
+  logger,
+  metrics,
+  observability
+} = await createPlatformRuntime();
+
+// Label the state-store gauge once at boot for Prometheus discovery.
+metrics.gauge("state_store_backend", "1 when state store backend matches the label.", ["backend"]).set(
+  { backend: stateStore.constructor.name },
+  1
+);
+
+const METRICS_BEARER_TOKEN = process.env.METRICS_BEARER_TOKEN?.trim() || undefined;
 const port = Number(process.env.PORT ?? 8787);
 
 const SIWE_STATEMENT = "Sign in to the Agent Platform.";
@@ -153,7 +163,52 @@ async function enforceLimit(bucket, key, limits) {
   if (!rateLimiter) {
     return;
   }
-  await rateLimiter(bucket, key, limits);
+  try {
+    await rateLimiter(bucket, key, limits);
+  } catch (error) {
+    if (error?.code === "rate_limited") {
+      metrics.counter("rate_limit_rejections_total").inc({ bucket });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Normalise a URL path into a low-cardinality metric label. Without this
+ * every unique `sessionId` / `jobId` becomes its own Prometheus series,
+ * which defeats the purpose. Known static paths pass through; anything
+ * else collapses to a bucket label so scrape payloads stay small.
+ */
+function metricPathLabel(pathname) {
+  const known = new Set([
+    "/",
+    "/health",
+    "/metrics",
+    "/onboarding",
+    "/jobs",
+    "/jobs/definition",
+    "/jobs/recommendations",
+    "/jobs/preflight",
+    "/jobs/claim",
+    "/jobs/submit",
+    "/admin/jobs",
+    "/account",
+    "/account/fund",
+    "/reputation",
+    "/session",
+    "/sessions",
+    "/events",
+    "/auth/nonce",
+    "/auth/verify",
+    "/verifier/handlers",
+    "/verifier/result",
+    "/verifier/run",
+    "/gas/health",
+    "/gas/capabilities",
+    "/gas/quote",
+    "/gas/sponsor"
+  ]);
+  return known.has(pathname) ? pathname : "other";
 }
 
 const server = createServer(async (request, response) => {
@@ -168,6 +223,16 @@ const server = createServer(async (request, response) => {
   response._requestId = requestId;
   response.on("finish", () => {
     const durationMs = Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
+    const pathLabel = metricPathLabel(pathname);
+    metrics.counter("http_requests_total").inc({
+      method: request.method ?? "UNKNOWN",
+      path: pathLabel,
+      status: String(response.statusCode ?? 0)
+    });
+    metrics.histogram("http_request_duration_ms").observe(
+      { method: request.method ?? "UNKNOWN", path: pathLabel },
+      durationMs
+    );
     requestLogger.info(
       {
         method: request.method,
@@ -198,6 +263,7 @@ const server = createServer(async (request, response) => {
         authMode: authConfig.mode,
         endpoints: [
           "/health",
+          "/metrics",
           "/onboarding",
           "/auth/nonce",
           "/auth/verify",
@@ -236,6 +302,25 @@ const server = createServer(async (request, response) => {
           gasSponsor: gasHealth
         }
       });
+    }
+
+    if (request.method === "GET" && pathname === "/metrics") {
+      // Optionally gated. Leave METRICS_BEARER_TOKEN unset for the standard
+      // Prometheus "scrape any network peer" convention; set it to a random
+      // token when /metrics is reachable from the public internet.
+      if (METRICS_BEARER_TOKEN) {
+        const header = request.headers.authorization ?? "";
+        if (header !== `Bearer ${METRICS_BEARER_TOKEN}`) {
+          return respond(response, 401, { error: "unauthorized" });
+        }
+      }
+      response.writeHead(200, {
+        "content-type": "text/plain; version=0.0.4",
+        ...(response._corsHeaders ?? {}),
+        "x-request-id": response._requestId ?? ""
+      });
+      response.end(metrics.serialize());
+      return;
     }
 
     if (request.method === "GET" && pathname === "/onboarding") {
@@ -394,9 +479,11 @@ const server = createServer(async (request, response) => {
         writeSseEvent(response, { id: event.id, topic: event.topic, data: event });
       });
 
+      metrics.gauge("sse_active_connections").inc();
       request.on("close", () => {
         clearInterval(heartbeat);
         unsubscribe?.();
+        metrics.gauge("sse_active_connections").dec();
         response.end();
       });
       return;
@@ -541,6 +628,19 @@ const server = createServer(async (request, response) => {
       },
       "http.error"
     );
+    if ((normalized.statusCode ?? 500) === 401 || (normalized.statusCode ?? 500) === 403) {
+      metrics.counter("auth_failures_total").inc({ code: normalized.code ?? "unknown" });
+    }
+    if ((normalized.statusCode ?? 500) >= 500) {
+      // 5xx only — we deliberately don't ship 4xx noise to Sentry.
+      observability.captureException(error instanceof Error ? error : new Error(String(error)), {
+        requestId,
+        method: request.method,
+        path: pathname,
+        status: normalized.statusCode ?? 500,
+        code: normalized.code
+      });
+    }
     return respond(
       response,
       normalized.statusCode ?? 500,

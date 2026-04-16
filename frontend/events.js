@@ -1,4 +1,5 @@
 import { getAuthToken, requestReauth } from "./auth.js";
+import { apiUrl } from "./config.js";
 import { debug } from "./ui-helpers.js";
 
 const EVENT_TOPICS = [
@@ -88,7 +89,7 @@ export function startEventStream({ wallet, sessionId, jobId, topics = [], onEven
     const token = getAuthToken();
     if (token) params.set("token", token);
 
-    source = new EventSource(`/api/events?${params.toString()}`);
+    source = new EventSource(`${apiUrl("/events")}?${params.toString()}`);
 
     source.onopen = () => {
       reconnectAttempts = 0;

@@ -10,6 +10,8 @@ import { loadAuthConfig } from "../auth/config.js";
 import { createAuthMiddleware } from "../auth/middleware.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { createLogger } from "../core/logger.js";
+import { MetricRegistry } from "../core/metrics.js";
+import { createObservability } from "../core/observability.js";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -96,11 +98,13 @@ export function createPlatformService() {
   return new PlatformService(jobs, profiles, accounts, reputations, gateway, stateStore, eventBus);
 }
 
-export function createPlatformRuntime() {
+export async function createPlatformRuntime() {
   const logger = createLogger({
     name: "agent-platform",
     level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "production" ? "info" : "debug")
   });
+  const metrics = initStep("init-metrics", logger, () => createMetrics());
+  const observability = await createObservability({ logger });
 
   // Each init step is wrapped so a failing step logs a structured error with
   // the step name before the process exits. Without this, a cryptic stack
@@ -150,8 +154,21 @@ export function createPlatformRuntime() {
     rateLimitConfig,
     httpConfig,
     trustProxy,
-    logger
+    logger,
+    metrics,
+    observability
   };
+}
+
+function createMetrics() {
+  const registry = new MetricRegistry();
+  registry.counter("http_requests_total", "Total HTTP requests served.", ["method", "path", "status"]);
+  registry.histogram("http_request_duration_ms", "Request duration in milliseconds.", ["method", "path"]);
+  registry.counter("auth_failures_total", "Auth or authorization failures by code.", ["code"]);
+  registry.counter("rate_limit_rejections_total", "Rate-limit rejections by bucket.", ["bucket"]);
+  registry.gauge("sse_active_connections", "Currently open SSE connections.");
+  registry.gauge("state_store_backend", "1 when state store backend matches the label.", ["backend"]);
+  return registry;
 }
 
 function initStep(name, logger, factory) {

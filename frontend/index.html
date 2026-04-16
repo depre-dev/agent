@@ -11,6 +11,32 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
+
+    <!--
+      Runtime config. Deployments can overwrite this inline <script> (for
+      example via a `sed`-templated copy of index.html at container build
+      time) without changing any other file. Everything the app reads is
+      under `window.__AVERRAY_CONFIG__`; see frontend/config.js for the
+      full shape and defaults.
+    -->
+    <script>
+      window.__AVERRAY_CONFIG__ = {
+        apiBaseUrl: "/api",
+        chainId: 0,
+        chainName: "",
+        // Leave sentryDsn empty to disable client-side Sentry. When set, also
+        // uncomment the Sentry CDN <script> below so `window.Sentry` is
+        // available before frontend/observability.js runs init().
+        sentryDsn: "",
+        sentryEnvironment: "production",
+        sentryRelease: "",
+        sentryTracesSampleRate: 0
+      };
+    </script>
+    <!--
+      Optional: Sentry browser SDK. Uncomment + pin a release to enable.
+      <script src="https://browser.sentry-cdn.com/7.120.0/bundle.min.js" crossorigin="anonymous"></script>
+    -->
   </head>
   <body>
     <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>

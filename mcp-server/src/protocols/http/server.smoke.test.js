@@ -176,3 +176,19 @@ test("http smoke: OPTIONS preflight returns CORS headers only for allowed origin
     assert.equal(response.headers.get("access-control-allow-origin"), null);
   });
 });
+
+test("http smoke: /metrics emits Prometheus text format with baseline series", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    // Warm the metrics: one unauthenticated admin call to populate counters.
+    await fetch(`${base}/admin/jobs`, { method: "POST" }).catch(() => undefined);
+
+    const response = await fetch(`${base}/metrics`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /text\/plain/);
+    const body = await response.text();
+    assert.match(body, /# HELP http_requests_total/);
+    assert.match(body, /# TYPE http_requests_total counter/);
+    assert.match(body, /http_requests_total\{method="POST",path="\/admin\/jobs",status="401"\}/);
+    assert.match(body, /state_store_backend\{backend="MemoryStateStore"\} 1/);
+  });
+});

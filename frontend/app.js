@@ -2,6 +2,7 @@ import { getAuthSnapshot, getAuthWallet, onAuthChange, signIn, signOut } from ".
 import { DEFAULT_ESCALATION_MESSAGE, DEFAULT_POSTER_TERMS } from "./constants.js";
 import { startEventStream } from "./events.js";
 import { postJson, readJson } from "./http-client.js";
+import { initObservability } from "./observability.js";
 import { buildEvidenceTemplate, parseTerms } from "./job-utils.js";
 import {
   applySessionState,
@@ -755,6 +756,9 @@ function wireAuthControls() {
 }
 
 async function boot() {
+  // Init Sentry (no-op when sentryDsn is empty or window.Sentry isn't loaded).
+  initObservability();
+
   const walletInput = document.getElementById("wallet-input");
   const walletForm = document.getElementById("wallet-form");
   const jobList = document.getElementById("job-list");

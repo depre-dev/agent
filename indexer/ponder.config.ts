@@ -7,48 +7,55 @@ import {
   TreasuryPolicyAbi
 } from "./abis/contractsAbi";
 
-const parseStartBlock = (value: string | undefined, fallback: number | "latest") => {
-  if (!value || value.trim() === "") return fallback;
-  if (value === "latest") return "latest" as const;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
+type Address = `0x${string}`;
+
+// Chain identity is env-driven so the same image indexes either the Polkadot
+// Hub TestNet or mainnet by config change alone. Defaults target TestNet so
+// local dev and existing Render deployments keep working without extra env,
+// but required addresses never have a silent fallback — a missing env aborts
+// boot instead of indexing a stale deployment.
+const chainId = parsePositiveInt(process.env.POLKADOT_CHAIN_ID, 420420417);
+const chainName = process.env.POLKADOT_CHAIN_NAME ?? "polkadotHubTestnet";
 
 const lowMemoryMode = process.env.PONDER_LOW_MEMORY === "true";
 const includeTreasury = process.env.PONDER_ENABLE_TREASURY !== "false";
-const treasuryPolicyAddress =
-  (process.env.PONDER_TREASURY_POLICY_ADDRESS ??
-    process.env.TREASURY_POLICY_ADDRESS ??
-    "0xE190AC334CC5Be502A2e7b03Bc447d9E1Be6954D") as `0x${string}`;
-const escrowCoreAddress =
-  (process.env.PONDER_ESCROW_CORE_ADDRESS ??
-    process.env.ESCROW_CORE_ADDRESS ??
-    "0x642566F1A6FDff76D49C6e062f7464609455E0eC") as `0x${string}`;
-const agentAccountAddress =
-  (process.env.PONDER_AGENT_ACCOUNT_ADDRESS ?? process.env.AGENT_ACCOUNT_ADDRESS ?? "0xd89569B4a217B87f313A75EA36B9BF230Df2DaEe") as `0x${string}`;
-const reputationSbtAddress =
-  (process.env.PONDER_REPUTATION_SBT_ADDRESS ??
-    process.env.REPUTATION_SBT_ADDRESS ??
-    "0xb3035d5272854f3eB725db4965Db244059bB11FC") as `0x${string}`;
+
+const rpcUrl = resolveRpcUrl(chainId);
+const treasuryPolicyAddress = requireAddress(
+  process.env.PONDER_TREASURY_POLICY_ADDRESS ?? process.env.TREASURY_POLICY_ADDRESS,
+  "TREASURY_POLICY_ADDRESS"
+);
+const escrowCoreAddress = requireAddress(
+  process.env.PONDER_ESCROW_CORE_ADDRESS ?? process.env.ESCROW_CORE_ADDRESS,
+  "ESCROW_CORE_ADDRESS"
+);
+const agentAccountAddress = requireAddress(
+  process.env.PONDER_AGENT_ACCOUNT_ADDRESS ?? process.env.AGENT_ACCOUNT_ADDRESS,
+  "AGENT_ACCOUNT_ADDRESS"
+);
+const reputationSbtAddress = requireAddress(
+  process.env.PONDER_REPUTATION_SBT_ADDRESS ?? process.env.REPUTATION_SBT_ADDRESS,
+  "REPUTATION_SBT_ADDRESS"
+);
 
 const treasuryStartBlock = parseStartBlock(
   process.env.PONDER_START_BLOCK_TREASURY,
-  includeTreasury ? (lowMemoryMode ? 7623490 : 7616012) : "latest"
+  includeTreasury ? (lowMemoryMode ? "latest" : 0) : "latest"
 );
 const escrowStartBlock = parseStartBlock(
   process.env.PONDER_START_BLOCK_ESCROW,
-  lowMemoryMode ? 7623490 : 7622561
+  lowMemoryMode ? "latest" : 0
 );
 const reputationStartBlock = parseStartBlock(
   process.env.PONDER_START_BLOCK_REPUTATION,
-  lowMemoryMode ? 7623490 : 7622659
+  lowMemoryMode ? "latest" : 0
 );
 
 export default createConfig({
   chains: {
-    polkadotHubTestnet: {
-      id: 420420417,
-      rpc: process.env.PONDER_RPC_URL_420420417 ?? "https://eth-rpc-testnet.polkadot.io/",
+    [chainName]: {
+      id: chainId,
+      rpc: rpcUrl,
       pollingInterval: lowMemoryMode ? 4_000 : 1_000,
       disableCache: lowMemoryMode,
       ethGetLogsBlockRange: lowMemoryMode ? 25 : undefined
@@ -56,28 +63,71 @@ export default createConfig({
   },
   contracts: {
     TreasuryPolicy: {
-      chain: "polkadotHubTestnet",
+      chain: chainName,
       abi: TreasuryPolicyAbi,
       address: treasuryPolicyAddress,
       startBlock: treasuryStartBlock
     },
     EscrowCore: {
-      chain: "polkadotHubTestnet",
+      chain: chainName,
       abi: EscrowCoreAbi,
       address: escrowCoreAddress,
       startBlock: escrowStartBlock
     },
     AgentAccountCore: {
-      chain: "polkadotHubTestnet",
+      chain: chainName,
       abi: AgentAccountCoreAbi,
       address: agentAccountAddress,
       startBlock: escrowStartBlock
     },
     ReputationSBT: {
-      chain: "polkadotHubTestnet",
+      chain: chainName,
       abi: ReputationSbtAbi,
       address: reputationSbtAddress,
       startBlock: reputationStartBlock
     }
   }
 });
+
+function parseStartBlock(value: string | undefined, fallback: number | "latest") {
+  if (!value || value.trim() === "") return fallback;
+  if (value === "latest") return "latest" as const;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * Resolve the RPC URL for the configured chain. Precedence:
+ *   1. `POLKADOT_RPC_URL` — explicit override, preferred in prod
+ *   2. `PONDER_RPC_URL_<chainId>` — Ponder's per-chain convention; retained
+ *      for backwards compatibility with the existing TestNet Render deployment
+ *   3. TestNet public endpoint — only when chainId is the TestNet id; any
+ *      other chain must set an explicit RPC or boot fails.
+ */
+function resolveRpcUrl(id: number): string {
+  const direct = process.env.POLKADOT_RPC_URL?.trim();
+  if (direct) return direct;
+  const perChain = process.env[`PONDER_RPC_URL_${id}`]?.trim();
+  if (perChain) return perChain;
+  if (id === 420420417) return "https://eth-rpc-testnet.polkadot.io/";
+  throw new Error(
+    `Ponder: no RPC URL configured for chain id ${id}. Set POLKADOT_RPC_URL or PONDER_RPC_URL_${id}.`
+  );
+}
+
+function requireAddress(raw: string | undefined, name: string): Address {
+  const value = raw?.trim();
+  if (!value) {
+    throw new Error(`Ponder: ${name} is required. Set it to the deployed contract address for the target chain.`);
+  }
+  if (!/^0x[0-9a-fA-F]{40}$/u.test(value)) {
+    throw new Error(`Ponder: ${name}=${value} is not a valid 20-byte EVM address.`);
+  }
+  return value as Address;
+}
