@@ -119,6 +119,56 @@ function summarizeEvent(event) {
   }
 }
 
+function describeStakeImpact(session, verification, rewardAsset) {
+  const stakeLabel = `${formatAmount(session?.claimStake)} ${rewardAsset}`;
+
+  if (!session?.sessionId) {
+    return "No session selected yet.";
+  }
+
+  if (verification?.outcome === "approved" || session?.status === "resolved") {
+    return `${stakeLabel} should release back to liquid balance on terminal approval.`;
+  }
+
+  if (session?.status === "rejected") {
+    return `${stakeLabel} stays locked until the dispute window closes or a dispute is opened.`;
+  }
+
+  if (session?.status === "disputed") {
+    return `${stakeLabel} stays locked while arbitration is pending.`;
+  }
+
+  if (session?.status === "claimed" || session?.status === "submitted") {
+    return `${stakeLabel} is currently locked as claim stake for this run.`;
+  }
+
+  return `${stakeLabel} follows the terminal settlement path for this session.`;
+}
+
+function describeReputationImpact(session, verification) {
+  if (!session?.sessionId) {
+    return "No session selected yet.";
+  }
+
+  if (verification?.outcome === "approved") {
+    return "Approved runs can mint or update reputation on-chain depending on the verifier path.";
+  }
+
+  if (session?.status === "rejected") {
+    return "No slash is final yet. Reputation only changes when rejection becomes terminal or a dispute resolves against the worker.";
+  }
+
+  if (session?.status === "disputed") {
+    return "Reputation is waiting on arbitration. No terminal penalty should be assumed yet.";
+  }
+
+  if (session?.status === "claimed" || session?.status === "submitted") {
+    return "No reputation movement yet. This run has not reached a terminal outcome.";
+  }
+
+  return "Reputation impact depends on the final verifier and settlement path.";
+}
+
 function getFundingReadiness() {
   const rewardAsset = state.selectedJob?.rewardAsset ?? "DOT";
   const availableLiquidity = Number(state.selectedJob?.preflight?.availableLiquidity ?? state.account?.liquid?.[rewardAsset] ?? 0);
@@ -323,6 +373,85 @@ export function renderActivityFeed(entries = state.activity) {
       `;
     })
     .join("");
+}
+
+export function renderSessionDetail() {
+  const root = document.getElementById("session-detail-summary");
+  const count = document.getElementById("session-detail-count");
+  if (!root || !count) return;
+
+  const session = state.session;
+  const verification = state.verification;
+  const rewardAsset = state.selectedJob?.rewardAsset ?? "DOT";
+
+  if (!session?.sessionId) {
+    count.textContent = "Awaiting session";
+    root.innerHTML =
+      '<p class="empty-state">Claim a job or open a past run to inspect session metadata, settlement status, and impact notes here.</p>';
+    return;
+  }
+
+  count.textContent = session.status ?? "active";
+  root.innerHTML = `
+    <div class="job-detail-grid">
+      <div class="detail-stat">
+        <dt>Session id</dt>
+        <dd>${session.sessionId}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Wallet</dt>
+        <dd>${session.wallet ?? state.wallet ?? "-"}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Job</dt>
+        <dd>${session.jobId ?? "-"}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Protocol trail</dt>
+        <dd>${session.protocolHistory?.join(" / ") ?? "-"}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Session status</dt>
+        <dd>${session.status ?? "-"}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Verifier outcome</dt>
+        <dd>${verification?.outcome ?? "pending"}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Reason code</dt>
+        <dd>${verification?.reasonCode ?? "pending"}</dd>
+      </div>
+      <div class="detail-stat">
+        <dt>Claim stake</dt>
+        <dd>${formatAmount(session.claimStake)} ${rewardAsset}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Chain job id</dt>
+        <dd>${session.chainJobId ?? "Using logical job id only for this run."}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Stake impact</dt>
+        <dd>${describeStakeImpact(session, verification, rewardAsset)}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Reputation impact</dt>
+        <dd>${describeReputationImpact(session, verification)}</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Evidence trace</dt>
+        <dd>${
+          verification?.metadataURI
+            ? `Verifier metadata URI: ${verification.metadataURI}`
+            : "Raw evidence text is used in the active run, but it is not yet persisted in session history. That should stay on the v2 backlog."
+        }</dd>
+      </div>
+      <div class="detail-stat detail-span">
+        <dt>Last updated</dt>
+        <dd>${session.updatedAt ? formatEventTime(session.updatedAt) : "Not available"}</dd>
+      </div>
+    </div>
+  `;
 }
 
 export function renderRecommendations(recommendations) {
@@ -633,6 +762,7 @@ export function applySessionState(session = undefined) {
   state.session = session;
   setText("session-id", session?.sessionId ?? "-");
   setText("session-status", session?.status ?? "-");
+  renderSessionDetail();
   persistUiState();
 }
 
@@ -642,7 +772,9 @@ export function applyVerificationState(result = undefined) {
   setText("verification-reason", result?.reasonCode ?? "-");
   if (result?.session) {
     applySessionState(result.session);
+    return;
   }
+  renderSessionDetail();
 }
 
 export function refreshActionPanel() {
@@ -754,6 +886,7 @@ export function updateSelectedJob(job) {
 
   renderRecommendations(state.recommendations);
   renderCatalog(state.catalog);
+  renderSessionDetail();
   persistUiState();
   renderFundingReadiness();
   refreshActionPanel();
