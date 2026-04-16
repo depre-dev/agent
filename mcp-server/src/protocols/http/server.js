@@ -11,7 +11,9 @@ import { buildSiweMessage, verifySiweMessage } from "../../auth/siwe.js";
 import { signToken } from "../../auth/jwt.js";
 import { extractClientKey } from "../../auth/rate-limit.js";
 import { resolveRequestId } from "../../core/logger.js";
+import { getAddress } from "ethers";
 import { buildBadgeFromSession } from "../../core/badge-metadata.js";
+import { buildAgentProfile } from "../../core/agent-profile.js";
 
 const {
   platformService: service,
@@ -135,6 +137,14 @@ function clientIp(request) {
   return extractClientKey(request, { trustProxy });
 }
 
+function safeChecksum(raw) {
+  try {
+    return getAddress(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function resolveCorsHeaders(request) {
   const origin = request.headers?.origin;
   if (!origin || typeof origin !== "string") {
@@ -210,9 +220,10 @@ function metricPathLabel(pathname) {
     "/gas/sponsor"
   ]);
   if (known.has(pathname)) return pathname;
-  // Collapse sessionId-scoped badge routes to a single label so Prometheus
-  // doesn't create one series per session.
+  // Collapse sessionId/wallet-scoped routes to a single label so Prometheus
+  // doesn't create one series per session or wallet.
   if (pathname.startsWith("/badges/")) return "/badges/:sessionId";
+  if (pathname.startsWith("/agents/")) return "/agents/:wallet";
   return "other";
 }
 
@@ -288,7 +299,8 @@ const server = createServer(async (request, response) => {
           "/gas/sponsor",
           "/verifier/handlers",
           "/admin/jobs",
-          "/badges/:sessionId"
+          "/badges/:sessionId",
+          "/agents/:wallet"
         ]
       });
     }
@@ -357,6 +369,40 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && pathname === "/verifier/result") {
       const sessionId = url.searchParams.get("sessionId") ?? "";
       return respond(response, 200, await verifierService.getResult(sessionId) ?? { status: "not_found" });
+    }
+
+    // Public agent profile — the aggregate "LinkedIn for agents" resume.
+    // Returns reputation + per-category levels + lifetime stats + ordered
+    // badges. Public (no auth) so other agents/humans can verify. See
+    // docs/schemas/agent-profile-v1.md for the full format.
+    if (request.method === "GET" && pathname.startsWith("/agents/")) {
+      const rawWallet = decodeURIComponent(pathname.slice("/agents/".length));
+      if (!/^0x[a-fA-F0-9]{40}$/u.test(rawWallet)) {
+        throw new ValidationError("wallet path segment must be a 0x-prefixed 20-byte hex address.");
+      }
+      // Sessions are keyed by the checksummed form (authMiddleware calls
+      // getAddress before persisting). We accept lowercase or checksummed
+      // in the URL, normalise for lookup, and return lowercase in the body
+      // so consumers have a single canonical form to compare against.
+      const checksummed = safeChecksum(rawWallet);
+      const [reputation, sessions] = await Promise.all([
+        service.getReputation(checksummed),
+        service.listSessionHistory({ wallet: checksummed, limit: 64 })
+      ]);
+      const profile = buildAgentProfile({
+        wallet: rawWallet.toLowerCase(),
+        reputation,
+        sessions,
+        getJobDefinition: (jobId) => {
+          try {
+            return service.getJobDefinition(jobId);
+          } catch {
+            return undefined;
+          }
+        },
+        publicBaseUrl: process.env.PUBLIC_BASE_URL
+      });
+      return respond(response, 200, profile, { "cache-control": "public, max-age=30" });
     }
 
     // Public badge metadata — the "LinkedIn for agents" read surface.

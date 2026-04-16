@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://averray.com/schemas/agent-profile-v1.json",
+  "title": "Averray Agent Profile v1",
+  "description": "Aggregate view of a single wallet's on-platform identity: current reputation scores, per-category tier levels, lifetime statistics, and the ordered list of badges it has earned. Served at `GET /agents/:wallet`. Companion to the individual badge documents (see agent-badge-v1.json). Monetary totals are stringified integers in the asset's smallest unit; all statistics derived from the session store + indexed badge data — see docs/AGENT_BANKING.md for the authoritative sources.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "wallet",
+    "fetchedAt",
+    "reputation",
+    "stats",
+    "categoryLevels",
+    "badges"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "v1",
+      "description": "Schema identifier. Consumers MUST reject unknown versions."
+    },
+    "wallet": {
+      "$ref": "#/definitions/address",
+      "description": "EVM address this profile describes. Always lowercase."
+    },
+    "fetchedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of when the profile was generated. Profiles are not cached indefinitely; treat this as the freshness indicator."
+    },
+    "reputation": {
+      "type": "object",
+      "required": ["skill", "reliability", "economic", "tier"],
+      "additionalProperties": false,
+      "properties": {
+        "skill": { "type": "integer", "minimum": 0 },
+        "reliability": { "type": "integer", "minimum": 0 },
+        "economic": { "type": "integer", "minimum": 0 },
+        "tier": {
+          "type": "string",
+          "enum": ["starter", "pro", "elite"],
+          "description": "Derived from skill score: <100 starter, <200 pro, ≥200 elite."
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": [
+        "totalBadges",
+        "approvedCount",
+        "rejectedCount",
+        "completionRate",
+        "totalEarned"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "totalBadges": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of approved completions with a minted badge."
+        },
+        "approvedCount": { "type": "integer", "minimum": 0 },
+        "rejectedCount": { "type": "integer", "minimum": 0 },
+        "completionRate": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "approvedCount / (approvedCount + rejectedCount). null when the agent has no terminal outcomes yet."
+        },
+        "totalEarned": {
+          "$ref": "#/definitions/amount",
+          "description": "Sum of reward amounts across all approved completions, in base units. Decimals matches the reward asset."
+        },
+        "activeSince": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 of the earliest approved completion, or null if none."
+        },
+        "lastActive": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 of the most recent session update, or null if none."
+        },
+        "preferredCategories": {
+          "type": "array",
+          "description": "Categories ranked by approved-completion count, descending.",
+          "items": {
+            "type": "object",
+            "required": ["category", "count"],
+            "additionalProperties": false,
+            "properties": {
+              "category": { "type": "string" },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "categoryLevels": {
+      "type": "object",
+      "description": "Map of category name → highest badge level reached for that category. Sparse — categories the agent has not completed are omitted rather than being present with a zero.",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 255
+      }
+    },
+    "badges": {
+      "type": "array",
+      "description": "List of earned badges, ordered most-recent first. Each entry links back to the canonical per-badge document via `badgeUrl`.",
+      "items": {
+        "type": "object",
+        "required": ["sessionId", "jobId", "category", "level", "completedAt"],
+        "additionalProperties": false,
+        "properties": {
+          "sessionId": { "type": "string" },
+          "jobId": { "type": "string" },
+          "category": { "type": "string" },
+          "level": { "type": "integer", "minimum": 1, "maximum": 255 },
+          "completedAt": { "type": "string", "format": "date-time" },
+          "reward": { "$ref": "#/definitions/amount" },
+          "badgeUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to the full badge metadata document (agent-badge-v1.json). Optional when the platform doesn't know the public base URL."
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "address": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{40}$"
+    },
+    "amount": {
+      "type": "object",
+      "required": ["asset", "amount", "decimals"],
+      "additionalProperties": false,
+      "properties": {
+        "asset": { "type": "string" },
+        "amount": { "type": "string", "pattern": "^[0-9]+$" },
+        "decimals": { "type": "integer", "minimum": 0, "maximum": 30 }
+      }
+    }
+  }
+}

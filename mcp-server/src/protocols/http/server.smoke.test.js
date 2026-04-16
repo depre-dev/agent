@@ -274,6 +274,89 @@ test("http smoke: /badges/:sessionId returns schema-compliant JSON for approved 
   });
 });
 
+test("http smoke: /agents/:wallet returns a v1 profile for a fresh wallet", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    // A never-seen wallet still gets a zero-state profile rather than 404.
+    const freshWallet = "0xCa11Cafe00000000000000000000000000000001";
+    const response = await fetch(`${base}/agents/${freshWallet}`);
+    assert.equal(response.status, 200);
+    const profile = await response.json();
+    assert.equal(profile.schemaVersion, "v1");
+    assert.equal(profile.wallet, freshWallet.toLowerCase());
+    assert.equal(profile.stats.totalBadges, 0);
+    assert.equal(profile.stats.completionRate, null);
+    assert.deepEqual(profile.badges, []);
+  });
+});
+
+test("http smoke: /agents/:wallet aggregates approved sessions into badges", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const adminToken = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+    const verifierToken = issueToken(VERIFIER_WALLET, { roles: ["verifier"] });
+
+    // Seed a job + full claim→submit→verify cycle so the profile has data.
+    await fetch(`${base}/admin/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        id: "profile-smoke-job-001",
+        category: "coding",
+        tier: "starter",
+        rewardAmount: 4,
+        verifierMode: "benchmark",
+        verifierTerms: ["complete", "verified", "output"],
+        verifierMinimumMatches: 2,
+        outputSchemaRef: "schema://jobs/profile-smoke"
+      })
+    });
+
+    await fetch(`${base}/account/fund?asset=DOT&amount=10`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${adminToken}` }
+    });
+
+    const claim = await fetch(
+      `${base}/jobs/claim?jobId=profile-smoke-job-001&idempotencyKey=profile-smoke-claim`,
+      { method: "POST", headers: { authorization: `Bearer ${adminToken}` } }
+    );
+    const { sessionId } = await claim.json();
+
+    await fetch(
+      `${base}/jobs/submit?sessionId=${encodeURIComponent(sessionId)}&evidence=${encodeURIComponent("complete verified output bundle")}`,
+      { method: "POST", headers: { authorization: `Bearer ${adminToken}` } }
+    );
+
+    await fetch(
+      `${base}/verifier/run?sessionId=${encodeURIComponent(sessionId)}&evidence=${encodeURIComponent("complete verified output bundle")}`,
+      { method: "POST", headers: { authorization: `Bearer ${verifierToken}` } }
+    );
+
+    const response = await fetch(`${base}/agents/${ADMIN_WALLET}`);
+    assert.equal(response.status, 200);
+    const profile = await response.json();
+    assert.equal(profile.wallet, ADMIN_WALLET.toLowerCase());
+    assert.equal(profile.stats.totalBadges, 1);
+    assert.equal(profile.stats.approvedCount, 1);
+    assert.equal(profile.stats.rejectedCount, 0);
+    assert.equal(profile.stats.completionRate, 1);
+    // 4 DOT at 18 decimals = 4 * 10^18 base units
+    assert.equal(profile.stats.totalEarned.amount, "4000000000000000000");
+    assert.equal(profile.badges[0].sessionId, sessionId);
+    assert.equal(profile.badges[0].category, "coding");
+    assert.equal(profile.badges[0].level, 1);
+    assert.deepEqual(profile.categoryLevels, { coding: 1 });
+  });
+});
+
+test("http smoke: /agents/:wallet rejects non-address path segments", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const response = await fetch(`${base}/agents/not-a-wallet`);
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.error, "invalid_request");
+  });
+});
+
 test("http smoke: /metrics emits Prometheus text format with baseline series", { skip: !RUN }, async () => {
   await runWithServer(async (base) => {
     // Warm the metrics: one unauthenticated admin call to populate counters.
