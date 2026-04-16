@@ -357,6 +357,54 @@ test("http smoke: /agents/:wallet rejects non-address path segments", { skip: !R
   });
 });
 
+test("http smoke: /jobs/tiers returns the public tier ladder without auth", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const response = await fetch(`${base}/jobs/tiers`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.ok(Array.isArray(body.tiers));
+    const byTier = Object.fromEntries(body.tiers.map((entry) => [entry.tier, entry.requires]));
+    assert.deepEqual(byTier.starter, { skill: 0 });
+    assert.deepEqual(byTier.pro, { skill: 100 });
+    assert.deepEqual(byTier.elite, { skill: 200 });
+  });
+});
+
+test("http smoke: /jobs/recommendations includes per-job tierGate with missing-skill gap", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const adminToken = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+
+    // Post a pro-tier job. A fresh wallet (skill=0) should see it locked.
+    await fetch(`${base}/admin/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        id: "tier-smoke-pro-001",
+        category: "coding",
+        tier: "pro",
+        rewardAmount: 8,
+        verifierMode: "benchmark",
+        verifierTerms: ["complete", "verified"],
+        verifierMinimumMatches: 1,
+        outputSchemaRef: "schema://jobs/tier-smoke"
+      })
+    });
+
+    const response = await fetch(`${base}/jobs/recommendations`, {
+      headers: { authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(response.status, 200);
+    const recs = await response.json();
+    const proJob = recs.find((entry) => entry.jobId === "tier-smoke-pro-001");
+    assert.ok(proJob, "expected the pro job in recommendations");
+    assert.equal(proJob.tier, "pro");
+    assert.equal(proJob.tierGate.tier, "pro");
+    assert.equal(proJob.tierGate.unlocked, false);
+    assert.deepEqual(proJob.tierGate.missing, { skill: 100 });
+    assert.match(proJob.explanation, /tier locked — earn 100 more skill/);
+  });
+});
+
 test("http smoke: /metrics emits Prometheus text format with baseline series", { skip: !RUN }, async () => {
   await runWithServer(async (base) => {
     // Warm the metrics: one unauthenticated admin call to populate counters.

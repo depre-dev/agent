@@ -529,6 +529,8 @@ export function renderRecommendations(recommendations) {
 
   const cards = recommendations.map((job) => {
     const isSelected = job.jobId === state.selectedJobId;
+    const tierLabel = job.tier ? `${job.tier.toUpperCase()} tier` : "Starter tier";
+    const tierUnlock = describeTierUnlock(job.tierGate);
     return html`
       <article class="job-card ${isSelected ? "job-selected" : ""}">
         <div class="job-topline">
@@ -538,11 +540,13 @@ export function renderRecommendations(recommendations) {
           </span>
         </div>
         <div class="job-metrics">
+          <span>${tierLabel}</span>
           <span>Fit score ${job.fitScore}</span>
           <span>Net reward ${formatAmount(job.netReward)} DOT</span>
         </div>
         <div class="job-copy">
           <p>${job.explanation}</p>
+          ${tierUnlock ? html`<p class="catalog-meta"><strong>Unlock:</strong> ${tierUnlock}</p>` : ""}
         </div>
         <button class="job-select-button" type="button" data-job-id="${job.jobId}">
           ${isSelected ? "Selected" : "Select job"}
@@ -551,6 +555,24 @@ export function renderRecommendations(recommendations) {
     `;
   });
   renderHtml(root, html`${cards}`);
+}
+
+/**
+ * Describe the tier-gate status for a recommendation in a single line.
+ * Returns an empty string when the wallet has already unlocked the tier —
+ * the UI should render nothing rather than "unlocked!" noise on every card.
+ */
+function describeTierUnlock(tierGate) {
+  if (!tierGate || tierGate.unlocked) {
+    return "";
+  }
+  const missing = Object.entries(tierGate.missing ?? {})
+    .map(([key, gap]) => `${gap} more ${key}`)
+    .join(", ");
+  if (!missing) {
+    return "";
+  }
+  return `Earn ${missing} to unlock the ${tierGate.tier} tier.`;
 }
 
 export function renderCatalog(jobs) {

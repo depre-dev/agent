@@ -100,6 +100,10 @@ export class PlatformService {
     return this.jobCatalogService.recommendJobs(wallet);
   }
 
+  async tierLadder(wallet) {
+    return this.jobCatalogService.tierLadder(wallet);
+  }
+
   async preflightJob(wallet, jobId) {
     return this.jobCatalogService.preflightJob(wallet, jobId);
   }

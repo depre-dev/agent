@@ -17,6 +17,65 @@ const DEFAULT_AGENT_PROFILE = {
 const VALID_TIERS = new Set(["starter", "pro", "elite"]);
 const VALID_VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallback"]);
 
+/**
+ * Single source of truth for which reputation scores a wallet needs to
+ * unlock each job tier. `isEligible`, `summarizeTierGate`, and the
+ * public `/jobs/tiers` endpoint all read from this map so the numbers
+ * can't drift. v1 only gates on `skill`; future revisions can add
+ * `reliability`/`economic` minimums without changing call sites.
+ */
+export const TIER_REQUIREMENTS = {
+  starter: { skill: 0 },
+  pro: { skill: 100 },
+  elite: { skill: 200 }
+};
+
+const TIER_ORDER = ["starter", "pro", "elite"];
+
+export function tierRequirements(tier) {
+  return TIER_REQUIREMENTS[tier] ?? TIER_REQUIREMENTS.starter;
+}
+
+/**
+ * Inspect whether `reputation` satisfies the minimums recorded for `tier`.
+ * Returns a plain-data summary the HTTP layer can serialise directly.
+ * `missing` is emitted sparse (only keys the wallet hasn't met) so the UI
+ * can render "need 25 more skill" without post-processing.
+ */
+export function summarizeTierGate(tier, reputation) {
+  const normalised = VALID_TIERS.has(tier) ? tier : "starter";
+  const requires = { ...tierRequirements(normalised) };
+  const has = {
+    skill: Number.isInteger(reputation?.skill) ? reputation.skill : 0,
+    reliability: Number.isInteger(reputation?.reliability) ? reputation.reliability : 0,
+    economic: Number.isInteger(reputation?.economic) ? reputation.economic : 0
+  };
+  const missing = {};
+  for (const [key, required] of Object.entries(requires)) {
+    const current = has[key] ?? 0;
+    if (current < required) {
+      missing[key] = required - current;
+    }
+  }
+  const unlocked = Object.keys(missing).length === 0;
+  return { tier: normalised, unlocked, requires, has, missing };
+}
+
+/**
+ * Given the current reputation, find the next tier the wallet has NOT
+ * yet unlocked and return what it would take to reach it. Returns null
+ * when the wallet is already at the highest tier.
+ */
+export function nextLockedTier(reputation) {
+  for (const tier of TIER_ORDER) {
+    const summary = summarizeTierGate(tier, reputation);
+    if (!summary.unlocked) {
+      return summary;
+    }
+  }
+  return null;
+}
+
 export class JobCatalogService {
   constructor(jobs, profiles, getAccountSummary, getReputation, getDefaultClaimStakeBps) {
     this.jobs = jobs;
@@ -48,6 +107,7 @@ export class JobCatalogService {
 
     return Promise.all(this.jobs.map(async (job) => {
       const netReward = await this.estimateNetReward(wallet, job.id);
+      const tierGate = summarizeTierGate(job.tier, reputation);
       const eligible = this.isEligible(job, profile, reputation);
       const liquid = account.liquid[job.rewardAsset] ?? 0;
       const claimStake = Math.max((job.rewardAmount * claimStakeBps) / 10_000, 0);
@@ -58,9 +118,9 @@ export class JobCatalogService {
         fitScore,
         netReward,
         eligible,
-        explanation: eligible
-          ? `Eligible via ${job.category} preferences and ${job.verifierMode} verifier support.`
-          : "Missing eligibility, liquidity, or reputation requirements for this tier."
+        tier: job.tier,
+        tierGate,
+        explanation: buildRecommendationExplanation({ job, eligible, tierGate, profile })
       };
     })).then((recommendations) => recommendations.sort((left, right) => right.fitScore - left.fitScore));
   }
@@ -78,6 +138,7 @@ export class JobCatalogService {
     const claimStakeBps = await this.getDefaultClaimStakeBps();
     const claimStake = Math.max((job.rewardAmount * claimStakeBps) / 10_000, 0);
     const eligible = this.isEligible(job, profile, reputation);
+    const tierGate = summarizeTierGate(job.tier, reputation);
 
     return {
       wallet,
@@ -91,6 +152,8 @@ export class JobCatalogService {
       requiredOutputSchema: job.outputSchemaRef,
       verifierMode: job.verifierMode,
       verifierConfig: job.verifierConfig,
+      tier: job.tier,
+      tierGate,
       failureStates: [
         "verifier_timeout",
         "submission_rejected",
@@ -105,16 +168,43 @@ export class JobCatalogService {
     const job = this.requireJob(jobId);
     const profile = this.requireProfile(wallet);
     const reputation = await this.getReputation(wallet);
+    const tierGate = summarizeTierGate(job.tier, reputation);
 
     return {
       jobId,
       wallet,
       tier: job.tier,
+      tierGate,
       preferredCategory: profile.preferredCategories.includes(job.category),
       supportsVerifier: profile.verifierCompatibility.includes(job.verifierMode),
       reputationTier: reputation.tier,
       verifierHandler: job.verifierConfig.handler,
       eligible: this.isEligible(job, profile, reputation)
+    };
+  }
+
+  /**
+   * Snapshot of the tier ladder a given wallet sees right now. Used by
+   * the public `/jobs/tiers` endpoint so agents can introspect the gate
+   * requirements without having to guess from individual preflight
+   * responses. `currentTier` echoes the reputation-derived tier; each
+   * ladder rung carries its `requires` + `has` + `missing` so the caller
+   * can draw a "what you'd unlock" bar.
+   */
+  async tierLadder(wallet) {
+    const reputation = await this.getReputation(wallet);
+    const summaries = TIER_ORDER.map((tier) => summarizeTierGate(tier, reputation));
+    const next = summaries.find((summary) => !summary.unlocked);
+    return {
+      wallet,
+      reputation: {
+        skill: Number.isInteger(reputation?.skill) ? reputation.skill : 0,
+        reliability: Number.isInteger(reputation?.reliability) ? reputation.reliability : 0,
+        economic: Number.isInteger(reputation?.economic) ? reputation.economic : 0,
+        tier: reputation?.tier ?? "starter"
+      },
+      tiers: summaries,
+      nextLocked: next ?? null
     };
   }
 
@@ -158,9 +248,7 @@ export class JobCatalogService {
 
   isEligible(job, profile, reputation) {
     if (!profile.verifierCompatibility.includes(job.verifierMode)) return false;
-    if (job.tier === "pro" && reputation.skill < 100) return false;
-    if (job.tier === "elite" && reputation.skill < 200) return false;
-    return true;
+    return summarizeTierGate(job.tier, reputation).unlocked;
   }
 
   normalizeJobInput(input) {
@@ -260,4 +348,25 @@ export class JobCatalogService {
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "");
   }
+}
+
+/**
+ * Produce a human-readable explanation that mentions the tier gate when
+ * it's the blocker. Pulled out of `recommendJobs` so the string is easy
+ * to tweak without touching the rest of the request flow.
+ */
+function buildRecommendationExplanation({ job, eligible, tierGate, profile }) {
+  if (eligible) {
+    return `Eligible via ${job.category} preferences and ${job.verifierMode} verifier support.`;
+  }
+  if (!tierGate.unlocked) {
+    const gaps = Object.entries(tierGate.missing)
+      .map(([key, gap]) => `${gap} more ${key}`)
+      .join(", ");
+    return `${job.tier} tier locked — earn ${gaps} to unlock this job.`;
+  }
+  if (!profile.verifierCompatibility.includes(job.verifierMode)) {
+    return `Verifier mode ${job.verifierMode} not in this wallet's capability list.`;
+  }
+  return "Missing eligibility, liquidity, or reputation requirements for this tier.";
 }

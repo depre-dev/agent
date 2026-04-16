@@ -14,6 +14,7 @@ import { resolveRequestId } from "../../core/logger.js";
 import { getAddress } from "ethers";
 import { buildBadgeFromSession } from "../../core/badge-metadata.js";
 import { buildAgentProfile } from "../../core/agent-profile.js";
+import { TIER_REQUIREMENTS } from "../../core/job-catalog-service.js";
 
 const {
   platformService: service,
@@ -202,6 +203,7 @@ function metricPathLabel(pathname) {
     "/jobs/preflight",
     "/jobs/claim",
     "/jobs/submit",
+    "/jobs/tiers",
     "/admin/jobs",
     "/account",
     "/account/fund",
@@ -291,6 +293,7 @@ const server = createServer(async (request, response) => {
           "/session",
           "/sessions",
           "/jobs",
+          "/jobs/tiers",
           "/jobs/preflight",
           "/jobs/recommendations",
           "/gas/health",
@@ -348,6 +351,22 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/jobs") {
       return respond(response, 200, service.listJobs());
+    }
+
+    if (request.method === "GET" && pathname === "/jobs/tiers") {
+      // Public tier-requirements ladder. No auth; no per-wallet data.
+      // Agents use this endpoint for discovery — "what does each tier of
+      // work cost in reputation?" — without needing to sign in first.
+      // Personalised progress lives on /jobs/recommendations (per-job
+      // tierGate) and on the authenticated /jobs/preflight.
+      return respond(
+        response,
+        200,
+        {
+          tiers: Object.entries(TIER_REQUIREMENTS).map(([tier, requires]) => ({ tier, requires }))
+        },
+        { "cache-control": "public, max-age=300" }
+      );
     }
 
     if (request.method === "GET" && pathname === "/jobs/definition") {
