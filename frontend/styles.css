@@ -355,6 +355,58 @@ main {
   margin-bottom: 0;
 }
 
+.funding-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.funding-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.funding-card p,
+.auth-stat p {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.funding-card strong,
+.auth-stat strong {
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.funding-card span,
+.auth-stat span,
+.funding-callout p,
+.action-guidance {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.funding-card-strong {
+  background: rgba(214, 234, 223, 0.46);
+  border-color: rgba(30, 102, 66, 0.16);
+}
+
+.funding-callout {
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  background: rgba(17, 19, 21, 0.04);
+}
+
 .funding-row {
   display: grid;
   gap: 0.45rem;
@@ -362,27 +414,67 @@ main {
 
 .auth-panel {
   margin: 0 0 1rem;
-  padding: 0.85rem 1rem;
+  padding: 1rem;
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid var(--line);
 }
 
+.auth-shell,
+.auth-actions,
 .auth-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  align-items: center;
 }
 
+.auth-shell {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.auth-copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.auth-copy h3 {
+  margin-bottom: 0;
+}
+
+.auth-actions {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.auth-actions .status-pill,
 .auth-row .status-pill {
-  margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
 
 .auth-panel[data-auth="signed-in"] {
   border-color: rgba(30, 102, 66, 0.28);
   background: rgba(214, 234, 223, 0.45);
+}
+
+.auth-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.auth-stat {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(17, 19, 21, 0.06);
+}
+
+.auth-stat-wide {
+  grid-column: span 2;
 }
 
 .wallet-row {
@@ -448,6 +540,11 @@ main {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.stats-shell {
+  display: grid;
+  gap: 1rem;
+}
+
 .metric-list {
   display: grid;
   gap: 0.9rem;
@@ -477,6 +574,36 @@ main {
 .history-list {
   display: grid;
   gap: 0.9rem;
+}
+
+.activity-feed {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.activity-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.activity-meta,
+.activity-copy {
+  margin: 0;
+}
+
+.activity-meta {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.activity-copy {
+  color: var(--ink);
+  line-height: 1.6;
 }
 
 .history-card {
@@ -587,6 +714,20 @@ main {
   border-top: 1px solid var(--line);
   display: grid;
   gap: 1rem;
+}
+
+.action-guidance {
+  margin: 0;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(17, 19, 21, 0.08);
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.execution-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
 }
 
 .job-detail-shell {
@@ -901,15 +1042,24 @@ main {
   .detail-grid,
   .job-detail-grid,
   .form-grid,
-  .action-details {
+  .action-details,
+  .auth-summary-grid,
+  .funding-summary-grid,
+  .execution-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .auth-stat-wide {
+    grid-column: auto;
   }
 
   .wallet-row,
   .endpoint-list a,
   .job-topline,
   .action-row,
-  .poster-toggle-row {
+  .poster-toggle-row,
+  .auth-shell,
+  .auth-actions {
     flex-direction: column;
     align-items: flex-start;
   }

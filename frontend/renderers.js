@@ -6,6 +6,325 @@ function outcomeTone(status) {
   return ["approved", "resolved", "closed"].includes(status) ? "eligible-yes" : "eligible-no";
 }
 
+function setStatusPill(id, label, toneClass) {
+  const pill = document.getElementById(id);
+  if (!pill) return;
+  pill.textContent = label;
+  pill.className = `status-pill ${toneClass}`;
+}
+
+function formatEventTime(timestamp) {
+  if (!timestamp) return "Just now";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Just now";
+  return date.toLocaleString("en-CH", { dateStyle: "short", timeStyle: "short" });
+}
+
+function summarizeEvent(event) {
+  const jobId = event.jobId ?? event.data?.jobId ?? "unknown job";
+  const sessionId = event.sessionId ?? event.data?.sessionId;
+
+  switch (event.topic) {
+    case "session.claimed":
+      return {
+        title: "Claim opened",
+        body: `Session ${sessionId ?? "pending"} claimed for ${jobId}. Claim stake is now locked for this worker.`,
+        tone: "status-ok"
+      };
+    case "session.submitted":
+      return {
+        title: "Evidence submitted",
+        body: `Evidence for ${jobId} was stored. The run is ready for verification.`,
+        tone: "status-ok"
+      };
+    case "verification.resolved":
+      return {
+        title: "Verifier settled",
+        body: `Verification returned ${event.data?.outcome ?? "an outcome"}${event.data?.reasonCode ? ` with ${event.data.reasonCode}` : ""}.`,
+        tone: event.data?.outcome === "approved" ? "status-ok" : "tier-warn"
+      };
+    case "account.job_stake_locked":
+      return {
+        title: "Stake locked",
+        body: `${formatAmount(event.data?.amount)} DOT moved into the claim stake bucket.`,
+        tone: "status-ok"
+      };
+    case "account.job_stake_released":
+      return {
+        title: "Stake released",
+        body: `${formatAmount(event.data?.amount)} DOT returned to liquid balance after resolution.`,
+        tone: "status-ok"
+      };
+    case "account.job_stake_slashed":
+      return {
+        title: "Stake slashed",
+        body: `${formatAmount(event.data?.amount)} DOT was slashed. Poster received ${formatAmount(event.data?.posterAmount)} DOT and treasury recorded ${formatAmount(event.data?.treasuryAmount)} DOT.`,
+        tone: "eligible-no"
+      };
+    case "reputation.updated":
+      return {
+        title: "Reputation updated",
+        body: `Skill ${formatAmount(event.data?.skill)}, reliability ${formatAmount(event.data?.reliability)}, economic ${formatAmount(event.data?.economic)}.`,
+        tone: "status-ok"
+      };
+    case "reputation.slashed":
+      return {
+        title: "Reputation slashed",
+        body: `Penalties applied${event.data?.reasonCode ? ` for ${event.data.reasonCode}` : ""}. Reliability and skill dropped for this wallet.`,
+        tone: "eligible-no"
+      };
+    case "escrow.job_rejected":
+      return {
+        title: "Job rejected",
+        body: `${jobId} was rejected on-chain. Stake and reputation stay pending until the dispute window closes or a dispute opens.`,
+        tone: "tier-warn"
+      };
+    case "escrow.job_closed":
+      return {
+        title: "Job closed",
+        body: `${jobId} reached terminal settlement on-chain.`,
+        tone: "status-ok"
+      };
+    case "escrow.dispute_opened":
+      return {
+        title: "Dispute opened",
+        body: `A dispute is now open for ${jobId}. Expect settlement and penalties to wait for arbitration.`,
+        tone: "tier-warn"
+      };
+    case "system.reconnect":
+      return {
+        title: "Realtime restored",
+        body: `The event listener reconnected after an RPC interruption.`,
+        tone: "status-ok"
+      };
+    case "system.provider_error":
+    case "system.listener_error":
+      return {
+        title: "Realtime warning",
+        body: event.data?.message ?? "The event stream reported an upstream issue.",
+        tone: "tier-warn"
+      };
+    case "gap":
+      return {
+        title: "Replay gap",
+        body: "The live feed missed some buffered events, so the app refreshed the REST panels to catch up.",
+        tone: "status-pending"
+      };
+    default:
+      return {
+        title: event.topic.replaceAll(".", " "),
+        body: sessionId ? `${jobId} · ${sessionId}` : `${jobId}`,
+        tone: "status-pending"
+      };
+  }
+}
+
+function getFundingReadiness() {
+  const rewardAsset = state.selectedJob?.rewardAsset ?? "DOT";
+  const availableLiquidity = Number(state.selectedJob?.preflight?.availableLiquidity ?? state.account?.liquid?.[rewardAsset] ?? 0);
+  const claimStake = Number(state.selectedJob?.preflight?.claimStake ?? 0);
+  const shortfall = Math.max(claimStake - availableLiquidity, 0);
+  const eligible = state.selectedJob ? Boolean(state.selectedJob.preflight?.eligible) : false;
+
+  if (!state.wallet) {
+    return {
+      label: "Sign in first",
+      tone: "status-pending",
+      headline: "Authenticate with your wallet to load balances, recommendations, and claim readiness.",
+      gapLabel: "-",
+      availableLabel: "-",
+      stakeLabel: "-",
+      guidance:
+        "The claim stake is enforced against deposited Mock DOT inside AgentAccountCore. Native faucet DOT only covers chain gas.",
+      shortfall,
+      canClaim: false
+    };
+  }
+
+  if (!state.selectedJob) {
+    return {
+      label: "Pick a job",
+      tone: "status-pending",
+      headline: "Select a recommended or catalog job to calculate the exact stake requirement.",
+      gapLabel: "0 DOT",
+      availableLabel: `${formatAmount(state.account?.liquid?.DOT)} DOT`,
+      stakeLabel: "0 DOT",
+      guidance:
+        "Your deposited Mock DOT balance is live, but claim readiness is computed per selected job.",
+      shortfall,
+      canClaim: false
+    };
+  }
+
+  if (!eligible) {
+    return {
+      label: "Eligibility blocked",
+      tone: "eligible-no",
+      headline: "This wallet does not yet meet the reputation or routing requirements for the selected job.",
+      gapLabel: `${formatAmount(shortfall)} ${rewardAsset}`,
+      availableLabel: `${formatAmount(availableLiquidity)} ${rewardAsset}`,
+      stakeLabel: `${formatAmount(claimStake)} ${rewardAsset}`,
+      guidance:
+        "Funding alone will not unblock this claim. Choose another job or improve the worker profile and reputation first.",
+      shortfall,
+      canClaim: false
+    };
+  }
+
+  if (shortfall > 0) {
+    return {
+      label: "Needs funding",
+      tone: "tier-warn",
+      headline: `This job needs ${formatAmount(claimStake)} ${rewardAsset} locked as claim stake, but only ${formatAmount(
+        availableLiquidity
+      )} ${rewardAsset} is deposited.`,
+      gapLabel: `${formatAmount(shortfall)} ${rewardAsset}`,
+      availableLabel: `${formatAmount(availableLiquidity)} ${rewardAsset}`,
+      stakeLabel: `${formatAmount(claimStake)} ${rewardAsset}`,
+      guidance:
+        "Use Fund Mock DOT to mint and deposit the missing amount. Faucet gas funds do not count toward claim stake.",
+      shortfall,
+      canClaim: false
+    };
+  }
+
+  return {
+    label: "Ready to claim",
+    tone: "status-ok",
+    headline: `This wallet can lock ${formatAmount(claimStake)} ${rewardAsset} and claim ${state.selectedJob.id} right now.`,
+    gapLabel: `0 ${rewardAsset}`,
+    availableLabel: `${formatAmount(availableLiquidity)} ${rewardAsset}`,
+    stakeLabel: `${formatAmount(claimStake)} ${rewardAsset}`,
+    guidance:
+      "Claim stake is already covered by deposited Mock DOT. You still need native faucet DOT in the wallet for chain gas.",
+    shortfall,
+    canClaim: true
+  };
+}
+
+function getExecutionState() {
+  const readiness = getFundingReadiness();
+  const sessionStatus = state.session?.status ?? "";
+  const hasJob = Boolean(state.selectedJob);
+  const hasSession = Boolean(state.session?.sessionId);
+  const hasVerification = Boolean(state.verification?.outcome);
+
+  if (!state.wallet) {
+    return {
+      stage: "Signed out",
+      next: "Connect and sign in with the worker wallet you want to operate.",
+      blocker: "All wallet-scoped reads and mutations are locked until SIWE sign-in completes."
+    };
+  }
+
+  if (!hasJob) {
+    return {
+      stage: "Job not selected",
+      next: "Choose a recommended or catalog job to load the worker-specific preflight data.",
+      blocker: "The app cannot calculate claim stake or eligibility without a selected job."
+    };
+  }
+
+  if (hasVerification) {
+    return {
+      stage: state.verification.outcome === "approved" ? "Verified" : "Pending dispute window",
+      next:
+        state.verification.outcome === "approved"
+          ? "Review the run details or move on to another job."
+          : "Wait for the dispute window or the future dispute workflow before expecting final penalties.",
+      blocker:
+        state.verification.outcome === "approved"
+          ? "No blocker. This run is settled."
+          : "Terminal penalties and refunds are deferred until the rejection becomes final or is disputed."
+    };
+  }
+
+  if (sessionStatus === "submitted") {
+    return {
+      stage: "Ready to verify",
+      next: "Run the verifier to settle the submission.",
+      blocker: "Nothing blocks verification; this run is waiting for the verifier action."
+    };
+  }
+
+  if (sessionStatus === "claimed") {
+    return {
+      stage: "Claimed",
+      next: "Edit the evidence payload if needed, then submit it.",
+      blocker: "Verification stays unavailable until the run reaches the submitted state."
+    };
+  }
+
+  if (!readiness.canClaim) {
+    return {
+      stage: readiness.label,
+      next: readiness.shortfall > 0 ? "Fund Mock DOT and deposit it into AgentAccountCore." : "Pick another eligible job or improve the worker profile.",
+      blocker: readiness.guidance
+    };
+  }
+
+  if (hasSession) {
+    return {
+      stage: "In progress",
+      next: "Continue the run from the current session state.",
+      blocker: "Use Refresh status if the session looks stale."
+    };
+  }
+
+  return {
+    stage: "Ready",
+    next: "Claim the selected job to open a new session.",
+    blocker: "No blocker. The worker is funded and eligible for this job."
+  };
+}
+
+function renderFundingReadiness() {
+  const readiness = getFundingReadiness();
+  setStatusPill("funding-readiness-pill", readiness.label, readiness.tone);
+  setText("funding-gap-amount", readiness.gapLabel);
+  setText("funding-available-liquid", readiness.availableLabel);
+  setText("funding-claim-stake", readiness.stakeLabel);
+  setText("funding-readiness-copy", readiness.headline);
+  setText("funding-guidance-copy", readiness.guidance);
+}
+
+export function renderActivityFeed(entries = state.activity) {
+  const root = document.getElementById("activity-feed");
+  const count = document.getElementById("activity-count");
+  if (!root || !count) return;
+
+  count.textContent = entries.length ? `${entries.length} live events` : "No live events yet";
+
+  if (!entries.length) {
+    root.innerHTML =
+      '<p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>';
+    return;
+  }
+
+  root.innerHTML = entries
+    .map((event) => {
+      const summary = summarizeEvent(event);
+      return `
+        <article class="activity-card">
+          <div class="job-topline">
+            <div>
+              <p class="job-id">${summary.title}</p>
+              <p class="activity-meta">${event.topic}</p>
+            </div>
+            <span class="status-pill ${summary.tone}">${formatEventTime(event.timestamp)}</span>
+          </div>
+          <p class="activity-copy">${summary.body}</p>
+          <div class="catalog-meta">
+            <span>${event.jobId ?? "no job"}</span>
+            <span>${event.sessionId ?? "no session"}</span>
+            <span>${event.txHash ? `${event.txHash.slice(0, 8)}…${event.txHash.slice(-6)}` : "platform event"}</span>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 export function renderRecommendations(recommendations) {
   const root = document.getElementById("job-list");
   if (!root) return;
@@ -286,6 +605,7 @@ export function renderCatalogJobActivity(job, entries) {
 }
 
 export function updateReputation(reputation) {
+  state.reputation = reputation;
   setText("rep-skill", formatAmount(reputation.skill));
   setText("rep-reliability", formatAmount(reputation.reliability));
   setText("rep-economic", formatAmount(reputation.economic));
@@ -297,11 +617,16 @@ export function updateReputation(reputation) {
 }
 
 export function updateAccount(account) {
+  state.account = account;
   setText("liquid-dot", formatAmount(account.liquid?.DOT));
   setText("reserved-dot", formatAmount(account.reserved?.DOT));
   setText("allocated-dot", formatAmount(account.strategyAllocated?.DOT));
   setText("staked-dot", formatAmount(account.jobStakeLocked?.DOT));
   setText("debt-dot", formatAmount(account.debtOutstanding?.DOT));
+  setText("funding-wallet-value", account.wallet ?? state.wallet ?? "-");
+  setText("deposited-balance-dot", `${formatAmount(account.liquid?.DOT)} DOT`);
+  setText("active-stake-dot", `${formatAmount(account.jobStakeLocked?.DOT)} DOT`);
+  renderFundingReadiness();
 }
 
 export function applySessionState(session = undefined) {
@@ -325,21 +650,36 @@ export function refreshActionPanel() {
   const submitButton = document.getElementById("submit-button");
   const verifyButton = document.getElementById("verify-button");
   const refreshButton = document.getElementById("refresh-session-button");
+  const readiness = getFundingReadiness();
+  const execution = getExecutionState();
 
   const hasJob = Boolean(state.selectedJob);
   const sessionStatus = state.session?.status ?? "";
   const hasSession = Boolean(state.session?.sessionId);
   const hasSubmitted = sessionStatus === "submitted" || sessionStatus === "resolved" || sessionStatus === "verifying" || sessionStatus === "disputed";
   const hasVerification = Boolean(state.verification?.outcome);
+  const canSubmit = hasSession && sessionStatus === "claimed" && !hasVerification;
   const canVerify = hasSession && sessionStatus === "submitted" && !hasVerification;
+  const claimBlocked = !hasJob || !readiness.canClaim || hasSession;
 
-  claimButton.disabled = !hasJob;
-  submitButton.disabled = !hasSession;
+  claimButton.disabled = claimBlocked;
+  submitButton.disabled = !canSubmit;
   verifyButton.disabled = !canVerify;
   refreshButton.disabled = !hasSession;
 
+  setText("execution-stage", execution.stage);
+  setText("execution-next-step", execution.next);
+  setText("execution-blocker", execution.blocker);
+
+  if (!state.wallet) {
+    setActionStatus("Sign in", "status-pending");
+    setText("action-guidance", "Authenticate first, then fund Mock DOT if the selected job needs claim stake coverage.");
+    return;
+  }
+
   if (!hasJob) {
     setActionStatus("Awaiting job", "status-pending");
+    setText("action-guidance", "Choose a recommended or catalog job to load claim stake, verifier rules, and the next action.");
     return;
   }
 
@@ -350,25 +690,44 @@ export function refreshActionPanel() {
       approved ? "Verified" : rejected ? "Pending dispute window" : "Needs review",
       approved ? "status-ok" : "status-pending"
     );
+    setText(
+      "action-guidance",
+      approved
+        ? "This run is settled. Pick another job or review the session history for the final payout and reputation trail."
+        : "The verifier has responded. If the result is contested, wait for or open the dispute flow before expecting stake or reputation changes."
+    );
     return;
   }
 
   if (sessionStatus === "rejected") {
     setActionStatus("Pending dispute window", "status-pending");
+    setText(
+      "action-guidance",
+      "This run is provisionally rejected. Stake and reputation stay pending until the dispute window closes or arbitration resolves the outcome."
+    );
     return;
   }
 
   if (hasSubmitted) {
     setActionStatus("Submitted", "status-ok");
+    setText("action-guidance", "Evidence is stored. Run the verifier when you are ready to settle this submission.");
     return;
   }
 
   if (hasSession) {
     setActionStatus("Claimed", "status-ok");
+    setText("action-guidance", "The job is claimed. Fill in or edit the evidence payload, then submit it for verification.");
     return;
   }
 
-  setActionStatus("Ready", "status-pending");
+  if (!readiness.canClaim) {
+    setActionStatus(readiness.label, readiness.tone);
+    setText("action-guidance", readiness.guidance);
+    return;
+  }
+
+  setActionStatus("Ready", "status-ok");
+  setText("action-guidance", "Claim is unlocked for this wallet. The required stake is covered, so you can begin the run now.");
 }
 
 export function updateSelectedJob(job) {
@@ -384,8 +743,8 @@ export function updateSelectedJob(job) {
   setText(
     "selected-job-copy",
     job
-      ? `${job.category} job, ${job.claimTtlSeconds}s claim TTL, ${job.retryLimit} retry limit, ${formatAmount(job.preflight?.claimStake ?? 0)} ${job.rewardAsset} stake.`
-      : "Select a recommended job to load its requirements and run the claim-to-verify flow."
+      ? `${job.category} job, ${job.claimTtlSeconds}s claim TTL, ${job.retryLimit} retry limit, ${formatAmount(job.preflight?.claimStake ?? 0)} ${job.rewardAsset} stake, ${formatAmount(job.preflight?.availableLiquidity ?? 0)} ${job.rewardAsset} already deposited.`
+      : "Select a job to load its exact stake requirement, verifier rules, and operator guidance."
   );
 
   const evidenceInput = document.getElementById("evidence-input");
@@ -396,6 +755,7 @@ export function updateSelectedJob(job) {
   renderRecommendations(state.recommendations);
   renderCatalog(state.catalog);
   persistUiState();
+  renderFundingReadiness();
   refreshActionPanel();
 }
 

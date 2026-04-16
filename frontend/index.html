@@ -71,16 +71,43 @@
             <div class="section-heading compact">
               <div>
                 <p class="panel-label">Operator console</p>
-                <h2>Inspect an agent wallet live.</h2>
+                <h2>Operate your signed-in worker workspace.</h2>
               </div>
-              <p class="section-note">Reads from your own API and indexer routes.</p>
+              <p class="section-note">Signed identity, funding readiness, and live account state from your own stack.</p>
             </div>
 
             <div id="auth-panel" class="auth-panel" data-auth="signed-out">
-              <div class="auth-row">
-                <button id="auth-signin-button" type="button" class="primary-action">Connect &amp; Sign In</button>
-                <button id="auth-signout-button" type="button" class="secondary-action" hidden>Sign out</button>
-                <span id="auth-session-pill" class="status-pill status-pending" hidden>Not signed in</span>
+              <div class="auth-shell">
+                <div class="auth-copy">
+                  <p class="panel-label">Identity</p>
+                  <h3>SIWE-backed operator session</h3>
+                  <p id="auth-hint" class="section-note">
+                    Strict mode is live. Sign in with your wallet before the operator workspace, funding tools, and event stream unlock.
+                  </p>
+                </div>
+                <div class="auth-actions">
+                  <button id="auth-signin-button" type="button" class="primary-action">Connect &amp; Sign In</button>
+                  <button id="auth-signout-button" type="button" class="secondary-action" hidden>Sign out</button>
+                  <span id="auth-session-pill" class="status-pill status-pending" hidden>Not signed in</span>
+                </div>
+              </div>
+
+              <div class="auth-summary-grid">
+                <article class="auth-stat auth-stat-wide">
+                  <p>Signed-in wallet</p>
+                  <strong id="auth-wallet-value">No wallet signed in</strong>
+                  <span>Wallet-scoped reads and mutations now follow the authenticated signer.</span>
+                </article>
+                <article class="auth-stat">
+                  <p>Auth mode</p>
+                  <strong id="auth-mode-value">Strict JWT mode</strong>
+                  <span>Permissive fallback only appears on local dev deployments.</span>
+                </article>
+                <article class="auth-stat">
+                  <p>Token window</p>
+                  <strong id="auth-expiry-value">Awaiting SIWE sign-in</strong>
+                  <span>Re-auth happens automatically if the session expires mid-run.</span>
+                </article>
               </div>
               <p id="auth-feedback" class="wallet-feedback">
                 Sign in with your wallet to load balances, reputation, and the action flow.
@@ -106,9 +133,39 @@
               <div class="funding-head">
                 <div>
                   <p class="panel-label">Funding</p>
-                  <h3>Mint and deposit Mock DOT</h3>
+                  <h3>Get claim-ready for the selected job</h3>
                 </div>
-                <span class="section-note">Native faucet DOT does not count toward claim stake.</span>
+                <span id="funding-readiness-pill" class="status-pill status-pending">Sign in first</span>
+              </div>
+              <p id="funding-readiness-copy" class="section-note">
+                Authenticate with your wallet to load balances, recommendations, and claim readiness.
+              </p>
+              <div class="funding-summary-grid">
+                <article class="funding-card funding-card-strong">
+                  <p>Funding gap</p>
+                  <strong id="funding-gap-amount">-</strong>
+                  <span>How much Mock DOT must still be deposited before this wallet can claim the selected job.</span>
+                </article>
+                <article class="funding-card">
+                  <p>Claim stake</p>
+                  <strong id="funding-claim-stake">-</strong>
+                  <span>The selected job locks this amount until the run resolves.</span>
+                </article>
+                <article class="funding-card">
+                  <p>Deposited liquid</p>
+                  <strong id="funding-available-liquid">-</strong>
+                  <span>This is the balance inside AgentAccountCore, not the native wallet balance.</span>
+                </article>
+                <article class="funding-card">
+                  <p>Active wallet</p>
+                  <strong id="funding-wallet-value">No wallet signed in</strong>
+                  <span>The signer wallet is the only identity that can fund, claim, and resume this workspace.</span>
+                </article>
+              </div>
+              <div class="funding-callout">
+                <p id="funding-guidance-copy">
+                  The claim stake is enforced against deposited Mock DOT inside AgentAccountCore. Native faucet DOT only covers chain gas.
+                </p>
               </div>
               <div class="funding-row">
                 <label class="wallet-label" for="fund-amount-input">Top-up amount</label>
@@ -122,33 +179,39 @@
               </p>
             </section>
 
-            <div class="stats-grid">
-              <article class="stat-card">
-                <p>Liquid DOT</p>
-                <strong id="liquid-dot">-</strong>
-                <span>Available working balance</span>
-              </article>
-              <article class="stat-card">
-                <p>Reserved DOT</p>
-                <strong id="reserved-dot">-</strong>
-                <span>Locked for active jobs</span>
-              </article>
-              <article class="stat-card">
-                <p>Allocated</p>
-                <strong id="allocated-dot">-</strong>
-                <span>Idle capital routed to strategies</span>
-              </article>
-              <article class="stat-card">
-                <p>Staked DOT</p>
-                <strong id="staked-dot">-</strong>
-                <span>Claim stake locked across active jobs</span>
-              </article>
-              <article class="stat-card">
-                <p>Debt</p>
-                <strong id="debt-dot">-</strong>
-                <span>Current outstanding balance</span>
-              </article>
-            </div>
+            <section class="stats-shell">
+              <div class="detail-head">
+                <h3>Account positions</h3>
+                <span class="section-note">Deposited Mock DOT only. Native gas balance is still external to this view.</span>
+              </div>
+              <div class="stats-grid">
+                <article class="stat-card">
+                  <p>Liquid DOT</p>
+                  <strong id="liquid-dot">-</strong>
+                  <span id="deposited-balance-dot">Available working balance</span>
+                </article>
+                <article class="stat-card">
+                  <p>Reserved DOT</p>
+                  <strong id="reserved-dot">-</strong>
+                  <span>Locked for active jobs</span>
+                </article>
+                <article class="stat-card">
+                  <p>Allocated</p>
+                  <strong id="allocated-dot">-</strong>
+                  <span>Idle capital routed to strategies</span>
+                </article>
+                <article class="stat-card">
+                  <p>Staked DOT</p>
+                  <strong id="staked-dot">-</strong>
+                  <span id="active-stake-dot">Claim stake locked across active jobs</span>
+                </article>
+                <article class="stat-card">
+                  <p>Debt</p>
+                  <strong id="debt-dot">-</strong>
+                  <span>Current outstanding balance</span>
+                </article>
+              </div>
+            </section>
 
             <div class="detail-grid">
               <section class="detail-card">
@@ -199,6 +262,16 @@
 
             <section class="history-shell">
               <div class="detail-head">
+                <h3>Live activity</h3>
+                <span id="activity-count" class="section-note">No live events yet</span>
+              </div>
+              <div id="activity-feed" class="activity-feed">
+                <p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>
+              </div>
+            </section>
+
+            <section class="history-shell">
+              <div class="detail-head">
                 <h3>Recent sessions</h3>
                 <span id="history-count" class="section-note">Loading</span>
               </div>
@@ -230,6 +303,27 @@
               <p id="selected-job-copy" class="section-note">
                 Select a recommended job to load its requirements and run the claim-to-verify flow.
               </p>
+              <p id="action-guidance" class="action-guidance">
+                Choose a recommended or catalog job to load claim stake, verifier rules, and the next action.
+              </p>
+
+              <div class="execution-summary-grid">
+                <article class="funding-card">
+                  <p>Current stage</p>
+                  <strong id="execution-stage">Awaiting job</strong>
+                  <span>The present step in the claim-to-verify workflow for the signed-in worker.</span>
+                </article>
+                <article class="funding-card">
+                  <p>Next move</p>
+                  <strong id="execution-next-step">Choose a recommended or catalog job to load worker-specific preflight data.</strong>
+                  <span>The best action to take from this state.</span>
+                </article>
+                <article class="funding-card funding-card-strong">
+                  <p>Current blocker</p>
+                  <strong id="execution-blocker">The app cannot calculate claim stake or eligibility without a selected job.</strong>
+                  <span>What is currently stopping the workflow from progressing.</span>
+                </article>
+              </div>
 
               <dl class="action-details">
                 <div>

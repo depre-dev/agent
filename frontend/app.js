@@ -7,6 +7,7 @@ import {
   applySessionState,
   applyVerificationState,
   refreshActionPanel,
+  renderActivityFeed,
   renderCatalog,
   renderCatalogJobActivity,
   renderJobDetail,
@@ -39,12 +40,23 @@ function setAuthFeedback(text, tone = "neutral") {
   feedback.setAttribute("data-tone", tone);
 }
 
+function formatExpiry(expiresAt) {
+  if (!expiresAt) return "No active token";
+  const date = new Date(expiresAt);
+  if (Number.isNaN(date.getTime())) return expiresAt;
+  return date.toLocaleString("en-CH", { dateStyle: "medium", timeStyle: "short" });
+}
+
 function renderAuthUi(snapshot = getAuthSnapshot()) {
   const panel = document.getElementById("auth-panel");
   const signInBtn = document.getElementById("auth-signin-button");
   const signOutBtn = document.getElementById("auth-signout-button");
   const pill = document.getElementById("auth-session-pill");
   const walletForm = document.getElementById("wallet-form");
+  const walletValue = document.getElementById("auth-wallet-value");
+  const modeValue = document.getElementById("auth-mode-value");
+  const expiryValue = document.getElementById("auth-expiry-value");
+  const authHint = document.getElementById("auth-hint");
 
   if (panel) {
     panel.setAttribute("data-auth", snapshot.authenticated ? "signed-in" : "signed-out");
@@ -67,6 +79,22 @@ function renderAuthUi(snapshot = getAuthSnapshot()) {
       pill.textContent = "Not signed in";
       pill.title = snapshot.lastReason ? `Last reason: ${snapshot.lastReason}` : "";
     }
+  }
+  if (walletValue) {
+    walletValue.textContent = snapshot.wallet ?? "No wallet signed in";
+  }
+  if (modeValue) {
+    modeValue.textContent = authMode === "permissive" ? "Permissive dev mode" : "Strict JWT mode";
+  }
+  if (expiryValue) {
+    expiryValue.textContent = snapshot.authenticated ? formatExpiry(snapshot.expiresAt) : "Awaiting SIWE sign-in";
+  }
+  if (authHint) {
+    authHint.textContent = snapshot.authenticated
+      ? "This signed-in wallet is now the operator identity for wallet-scoped reads, claims, funding, and the live event stream."
+      : authMode === "permissive"
+        ? "Strict sign-in is preferred. In permissive mode, the legacy wallet form remains visible for local demos."
+        : "Strict mode is live. Sign in with your wallet before the operator workspace, funding tools, and event stream unlock.";
   }
 
   // The legacy wallet-input form is only useful when the API is in permissive
@@ -170,6 +198,12 @@ function scheduleLiveRefresh(event = undefined) {
   }, 250);
 }
 
+function recordActivity(event) {
+  if (!event) return;
+  state.activity = [event, ...state.activity].slice(0, 24);
+  renderActivityFeed(state.activity);
+}
+
 function restartEventSubscription() {
   stopEventStream?.();
   if (!state.wallet) {
@@ -179,9 +213,11 @@ function restartEventSubscription() {
   stopEventStream = startEventStream({
     wallet: state.wallet,
     onEvent: (event) => {
+      recordActivity(event);
       scheduleLiveRefresh(event);
     },
-    onGap: () => {
+    onGap: (event) => {
+      recordActivity(event ?? { topic: "gap", timestamp: new Date().toISOString(), data: {} });
       scheduleLiveRefresh({ topic: "gap" });
     },
     onError: () => {
@@ -251,7 +287,12 @@ async function selectJob(jobId) {
 }
 
 async function loadWallet(wallet) {
+  const previousWallet = state.wallet;
   state.wallet = wallet;
+  if (previousWallet !== wallet) {
+    state.activity = [];
+    renderActivityFeed([]);
+  }
   setWalletFeedback("Refreshing live operator view...", "loading");
 
   const [account, reputation, recommendations, history] = await Promise.all([
@@ -271,6 +312,7 @@ async function loadWallet(wallet) {
   setText("job-count", `${recommendations.length} recommendations`);
   setText("history-count", `${history.length} recent sessions`);
   setWalletFeedback(`Loaded live data for ${wallet}.`, "success");
+  setText("funding-wallet-value", wallet);
   localStorage.setItem("averray:last-wallet", wallet);
 
   const persisted = readPersistedState();
@@ -675,14 +717,26 @@ function wireAuthControls() {
     stopEventStream?.();
     stopEventStream = undefined;
     state.wallet = "";
+    state.account = undefined;
+    state.reputation = undefined;
+    state.history = [];
+    state.recommendations = [];
+    state.session = undefined;
+    state.verification = undefined;
+    state.activity = [];
     setAuthFeedback("Signed out. Sign in again to resume live data.", "neutral");
     // Clear the wallet-scoped panels so stale data doesn't linger on screen.
     updateAccount({ wallet: "", liquid: {}, reserved: {}, strategyAllocated: {}, collateralLocked: {}, jobStakeLocked: {}, debtOutstanding: {} });
     updateReputation({ skill: 0, reliability: 0, economic: 0, tier: "starter" });
+    applySessionState(undefined);
+    applyVerificationState(undefined);
     renderRecommendations([]);
     renderHistory([]);
+    renderActivityFeed([]);
     setText("job-count", "0 recommendations");
     setText("history-count", "0 recent sessions");
+    setText("funding-wallet-value", "No wallet signed in");
+    setText("auth-wallet-value", "No wallet signed in");
   });
 
   onAuthChange((snapshot) => {
@@ -753,6 +807,7 @@ async function boot() {
   wireCatalogActivitySelection();
   wireActionButtons({ claimButton, submitButton, verifyButton, refreshButton, fundButton });
   wirePosterControls({ posterForm, refreshCatalogButton, verifierModeSelect });
+  renderActivityFeed([]);
   refreshActionPanel();
 }
 
