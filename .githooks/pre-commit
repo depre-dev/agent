@@ -45,7 +45,11 @@ added_lines=$(git diff --cached --diff-filter=AM -U0 | awk '/^\+[^+]/ { sub(/^\+
 # descriptive label followed by a regex. We deliberately skip `\b` (not in
 # POSIX ERE) and rely on surrounding punctuation for word boundaries.
 named_patterns=(
-  'EVM private key:[=:"][[:space:]]*(0x)?[a-fA-F0-9]{64}([^a-fA-F0-9]|$)'
+  # EVM private keys: only match when the surrounding identifier looks like
+  # a key/secret name. Prevents false positives on bytes32 test fixtures
+  # like chainJobId or evidenceHash (also 64 hex chars but semantically
+  # different). Covers PRIVATE_KEY=, privateKey:, SIGNER_KEY:, etc.
+  'EVM private key:(key|Key|KEY|secret|Secret|SECRET|[Pp][Rr][Ii][Vv]|signer|Signer|SIGNER)[A-Za-z0-9_-]*[=:"][[:space:]]*(0x)?[a-fA-F0-9]{64}([^a-fA-F0-9]|$)'
   'AWS access key id:AKIA[0-9A-Z]{16}'
   'AWS secret access key line:aws_secret_access_key[[:space:]]*=[[:space:]]*[A-Za-z0-9/+=]{40}'
   'Slack token:xox[baprs]-[0-9A-Za-z-]{10,}'

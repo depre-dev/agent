@@ -199,6 +199,81 @@ test("http smoke: /auth/logout revokes the current token", { skip: !RUN }, async
   });
 });
 
+test("http smoke: /badges/:sessionId returns 404 for unknown sessions", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const response = await fetch(`${base}/badges/unknown-session-id`);
+    assert.equal(response.status, 404);
+    const payload = await response.json();
+    assert.equal(payload.status, "not_found");
+  });
+});
+
+test("http smoke: /badges/:sessionId returns schema-compliant JSON for approved sessions", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const adminToken = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+    const verifierToken = issueToken(VERIFIER_WALLET, { roles: ["verifier"] });
+
+    // 1. Create a job so the worker has something to claim.
+    const createJob = await fetch(`${base}/admin/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        id: "badge-smoke-job-001",
+        category: "coding",
+        tier: "starter",
+        rewardAmount: 3,
+        verifierMode: "benchmark",
+        verifierTerms: ["complete", "verified", "output"],
+        verifierMinimumMatches: 2,
+        outputSchemaRef: "schema://jobs/badge-smoke"
+      })
+    });
+    assert.equal(createJob.status, 201);
+
+    // 2. Fund the admin wallet so there's enough liquid balance to cover
+    //    the claim stake (5% of 3 DOT = 0.15 DOT).
+    const fund = await fetch(
+      `${base}/account/fund?asset=DOT&amount=10`,
+      { method: "POST", headers: { authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(fund.status, 200);
+
+    // 3. Claim with the admin wallet (acts as worker here for simplicity).
+    const claim = await fetch(
+      `${base}/jobs/claim?jobId=badge-smoke-job-001&idempotencyKey=badge-smoke-claim`,
+      { method: "POST", headers: { authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(claim.status, 200);
+    const { sessionId } = await claim.json();
+
+    // 3. Submit evidence that matches the benchmark terms.
+    const submit = await fetch(
+      `${base}/jobs/submit?sessionId=${encodeURIComponent(sessionId)}&evidence=${encodeURIComponent("complete verified output bundle")}`,
+      { method: "POST", headers: { authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(submit.status, 200);
+
+    // 4. Run verification — approves the session.
+    const verify = await fetch(
+      `${base}/verifier/run?sessionId=${encodeURIComponent(sessionId)}&evidence=${encodeURIComponent("complete verified output bundle")}`,
+      { method: "POST", headers: { authorization: `Bearer ${verifierToken}` } }
+    );
+    assert.equal(verify.status, 200);
+
+    // 5. Fetch the badge. Public — no auth header required.
+    const badgeResponse = await fetch(`${base}/badges/${encodeURIComponent(sessionId)}`);
+    assert.equal(badgeResponse.status, 200);
+    const badge = await badgeResponse.json();
+    assert.equal(badge.averray.schemaVersion, "v1");
+    assert.equal(badge.averray.sessionId, sessionId);
+    assert.equal(badge.averray.category, "coding");
+    assert.equal(badge.averray.verifierMode, "benchmark");
+    assert.match(badge.averray.chainJobId, /^0x[a-fA-F0-9]{64}$/);
+    assert.match(badge.averray.evidenceHash, /^0x[a-fA-F0-9]{64}$/);
+    assert.ok(Array.isArray(badge.attributes) && badge.attributes.length >= 3);
+  });
+});
+
 test("http smoke: /metrics emits Prometheus text format with baseline series", { skip: !RUN }, async () => {
   await runWithServer(async (base) => {
     // Warm the metrics: one unauthenticated admin call to populate counters.

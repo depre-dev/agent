@@ -1,0 +1,231 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { BADGE_SCHEMA_VERSION, buildBadgeFromSession, buildBadgeMetadata, validateBadgeMetadata } from "./badge-metadata.js";
+import { NotFoundError, ValidationError } from "./errors.js";
+
+// Factory so each test gets a fresh deep copy. `buildBadgeMetadata` and the
+// validator share object references with the input — which is fine for
+// production but causes test isolation bugs if one test's mutation leaks
+// into another's shared fixture.
+function validInput() {
+  return {
+    jobId: "starter-coding-001",
+    chainJobId: "0xa57b4a1f00000000000000000000000000000000000000000000000000000000",
+    sessionId: "session-0x1234-starter-coding-001-1700000000000",
+    category: "coding",
+    level: 1,
+    verifierMode: "benchmark",
+    reward: { asset: "DOT", amount: "5000000000000000000", decimals: 18 },
+    claimStake: { asset: "DOT", amount: "250000000000000000", decimals: 18 },
+    evidenceHash: "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
+    completedAt: "2026-04-16T14:30:00.000Z",
+    worker: "0x1234567890123456789012345678901234567890",
+    poster: "0x0987654321098765432109876543210987654321",
+    verifier: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+  };
+}
+
+test("buildBadgeMetadata produces a schema-valid document", () => {
+  const doc = buildBadgeMetadata(validInput());
+  assert.equal(doc.averray.schemaVersion, BADGE_SCHEMA_VERSION);
+  assert.equal(doc.averray.category, "coding");
+  assert.equal(doc.averray.level, 1);
+  assert.equal(doc.external_url, `https://averray.com/agents/${validInput().worker}`);
+  assert.deepEqual(doc.attributes, [
+    { trait_type: "Category", value: "coding" },
+    { trait_type: "Level", value: 1 },
+    { trait_type: "Verifier", value: "benchmark" }
+  ]);
+});
+
+test("buildBadgeMetadata uses publicBaseUrl when supplied", () => {
+  const doc = buildBadgeMetadata({ ...validInput(), publicBaseUrl: "https://app.example.com/" });
+  assert.equal(doc.external_url, `https://app.example.com/agents/${validInput().worker}`);
+});
+
+test("buildBadgeMetadata adds image + metadataURI when provided", () => {
+  const doc = buildBadgeMetadata({
+    ...validInput(),
+    image: "https://averray.com/badges/coding-1.svg",
+    metadataURI: "https://api.averray.com/badges/session-xyz"
+  });
+  assert.equal(doc.image, "https://averray.com/badges/coding-1.svg");
+  assert.equal(doc.averray.metadataURI, "https://api.averray.com/badges/session-xyz");
+});
+
+test("validateBadgeMetadata accepts a compliant document", () => {
+  const doc = buildBadgeMetadata(validInput());
+  assert.equal(validateBadgeMetadata(doc), doc);
+});
+
+test("validateBadgeMetadata rejects wrong schemaVersion", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.schemaVersion = "v2";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /schemaVersion/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects malformed address", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.worker = "0xnot-a-real-address";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /worker/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects float amount", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.reward.amount = "5.0";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /reward\.amount/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects unknown averray field", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.extraField = "surprise";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /extraField/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects out-of-range level", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.level = 0;
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /level/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects invalid verifierMode", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.verifierMode = "llm_judge";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /verifierMode/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects malformed evidenceHash", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.evidenceHash = "0x123";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /evidenceHash/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects non-ISO completedAt", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.completedAt = "yesterday";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /completedAt/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects missing attributes", () => {
+  const doc = buildBadgeMetadata(validInput());
+  delete doc.attributes;
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /attributes/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects non-https external_url", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.external_url = "not-a-url";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /external_url/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects missing amount.decimals", () => {
+  const doc = buildBadgeMetadata(validInput());
+  delete doc.averray.reward.decimals;
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /decimals/.test(err.message));
+});
+
+test("validateBadgeMetadata rejects extra field on amount", () => {
+  const doc = buildBadgeMetadata(validInput());
+  doc.averray.reward.surprise = "ooh";
+  assert.throws(() => validateBadgeMetadata(doc), (err) => err instanceof ValidationError && /reward\.surprise/.test(err.message));
+});
+
+// ---------------------------------------------------------------------------
+// buildBadgeFromSession — adapts in-memory session/job/verification state
+// into a schema-compliant document with documented placeholder fields.
+// ---------------------------------------------------------------------------
+
+function approvedSessionFixture() {
+  return {
+    session: {
+      sessionId: "session-0x1234-starter-coding-001-1700000000000",
+      wallet: "0x1234567890123456789012345678901234567890",
+      jobId: "starter-coding-001",
+      chainJobId: "0xa57b4a1f00000000000000000000000000000000000000000000000000000000",
+      claimStake: 0.25,
+      claimStakeBps: 500,
+      status: "resolved",
+      protocolHistory: ["http"],
+      updatedAt: "2026-04-16T14:30:00.000Z"
+    },
+    job: {
+      id: "starter-coding-001",
+      category: "coding",
+      tier: "starter",
+      rewardAsset: "DOT",
+      rewardAmount: 5,
+      verifierMode: "benchmark"
+    },
+    verification: { outcome: "approved", reasonCode: "OK" },
+    context: {
+      publicBaseUrl: "https://api.averray.com",
+      posterAddress: "0x0987654321098765432109876543210987654321",
+      verifierAddress: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+    }
+  };
+}
+
+test("buildBadgeFromSession produces a valid v1 document", () => {
+  const doc = buildBadgeFromSession(approvedSessionFixture());
+  assert.equal(doc.averray.schemaVersion, BADGE_SCHEMA_VERSION);
+  assert.equal(doc.averray.sessionId, "session-0x1234-starter-coding-001-1700000000000");
+  assert.equal(doc.averray.reward.amount, "5000000000000000000"); // 5 DOT at 18 decimals
+  assert.equal(doc.averray.claimStake.amount, "250000000000000000"); // 0.25 DOT at 18 decimals
+  assert.equal(
+    doc.averray.metadataURI,
+    "https://api.averray.com/badges/session-0x1234-starter-coding-001-1700000000000"
+  );
+  assert.equal(doc.averray.verifierMode, "benchmark");
+  // Validator round-trips
+  assert.doesNotThrow(() => validateBadgeMetadata(doc));
+});
+
+test("buildBadgeFromSession rejects sessions that aren't approved", () => {
+  const fixture = approvedSessionFixture();
+  fixture.session.status = "submitted";
+  fixture.verification.outcome = "pending";
+  assert.throws(
+    () => buildBadgeFromSession(fixture),
+    (err) => err instanceof NotFoundError && err.code === "badge_not_ready"
+  );
+});
+
+test("buildBadgeFromSession accepts approved outcome even without resolved status", () => {
+  const fixture = approvedSessionFixture();
+  fixture.session.status = "submitted";
+  fixture.verification.outcome = "approved";
+  // Should not throw — an approved verdict is enough to mint a badge
+  const doc = buildBadgeFromSession(fixture);
+  assert.equal(doc.averray.schemaVersion, BADGE_SCHEMA_VERSION);
+});
+
+test("buildBadgeFromSession synthesises a chainJobId when missing", () => {
+  const fixture = approvedSessionFixture();
+  delete fixture.session.chainJobId;
+  const doc = buildBadgeFromSession(fixture);
+  assert.match(doc.averray.chainJobId, /^0x[a-fA-F0-9]{64}$/u);
+});
+
+test("buildBadgeFromSession rejects a session without a valid wallet", () => {
+  const fixture = approvedSessionFixture();
+  fixture.session.wallet = "not-an-address";
+  assert.throws(
+    () => buildBadgeFromSession(fixture),
+    (err) => err instanceof ValidationError && /session\.wallet/.test(err.message)
+  );
+});
+
+test("buildBadgeFromSession milestone jobs earn level 2", () => {
+  const fixture = approvedSessionFixture();
+  fixture.job.payoutMode = "milestone";
+  const doc = buildBadgeFromSession(fixture);
+  assert.equal(doc.averray.level, 2);
+});
+
+test("buildBadgeFromSession returns 404-ish error for unknown session", () => {
+  assert.throws(
+    () => buildBadgeFromSession({ session: undefined, job: undefined }),
+    (err) => err instanceof NotFoundError && err.code === "session_not_found"
+  );
+});

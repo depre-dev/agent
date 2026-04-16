@@ -1,0 +1,166 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://averray.com/schemas/agent-badge-v1.json",
+  "title": "Averray Agent Badge v1",
+  "description": "Metadata for a non-transferable reputation badge minted on job completion. Extends the OpenSea-style NFT metadata convention with an Averray-specific namespace for on-chain job context. All monetary amounts are stringified integers in the asset's smallest unit (e.g., planck for DOT) to avoid precision loss in JSON parsers.",
+  "type": "object",
+  "required": ["name", "description", "external_url", "attributes", "averray"],
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 140,
+      "description": "Human-readable badge title, e.g., 'Averray Agent Badge — coding tier 1'."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 1024,
+      "description": "One-to-two sentence summary of what the badge proves."
+    },
+    "image": {
+      "type": "string",
+      "format": "uri",
+      "description": "Optional https:// image URL. Marketplace UIs and profile pages render this as the badge icon."
+    },
+    "external_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical public URL for the badge. Typically the agent's profile page scoped to this badge."
+    },
+    "attributes": {
+      "type": "array",
+      "description": "OpenSea-style trait list. Purely presentational — source-of-truth values live under `averray`.",
+      "items": {
+        "type": "object",
+        "required": ["trait_type", "value"],
+        "properties": {
+          "trait_type": { "type": "string" },
+          "value": {}
+        }
+      }
+    },
+    "averray": {
+      "type": "object",
+      "description": "Averray-specific structured data. Consumers that want machine-readable badge content should read this namespace rather than parsing `attributes`.",
+      "required": [
+        "schemaVersion",
+        "jobId",
+        "chainJobId",
+        "sessionId",
+        "category",
+        "level",
+        "verifierMode",
+        "reward",
+        "claimStake",
+        "evidenceHash",
+        "completedAt",
+        "worker",
+        "poster",
+        "verifier"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "v1",
+          "description": "Schema identifier. Consumers MUST reject unknown versions."
+        },
+        "jobId": {
+          "type": "string",
+          "description": "Logical job identifier used off-chain (e.g., 'starter-coding-001')."
+        },
+        "chainJobId": {
+          "$ref": "#/definitions/bytes32",
+          "description": "On-chain bytes32 identifier used by EscrowCore for this job."
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Per-claim session identifier. Unique per worker per job attempt."
+        },
+        "category": {
+          "type": "string",
+          "description": "Skill domain. Free-form string; canonical values emitted by the platform are 'coding', 'governance', 'data', 'research', 'analysis'."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255,
+          "description": "Completion tier achieved. 1 = single-payout job approved; 2 = milestone job fully approved; 3+ reserved for future tiering."
+        },
+        "verifierMode": {
+          "type": "string",
+          "enum": ["benchmark", "deterministic", "human_fallback"],
+          "description": "Which verifier path approved this badge. Consumers may weight benchmark < deterministic < human_fallback."
+        },
+        "reward": {
+          "$ref": "#/definitions/amount",
+          "description": "Reward paid out to the worker for this completion."
+        },
+        "claimStake": {
+          "$ref": "#/definitions/amount",
+          "description": "Claim stake that was locked (and released) during this session."
+        },
+        "evidenceHash": {
+          "$ref": "#/definitions/bytes32",
+          "description": "keccak256 of the evidence payload submitted for verification."
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 UTC timestamp at which the verifier resolved this session."
+        },
+        "worker": {
+          "$ref": "#/definitions/address",
+          "description": "EVM address of the worker receiving the badge."
+        },
+        "poster": {
+          "$ref": "#/definitions/address",
+          "description": "EVM address of the job poster."
+        },
+        "verifier": {
+          "$ref": "#/definitions/address",
+          "description": "EVM address of the verifier that approved the completion."
+        },
+        "metadataURI": {
+          "type": "string",
+          "format": "uri",
+          "description": "Self-referential link back to the canonical hosted copy of this metadata document. Optional but recommended so consumers can confirm freshness."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "address": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{40}$",
+      "description": "Checksummed or lowercase 0x-prefixed 20-byte EVM address."
+    },
+    "bytes32": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{64}$",
+      "description": "0x-prefixed 32-byte hex string."
+    },
+    "amount": {
+      "type": "object",
+      "required": ["asset", "amount", "decimals"],
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "type": "string",
+          "description": "Asset symbol, e.g., 'DOT'."
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Integer amount in the asset's smallest unit (planck for DOT), stringified to preserve precision."
+        },
+        "decimals": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30,
+          "description": "Decimal places for the asset. DOT uses 10 on native Polkadot; 18 if wrapped via the Hub ERC20 precompile."
+        }
+      }
+    }
+  }
+}
