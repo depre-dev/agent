@@ -359,6 +359,22 @@ function catalogFilterLabel(filter) {
   }
 }
 
+function filterHistoryEntries(entries) {
+  const filter = state.historyFilter ?? "all";
+  switch (filter) {
+    case "active":
+      return entries.filter((entry) => ["claimed", "submitted", "verifying", "rejected", "disputed"].includes(entry.status));
+    case "approved":
+      return entries.filter((entry) => entry.verification?.outcome === "approved" || entry.status === "resolved");
+    case "rejected":
+      return entries.filter((entry) => entry.verification?.outcome === "rejected" || entry.status === "rejected");
+    case "disputed":
+      return entries.filter((entry) => entry.status === "disputed" || entry.verification?.outcome === "disputed");
+    default:
+      return entries;
+  }
+}
+
 function renderFundingReadiness() {
   const readiness = getFundingReadiness();
   setStatusPill("funding-readiness-pill", readiness.label, readiness.tone);
@@ -557,14 +573,30 @@ export function renderCatalog(jobs) {
 
 export function renderHistory(entries) {
   const root = document.getElementById("history-list");
+  const count = document.getElementById("history-count");
   if (!root) return;
+
+  const filteredEntries = filterHistoryEntries(entries);
+  const approvedRuns = entries.filter((entry) => entry.verification?.outcome === "approved" || entry.status === "resolved").length;
+  const activeRuns = entries.filter((entry) => ["claimed", "submitted", "verifying", "rejected", "disputed"].includes(entry.status)).length;
+  const rejectedRuns = entries.filter((entry) => entry.verification?.outcome === "rejected" || entry.status === "rejected").length;
+  const disputedRuns = entries.filter((entry) => entry.status === "disputed" || entry.verification?.outcome === "disputed").length;
+
+  if (count) {
+    count.textContent = `${filteredEntries.length} shown · ${entries.length} total · ${activeRuns} active · ${approvedRuns} approved · ${rejectedRuns} rejected · ${disputedRuns} disputed`;
+  }
 
   if (!entries.length) {
     root.innerHTML = '<p class="empty-state">No sessions recorded for this wallet yet.</p>';
     return;
   }
 
-  root.innerHTML = entries
+  if (!filteredEntries.length) {
+    root.innerHTML = '<p class="empty-state">No sessions match the current filter yet.</p>';
+    return;
+  }
+
+  root.innerHTML = filteredEntries
     .map(
       (entry) => `
         <article class="history-card ${entry.sessionId === state.session?.sessionId ? "job-selected" : ""}">

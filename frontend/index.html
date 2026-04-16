@@ -273,7 +273,19 @@
             <section class="history-shell">
               <div class="detail-head">
                 <h3>Recent sessions</h3>
-                <span id="history-count" class="section-note">Loading</span>
+                <div class="detail-actions">
+                  <label class="inline-filter" for="history-filter">
+                    <span>Session filter</span>
+                    <select id="history-filter">
+                      <option value="all" selected>All runs</option>
+                      <option value="active">Active</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                      <option value="disputed">Disputed</option>
+                    </select>
+                  </label>
+                  <span id="history-count" class="section-note">Loading</span>
+                </div>
               </div>
               <div id="history-list" class="history-list">
                 <p class="empty-state">Loading recent sessions...</p>
