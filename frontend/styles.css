@@ -454,6 +454,17 @@ main {
   justify-content: flex-end;
 }
 
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.auth-links .secondary-action {
+  min-height: 2.6rem;
+}
+
 .auth-actions .status-pill,
 .auth-row .status-pill {
   font-variant-numeric: tabular-nums;

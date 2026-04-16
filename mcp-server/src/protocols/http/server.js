@@ -655,8 +655,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/account/fund") {
       const auth = await authMiddleware(request, url);
-      const asset = url.searchParams.get("asset")?.trim() || "DOT";
-      const amount = Number(url.searchParams.get("amount") ?? "0");
+      const payload = await readJsonBody(request);
+      const asset = typeof payload?.asset === "string" && payload.asset.trim()
+        ? payload.asset.trim()
+        : (url.searchParams.get("asset")?.trim() || "DOT");
+      const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
       return respond(response, 200, await service.fundAccount(auth.wallet, asset, amount));
     }
 
@@ -773,15 +776,25 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/jobs/claim") {
       const auth = await authMiddleware(request, url);
-      const jobId = url.searchParams.get("jobId") ?? "";
-      const idempotencyKey = url.searchParams.get("idempotencyKey") ?? `${auth.wallet}:${jobId}`;
+      const payload = await readJsonBody(request);
+      const jobId = typeof payload?.jobId === "string" && payload.jobId.trim()
+        ? payload.jobId.trim()
+        : (url.searchParams.get("jobId") ?? "");
+      const idempotencyKey = typeof payload?.idempotencyKey === "string" && payload.idempotencyKey.trim()
+        ? payload.idempotencyKey.trim()
+        : (url.searchParams.get("idempotencyKey") ?? `${auth.wallet}:${jobId}`);
       return respond(response, 200, await service.claimJob(auth.wallet, jobId, "http", idempotencyKey));
     }
 
     if (request.method === "POST" && pathname === "/jobs/submit") {
       const auth = await authMiddleware(request, url);
-      const sessionId = url.searchParams.get("sessionId") ?? "";
-      const evidence = url.searchParams.get("evidence") ?? "submitted-via-http";
+      const payload = await readJsonBody(request);
+      const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim()
+        ? payload.sessionId.trim()
+        : (url.searchParams.get("sessionId") ?? "");
+      const evidence = typeof payload?.evidence === "string"
+        ? payload.evidence
+        : (url.searchParams.get("evidence") ?? "submitted-via-http");
       if (!sessionId) {
         throw new ValidationError("sessionId is required.");
       }
@@ -795,9 +808,16 @@ const server = createServer(async (request, response) => {
     if (request.method === "POST" && pathname === "/verifier/run") {
       const auth = await authMiddleware(request, url, { requireRole: "verifier" });
       await enforceLimit("verifier_run", auth.wallet, rateLimitConfig.verifierRun);
-      const sessionId = url.searchParams.get("sessionId") ?? "";
-      const evidence = url.searchParams.get("evidence") ?? "";
-      const metadataURI = url.searchParams.get("metadataURI") ?? "ipfs://pending-badge";
+      const payload = await readJsonBody(request);
+      const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim()
+        ? payload.sessionId.trim()
+        : (url.searchParams.get("sessionId") ?? "");
+      const evidence = typeof payload?.evidence === "string"
+        ? payload.evidence
+        : (url.searchParams.get("evidence") ?? "");
+      const metadataURI = typeof payload?.metadataURI === "string" && payload.metadataURI.trim()
+        ? payload.metadataURI.trim()
+        : (url.searchParams.get("metadataURI") ?? "ipfs://pending-badge");
       return respond(response, 200, await verifierService.verifySubmission({ sessionId, evidence, metadataURI }));
     }
 

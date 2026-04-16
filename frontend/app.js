@@ -4,6 +4,7 @@ import { startEventStream } from "./events.js";
 import { postJson, readJson } from "./http-client.js";
 import { initObservability } from "./observability.js";
 import { buildEvidenceTemplate, parseTerms } from "./job-utils.js";
+import { apiUrl } from "./config.js";
 import {
   applySessionState,
   applyVerificationState,
@@ -46,6 +47,25 @@ function formatExpiry(expiresAt) {
   const date = new Date(expiresAt);
   if (Number.isNaN(date.getTime())) return expiresAt;
   return date.toLocaleString("en-CH", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function syncPublicProfileLinks(wallet = "") {
+  const links = document.getElementById("auth-profile-links");
+  const pageLink = document.getElementById("auth-profile-page-link");
+  const jsonLink = document.getElementById("auth-profile-json-link");
+  if (!links || !pageLink || !jsonLink) return;
+
+  if (!wallet) {
+    links.hidden = true;
+    pageLink.href = "./agent.html";
+    jsonLink.href = apiUrl("/agents/");
+    return;
+  }
+
+  const encodedWallet = encodeURIComponent(wallet);
+  links.hidden = false;
+  pageLink.href = `./agent.html?wallet=${encodedWallet}`;
+  jsonLink.href = apiUrl(`/agents/${wallet}`);
 }
 
 function renderAuthUi(snapshot = getAuthSnapshot()) {
@@ -97,6 +117,8 @@ function renderAuthUi(snapshot = getAuthSnapshot()) {
         ? "Strict sign-in is preferred. In permissive mode, the legacy wallet form remains visible for local demos."
         : "Strict mode is live. Sign in with your wallet before the operator workspace, funding tools, and event stream unlock.";
   }
+
+  syncPublicProfileLinks(snapshot.authenticated ? snapshot.wallet ?? "" : "");
 
   // The legacy wallet-input form is only useful when the API is in permissive
   // mode — otherwise every request will be rejected until the user signs in.
@@ -335,9 +357,7 @@ async function fundCurrentWallet() {
   const amount = Number(amountInput?.value ?? "0");
   setFundingFeedback(`Funding ${state.wallet} with ${amount} Mock DOT...`, "loading");
 
-  const account = await postJson(
-    `/api/account/fund?wallet=${encodeURIComponent(state.wallet)}&asset=DOT&amount=${encodeURIComponent(amount)}`
-  );
+  const account = await postJson("/api/account/fund", { asset: "DOT", amount });
 
   updateAccount(account);
   setFundingFeedback(`Minted and deposited ${amount} Mock DOT into AgentAccountCore.`, "success");
@@ -358,9 +378,10 @@ async function claimSelectedJob() {
   const idempotencyKey = `ui:${state.wallet}:${state.selectedJobId}`;
   setActionFeedback(`Claiming ${state.selectedJobId}...`, "loading");
 
-  const session = await postJson(
-    `/api/jobs/claim?wallet=${encodeURIComponent(state.wallet)}&jobId=${encodeURIComponent(state.selectedJobId)}&idempotencyKey=${encodeURIComponent(idempotencyKey)}`
-  );
+  const session = await postJson("/api/jobs/claim", {
+    jobId: state.selectedJobId,
+    idempotencyKey
+  });
 
   applySessionState(session);
   applyVerificationState(undefined);
@@ -378,9 +399,10 @@ async function submitSelectedWork() {
   const evidence = evidenceInput?.value?.trim() || buildEvidenceTemplate(state.selectedJob);
 
   setActionFeedback(`Submitting work for ${state.session.sessionId}...`, "loading");
-  const session = await postJson(
-    `/api/jobs/submit?sessionId=${encodeURIComponent(state.session.sessionId)}&evidence=${encodeURIComponent(evidence)}`
-  );
+  const session = await postJson("/api/jobs/submit", {
+    sessionId: state.session.sessionId,
+    evidence
+  });
 
   applySessionState(session);
   setActionFeedback("Submission stored. Run the verifier to settle the result.", "success");
@@ -397,9 +419,10 @@ async function verifySelectedWork() {
   const evidence = evidenceInput?.value?.trim() || buildEvidenceTemplate(state.selectedJob);
 
   setActionFeedback(`Running verifier for ${state.session.sessionId}...`, "loading");
-  const result = await postJson(
-    `/api/verifier/run?sessionId=${encodeURIComponent(state.session.sessionId)}&evidence=${encodeURIComponent(evidence)}`
-  );
+  const result = await postJson("/api/verifier/run", {
+    sessionId: state.session.sessionId,
+    evidence
+  });
 
   applyVerificationState(result);
   setText(
@@ -739,15 +762,20 @@ function wireAuthControls() {
     state.session = undefined;
     state.verification = undefined;
     state.activity = [];
+    state.jobHistory = [];
+    state.catalogJobActivity = [];
     setAuthFeedback("Signed out. Sign in again to reopen the operator workspace.", "neutral");
     // Clear the wallet-scoped panels so stale data doesn't linger on screen.
     updateAccount({ wallet: "", liquid: {}, reserved: {}, strategyAllocated: {}, collateralLocked: {}, jobStakeLocked: {}, debtOutstanding: {} });
     updateReputation({ skill: 0, reliability: 0, economic: 0, tier: "starter" });
+    updateSelectedJob(undefined);
     applySessionState(undefined);
     applyVerificationState(undefined);
     renderRecommendations([]);
     renderHistory([]);
     renderActivityFeed([]);
+    renderJobDetail(undefined, []);
+    renderCatalogJobActivity(undefined, []);
     setText("job-count", "0 recommendations");
     setText("funding-wallet-value", "No wallet signed in");
     setText("auth-wallet-value", "No wallet signed in");
