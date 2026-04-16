@@ -9,9 +9,12 @@ export const AGENT_ACCOUNT_ABI = [
   "function allocateIdleFunds(address account, bytes32 strategyId, uint256 amount)",
   "function borrow(address asset, uint256 amount)",
   "function repay(address asset, uint256 amount)",
+  "function sendToAgent(address recipient, address asset, uint256 amount)",
+  "function sendToAgentFor(address from, address recipient, address asset, uint256 amount)",
   "event JobStakeLocked(address indexed account, address indexed asset, uint256 amount)",
   "event JobStakeReleased(address indexed account, address indexed asset, uint256 amount)",
-  "event JobStakeSlashed(address indexed account, address indexed asset, uint256 amount, uint256 posterAmount, uint256 treasuryAmount)"
+  "event JobStakeSlashed(address indexed account, address indexed asset, uint256 amount, uint256 posterAmount, uint256 treasuryAmount)",
+  "event AgentTransfer(address indexed from, address indexed to, address indexed asset, uint256 amount)"
 ];
 
 export const ESCROW_CORE_ABI = [

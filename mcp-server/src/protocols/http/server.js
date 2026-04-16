@@ -209,6 +209,7 @@ function metricPathLabel(pathname) {
     "/admin/jobs",
     "/account",
     "/account/fund",
+    "/payments/send",
     "/reputation",
     "/session",
     "/sessions",
@@ -291,6 +292,7 @@ const server = createServer(async (request, response) => {
           "/events",
           "/account",
           "/account/fund",
+          "/payments/send",
           "/reputation",
           "/session",
           "/sessions",
@@ -734,6 +736,39 @@ const server = createServer(async (request, response) => {
         200,
         await pimlicoClient.sponsorUserOperation(payload.userOperation, payload.context ?? {})
       );
+    }
+
+    if (request.method === "POST" && pathname === "/payments/send") {
+      // Agent-to-agent transfer. Pillar 5 of docs/AGENT_BANKING.md.
+      // Authenticated: the signed-in wallet is the sender, and the
+      // backend relays via AgentAccountCore.sendToAgentFor so the hot
+      // signer key on the platform is the one paying gas, not the user.
+      const auth = await authMiddleware(request, url);
+      const payload = await readJsonBody(request);
+      const recipientRaw = String(payload?.recipient ?? "").trim();
+      if (!/^0x[a-fA-F0-9]{40}$/u.test(recipientRaw)) {
+        throw new ValidationError("recipient must be a 0x-prefixed 20-byte hex address.");
+      }
+      const recipient = safeChecksum(recipientRaw);
+      if (recipient.toLowerCase() === auth.wallet.toLowerCase()) {
+        throw new ValidationError("recipient must differ from the sender.");
+      }
+      const asset = typeof payload?.asset === "string" && payload.asset.trim()
+        ? payload.asset.trim().toUpperCase()
+        : "DOT";
+      const amount = Number(payload?.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new ValidationError("amount must be a positive number.");
+      }
+      const balances = await service.sendToAgent(auth.wallet, recipient, asset, amount);
+      return respond(response, 200, {
+        status: "sent",
+        from: auth.wallet,
+        to: recipient,
+        asset,
+        amount,
+        balances
+      });
     }
 
     if (request.method === "POST" && pathname === "/jobs/claim") {

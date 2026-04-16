@@ -1,7 +1,8 @@
 import {
   BorrowCapacityExceededError,
   ConflictError,
-  InsufficientLiquidityError
+  InsufficientLiquidityError,
+  ValidationError
 } from "./errors.js";
 
 export class AccountMutationService {
@@ -139,6 +140,49 @@ export class AccountMutationService {
     account.debtOutstanding[asset] = (account.debtOutstanding[asset] ?? 0) + amount;
     this.accounts.set(wallet, account);
     return account;
+  }
+
+  /**
+   * Agent-to-agent on-platform transfer. Moves `amount` from `from`'s
+   * liquid bucket to `recipient`'s liquid bucket without touching the
+   * underlying ERC20. Mirrors the `AgentAccountCore.sendToAgentFor`
+   * contract primitive when the blockchain gateway is enabled, and falls
+   * back to an in-memory bookkeeping update on the local dev path.
+   */
+  async agentTransfer(from, recipient, asset, amount) {
+    if (!from || !recipient) {
+      throw new ValidationError("from and recipient are required");
+    }
+    if (from.toLowerCase() === recipient.toLowerCase()) {
+      throw new ValidationError("from and recipient must differ");
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new ValidationError("amount must be a positive number");
+    }
+
+    if (this.blockchainGateway?.isEnabled() && this.blockchainGateway.sendToAgent) {
+      await this.blockchainGateway.sendToAgent(from, recipient, asset, amount);
+      return {
+        from: await this.getAccountSummary(from),
+        to: await this.getAccountSummary(recipient)
+      };
+    }
+
+    const fromAccount = await this.getAccountSummary(from);
+    const toAccount = await this.getAccountSummary(recipient);
+    const fromLiquid = fromAccount.liquid[asset] ?? 0;
+    if (fromLiquid < amount) {
+      throw new InsufficientLiquidityError(asset, {
+        wallet: from,
+        required: amount,
+        available: fromLiquid
+      });
+    }
+    fromAccount.liquid[asset] = fromLiquid - amount;
+    toAccount.liquid[asset] = (toAccount.liquid[asset] ?? 0) + amount;
+    this.accounts.set(from, fromAccount);
+    this.accounts.set(recipient, toAccount);
+    return { from: fromAccount, to: toAccount };
   }
 
   async repay(wallet, asset, amount) {

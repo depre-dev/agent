@@ -204,6 +204,22 @@ export class BlockchainGateway {
     });
   }
 
+  /**
+   * Relay an agent-to-agent transfer via the operator-gated primitive
+   * on AgentAccountCore (sendToAgentFor). The backend signer must be on
+   * the TreasuryPolicy service-operators list. See
+   * contracts/AgentAccountCore.sol#sendToAgentFor for the contract-level
+   * permission model.
+   */
+  async sendToAgent(from, recipient, assetSymbol, amount) {
+    return this.withGatewayError("sendToAgent", async () => {
+      this.requireSigner("sendToAgent");
+      const asset = this.requireAsset(assetSymbol);
+      const tx = await this.accountContract.sendToAgentFor(from, recipient, asset.address, amount);
+      await tx.wait();
+    });
+  }
+
   async claimJob(jobId) {
     return this.withGatewayError("claimJob", async () => {
       this.requireSigner("claimJob");

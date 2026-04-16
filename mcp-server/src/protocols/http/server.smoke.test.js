@@ -357,6 +357,52 @@ test("http smoke: /agents/:wallet rejects non-address path segments", { skip: !R
   });
 });
 
+test("http smoke: /payments/send moves liquid balance between agent accounts", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const senderToken = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+
+    // Fund the sender wallet so there's something to send.
+    const fund = await fetch(`${base}/account/fund?asset=DOT&amount=20`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${senderToken}` }
+    });
+    assert.equal(fund.status, 200);
+
+    const response = await fetch(`${base}/payments/send`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${senderToken}`
+      },
+      body: JSON.stringify({ recipient: VERIFIER_WALLET, asset: "DOT", amount: 5 })
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.status, "sent");
+    assert.equal(body.asset, "DOT");
+    assert.equal(body.amount, 5);
+    assert.equal(body.balances.from.liquid.DOT, 15);
+    assert.equal(body.balances.to.liquid.DOT, 5);
+  });
+});
+
+test("http smoke: /payments/send rejects self-transfer", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const token = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+    const response = await fetch(`${base}/payments/send`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ recipient: ADMIN_WALLET, asset: "DOT", amount: 1 })
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.error, "invalid_request");
+  });
+});
+
 test("http smoke: /strategies defaults to empty when STRATEGIES_JSON is unset", { skip: !RUN }, async () => {
   await runWithServer(async (base) => {
     const response = await fetch(`${base}/strategies`);

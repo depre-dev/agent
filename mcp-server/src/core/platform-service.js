@@ -190,6 +190,10 @@ export class PlatformService {
     return this.accountMutationService.reserveForJob(wallet, asset, amount);
   }
 
+  async sendToAgent(from, recipient, asset, amount) {
+    return this.accountMutationService.agentTransfer(from, recipient, asset, amount);
+  }
+
   async allocateIdleFunds(wallet, asset, amount, strategyId = "default-low-risk") {
     return this.accountMutationService.allocateIdleFunds(wallet, asset, amount, strategyId);
   }

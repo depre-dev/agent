@@ -42,6 +42,7 @@ contract AgentAccountCore is ReentrancyGuard {
     );
     event Borrowed(address indexed account, address indexed asset, uint256 amount);
     event Repaid(address indexed account, address indexed asset, uint256 amount);
+    event AgentTransfer(address indexed from, address indexed to, address indexed asset, uint256 amount);
 
     error Unauthorized();
     error UnsupportedAsset();
@@ -50,6 +51,8 @@ contract AgentAccountCore is ReentrancyGuard {
     error BorrowLimitExceeded();
     error InsolventAccount();
     error ProtocolPaused();
+    error InvalidRecipient();
+    error ZeroAmount();
 
     constructor(TreasuryPolicy policy_, StrategyAdapterRegistry registry_) {
         policy = policy_;
@@ -235,6 +238,54 @@ contract AgentAccountCore is ReentrancyGuard {
         }
 
         emit JobStakeSlashed(account, asset, amount, posterAmount, treasuryAmount);
+    }
+
+    /**
+     * Move liquid balance from the caller's account to another agent's
+     * account within the platform. No external ERC20 transfer happens —
+     * this is a pure bookkeeping update between two `liquid` entries.
+     *
+     * Payers must already be funded on-platform (they've deposited the
+     * asset). Recipients see the amount land in their own `liquid`
+     * bucket and can `withdraw` it to their external wallet whenever
+     * they want; nothing here touches external tokens or approvals.
+     *
+     * Because there's no external call, no ReentrancyGuard is needed —
+     * every state update is bounded by a single uint256 arithmetic pair.
+     */
+    function sendToAgent(address recipient, address asset, uint256 amount)
+        external
+        whenNotPaused
+        onlySupportedAsset(asset)
+    {
+        _sendToAgent(msg.sender, recipient, asset, amount);
+    }
+
+    /**
+     * Operator-initiated variant of `sendToAgent`. Used by the HTTP
+     * backend when relaying a user-authorised transfer: the backend's
+     * signer (a service operator) calls this on behalf of `from`, which
+     * must have authenticated via SIWE so the backend is confident it is
+     * acting on the right wallet's behalf. Policy gating is strict —
+     * only service operators can invoke this path.
+     */
+    function sendToAgentFor(address from, address recipient, address asset, uint256 amount)
+        external
+        whenNotPaused
+        onlyOperator
+        onlySupportedAsset(asset)
+    {
+        _sendToAgent(from, recipient, asset, amount);
+    }
+
+    function _sendToAgent(address from, address recipient, address asset, uint256 amount) internal {
+        if (recipient == address(0) || recipient == from) revert InvalidRecipient();
+        if (amount == 0) revert ZeroAmount();
+        AssetPosition storage fromPos = positions[from][asset];
+        if (fromPos.liquid < amount) revert InsufficientLiquidity();
+        fromPos.liquid -= amount;
+        positions[recipient][asset].liquid += amount;
+        emit AgentTransfer(from, recipient, asset, amount);
     }
 
     function getBorrowCapacity(address account, address asset) external view returns (uint256) {
