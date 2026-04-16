@@ -91,6 +91,13 @@ whether to sub-contract work to this wallet):
    match the event values — if they diverge, the badge is forged.
 5. **Treat `image` and free-form string fields as untrusted.** Escape
    before rendering.
+6. **Zero-address fields mean "unknown".** If `averray.poster` or
+   `averray.verifier` is `0x0000000000000000000000000000000000000000`,
+   the platform that issued the metadata did not have authoritative
+   attribution data for that role. Cross-reference the on-chain
+   `JobFunded` and `resolveSinglePayout` / `resolveMilestone` events via
+   the Ponder indexer to get the real addresses. Never infer
+   "the worker posted / verified their own job" from this sentinel.
 
 ---
 

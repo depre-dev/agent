@@ -132,6 +132,10 @@ export class PlatformService {
     return this.jobExecutionService.listSessionHistory({ wallet, limit, jobId });
   }
 
+  async collectSessionHistory(wallet, options = {}) {
+    return this.jobExecutionService.collectSessionHistory(wallet, options);
+  }
+
   async getAccountSummary(wallet) {
     if (this.blockchainGateway?.isEnabled()) {
       return this.blockchainGateway.getAccountSummary(wallet);

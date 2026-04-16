@@ -3,6 +3,22 @@ import { keccak256, toUtf8Bytes } from "ethers";
 import { NotFoundError, ValidationError } from "./errors.js";
 
 /**
+ * Sentinel returned in `averray.poster` and `averray.verifier` when the
+ * platform does not have authoritative attribution data for the badge
+ * (typical for dev/testnet deploys without `DEFAULT_POSTER_ADDRESS` /
+ * `DEFAULT_VERIFIER_ADDRESS` set). Consumers MUST treat this value as
+ * "unknown" — cross-reference the on-chain `JobFunded` and
+ * `resolveSinglePayout` events from the Ponder indexer to get the real
+ * addresses. See docs/schemas/agent-badge-v1.md for the full rule.
+ *
+ * Emitting the zero address is deliberately better than defaulting to
+ * the worker's own wallet: the old fallback silently told consumers
+ * "you posted and verified your own job", which is flat-out wrong and
+ * misleading for any downstream credit or trust scoring.
+ */
+export const UNKNOWN_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/**
  * Build + validate Averray agent-badge metadata documents.
  *
  * Source of truth for the shape: docs/schemas/agent-badge-v1.json.
@@ -350,8 +366,14 @@ export function buildBadgeFromSession({ session, job, verification, context = {}
     evidenceHash,
     completedAt: new Date(session.updatedAt ?? Date.now()).toISOString(),
     worker: requireLowerAddress(session.wallet, "session.wallet"),
-    poster: requireLowerAddress(context.posterAddress ?? session.wallet, "context.posterAddress"),
-    verifier: requireLowerAddress(context.verifierAddress ?? session.wallet, "context.verifierAddress"),
+    // Attribution fallbacks: when the operator hasn't wired authoritative
+    // poster/verifier addresses via context (or env DEFAULT_POSTER_ADDRESS
+    // / DEFAULT_VERIFIER_ADDRESS), emit the zero address so consumers
+    // recognise the field as "unknown, read the chain events" rather than
+    // being misled into thinking the worker posted + verified their own
+    // job. See UNKNOWN_ADDRESS docs above.
+    poster: requireLowerAddress(context.posterAddress ?? UNKNOWN_ADDRESS, "context.posterAddress"),
+    verifier: requireLowerAddress(context.verifierAddress ?? UNKNOWN_ADDRESS, "context.verifierAddress"),
     metadataURI: selfUrl,
     image: context.image,
     publicBaseUrl

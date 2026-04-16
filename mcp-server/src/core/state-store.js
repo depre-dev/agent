@@ -98,13 +98,13 @@ export class MemoryStateStore {
     return result;
   }
 
-  async listSessionsByWallet(wallet, limit = 10) {
-    const sessionIds = (this.walletSessions.get(wallet) ?? []).slice(0, limit);
+  async listSessionsByWallet(wallet, limit = 10, offset = 0) {
+    const sessionIds = (this.walletSessions.get(wallet) ?? []).slice(offset, offset + limit);
     return sessionIds.map((sessionId) => this.sessions.get(sessionId)).filter(Boolean);
   }
 
-  async listSessionsByJob(jobId, limit = 10) {
-    const sessionIds = (this.jobSessionHistory.get(jobId) ?? []).slice(0, limit);
+  async listSessionsByJob(jobId, limit = 10, offset = 0) {
+    const sessionIds = (this.jobSessionHistory.get(jobId) ?? []).slice(offset, offset + limit);
     return sessionIds.map((sessionId) => this.sessions.get(sessionId)).filter(Boolean);
   }
 
@@ -279,18 +279,22 @@ export class RedisStateStore {
     return result;
   }
 
-  async listSessionsByWallet(wallet, limit = 10) {
+  async listSessionsByWallet(wallet, limit = 10, offset = 0) {
     await this.connect();
-    const sessionIds = await this.client.zRange(this.key("wallet-sessions", wallet), 0, Math.max(limit - 1, 0), {
+    const start = Math.max(offset, 0);
+    const stop = start + Math.max(limit - 1, 0);
+    const sessionIds = await this.client.zRange(this.key("wallet-sessions", wallet), start, stop, {
       REV: true
     });
     const sessions = await Promise.all(sessionIds.map((sessionId) => this.getSession(sessionId)));
     return sessions.filter(Boolean);
   }
 
-  async listSessionsByJob(jobId, limit = 10) {
+  async listSessionsByJob(jobId, limit = 10, offset = 0) {
     await this.connect();
-    const sessionIds = await this.client.zRange(this.key("job-sessions", jobId), 0, Math.max(limit - 1, 0), {
+    const start = Math.max(offset, 0);
+    const stop = start + Math.max(limit - 1, 0);
+    const sessionIds = await this.client.zRange(this.key("job-sessions", jobId), start, stop, {
       REV: true
     });
     const sessions = await Promise.all(sessionIds.map((sessionId) => this.getSession(sessionId)));

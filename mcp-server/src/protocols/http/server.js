@@ -423,9 +423,13 @@ const server = createServer(async (request, response) => {
       // in the URL, normalise for lookup, and return lowercase in the body
       // so consumers have a single canonical form to compare against.
       const checksummed = safeChecksum(rawWallet);
+      // Lifetime aggregates need every session, not a truncated page.
+      // collectSessionHistory walks the state store page-by-page up to a
+      // safety cap (10_000 by default) — see
+      // src/core/job-execution-service.js#collectSessionHistory.
       const [reputation, sessions] = await Promise.all([
         service.getReputation(checksummed),
-        service.listSessionHistory({ wallet: checksummed, limit: 64 })
+        service.collectSessionHistory(checksummed, { logger: requestLogger })
       ]);
       const profile = buildAgentProfile({
         wallet: rawWallet.toLowerCase(),

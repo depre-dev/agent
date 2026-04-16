@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { BADGE_SCHEMA_VERSION, buildBadgeFromSession, buildBadgeMetadata, validateBadgeMetadata } from "./badge-metadata.js";
+import {
+  BADGE_SCHEMA_VERSION,
+  UNKNOWN_ADDRESS,
+  buildBadgeFromSession,
+  buildBadgeMetadata,
+  validateBadgeMetadata
+} from "./badge-metadata.js";
 import { NotFoundError, ValidationError } from "./errors.js";
 
 // Factory so each test gets a fresh deep copy. `buildBadgeMetadata` and the
@@ -228,4 +234,28 @@ test("buildBadgeFromSession returns 404-ish error for unknown session", () => {
     () => buildBadgeFromSession({ session: undefined, job: undefined }),
     (err) => err instanceof NotFoundError && err.code === "session_not_found"
   );
+});
+
+test("buildBadgeFromSession emits UNKNOWN_ADDRESS for poster/verifier when context is missing", () => {
+  const fixture = approvedSessionFixture();
+  // Drop the operator-supplied addresses so the adapter has to fall back.
+  fixture.context = { publicBaseUrl: "https://api.averray.com" };
+  const doc = buildBadgeFromSession(fixture);
+  assert.equal(doc.averray.poster, UNKNOWN_ADDRESS);
+  assert.equal(doc.averray.verifier, UNKNOWN_ADDRESS);
+  // The worker stays authoritative — it's always session.wallet.
+  assert.equal(doc.averray.worker, fixture.session.wallet.toLowerCase());
+});
+
+test("buildBadgeFromSession never attributes poster/verifier back to the worker", () => {
+  // Regression: the previous fallback was `context.posterAddress ??
+  // session.wallet`, which produced badges that falsely claimed the worker
+  // posted and verified their own job. If this test ever passes again
+  // with poster == worker, that bug has regressed.
+  const fixture = approvedSessionFixture();
+  delete fixture.context.posterAddress;
+  delete fixture.context.verifierAddress;
+  const doc = buildBadgeFromSession(fixture);
+  assert.notEqual(doc.averray.poster, doc.averray.worker);
+  assert.notEqual(doc.averray.verifier, doc.averray.worker);
 });

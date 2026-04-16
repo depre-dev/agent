@@ -144,6 +144,49 @@ export class JobExecutionService {
     );
   }
 
+  /**
+   * Walk every session belonging to `wallet`, paginating through the
+   * state store so lifetime aggregates like the agent-profile totals
+   * don't silently truncate at the first page. Each session comes back
+   * enriched with its `verification` record, matching the shape of
+   * `listSessionHistory`.
+   *
+   * `pageSize` sets the per-request batch size (defaults to 64). `maxSessions`
+   * is a hard cap on total sessions collected so a wallet with runaway
+   * history can't tie up the process indefinitely; exceeding it logs a
+   * warning and returns what was collected so far.
+   */
+  async collectSessionHistory(wallet, { pageSize = 64, maxSessions = 10_000, logger = console } = {}) {
+    if (!wallet || typeof this.stateStore.listSessionsByWallet !== "function") {
+      return [];
+    }
+    const collected = [];
+    let offset = 0;
+    while (collected.length < maxSessions) {
+      const page = await this.stateStore.listSessionsByWallet(wallet, pageSize, offset);
+      if (!Array.isArray(page) || page.length === 0) {
+        break;
+      }
+      collected.push(...page);
+      if (page.length < pageSize) {
+        break;
+      }
+      offset += pageSize;
+    }
+    if (collected.length >= maxSessions) {
+      logger.warn?.(
+        { wallet, collected: collected.length, maxSessions },
+        "session-history.max_cap_reached"
+      );
+    }
+    return Promise.all(
+      collected.map(async (session) => ({
+        ...session,
+        verification: await this.stateStore.getVerificationResult(session.sessionId) ?? undefined
+      }))
+    );
+  }
+
   async requireSession(sessionId) {
     const session = await this.stateStore.getSession(sessionId);
     if (!session) {

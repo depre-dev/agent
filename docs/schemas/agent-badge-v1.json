@@ -115,11 +115,11 @@
         },
         "poster": {
           "$ref": "#/definitions/address",
-          "description": "EVM address of the job poster."
+          "description": "EVM address of the job poster. The sentinel 0x0000000000000000000000000000000000000000 means the issuing platform did not have authoritative attribution — consumers MUST treat this as 'unknown' and cross-reference the on-chain JobFunded event, not infer that the worker posted the job."
         },
         "verifier": {
           "$ref": "#/definitions/address",
-          "description": "EVM address of the verifier that approved the completion."
+          "description": "EVM address of the verifier that approved the completion. Same zero-address sentinel semantics as `poster` — treat as 'unknown' and cross-reference the on-chain resolve* event if present."
         },
         "metadataURI": {
           "type": "string",
