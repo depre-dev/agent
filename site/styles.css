@@ -160,6 +160,46 @@ a:focus-visible {
   margin-top: 1.5rem;
 }
 
+.surface-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.surface-pill {
+  display: grid;
+  gap: 0.28rem;
+  padding: 1rem 1.1rem;
+  border-radius: 1.2rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 252, 246, 0.78);
+  box-shadow: var(--shadow);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.surface-pill:hover {
+  transform: translateY(-2px);
+  border-color: rgba(29, 106, 70, 0.22);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.surface-pill strong {
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+}
+
+.surface-label {
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 .site-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(18rem, 0.9fr);
@@ -222,10 +262,15 @@ h3 {
   gap: 0.85rem;
 }
 
+.profile-actions {
+  margin-top: -0.25rem;
+}
+
 .hero-metrics,
 .card-grid,
 .triple-grid,
 .operator-grid,
+.checklist-grid,
 .detail-grid,
 .schema-grid,
 .profile-grid,
@@ -247,6 +292,14 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.checklist-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.schema-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .operator-grid {
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
 }
@@ -257,8 +310,46 @@ h3 {
   padding: 1.25rem;
 }
 
+.site-card,
+.metric-card,
+.badge-card,
+.profile-stat {
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.site-card:hover,
+.metric-card:hover,
+.badge-card:hover,
+.profile-stat:hover {
+  transform: translateY(-2px);
+  border-color: rgba(29, 106, 70, 0.18);
+}
+
 .operator-card {
   min-height: 100%;
+}
+
+.checklist-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.checklist-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.35rem;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, var(--accent), #9a5d1b);
+  opacity: 0.85;
+}
+
+.checklist-card > * {
+  position: relative;
 }
 
 .metric-card {
@@ -411,10 +502,12 @@ code {
   .site-hero,
   .profile-grid,
   .triple-grid,
+  .checklist-grid,
   .operator-grid {
     grid-template-columns: 1fr;
   }
 
+  .surface-strip,
   .hero-metrics,
   .card-grid,
   .schema-grid {

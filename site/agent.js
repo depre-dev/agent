@@ -12,6 +12,8 @@ function setHref(id, value) {
   if (el) el.setAttribute("href", value);
 }
 
+const EXAMPLE_WALLET = "0xfd2eae2043243fddd2721c0b42af1b8284fd6519";
+
 function extractWallet() {
   const url = new URL(window.location.href);
   const query = url.searchParams.get("wallet");
@@ -71,7 +73,9 @@ async function bootProfile() {
   const wallet = extractWallet();
   const loading = byId("profile-loading");
   if (!/^0x[a-f0-9]{40}$/u.test(wallet)) {
-    if (loading) loading.textContent = "No wallet specified. Open this page with ?wallet=0x… or route /agents/:wallet here.";
+    if (loading) {
+      loading.innerHTML = `No wallet specified. Open this page with <code>?wallet=0x…</code> or try <a href="/agents/${EXAMPLE_WALLET}">the example wallet profile</a>.`;
+    }
     return;
   }
 
