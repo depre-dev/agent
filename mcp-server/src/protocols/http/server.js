@@ -309,6 +309,7 @@ const server = createServer(async (request, response) => {
           "/gas/sponsor",
           "/verifier/handlers",
           "/admin/jobs",
+          "/admin/jobs/fire",
           "/badges/:sessionId",
           "/agents/:wallet"
         ]
@@ -748,6 +749,25 @@ const server = createServer(async (request, response) => {
       await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
       const payload = await readJsonBody(request);
       return respond(response, 201, service.createJob(payload));
+    }
+
+    if (request.method === "POST" && pathname === "/admin/jobs/fire") {
+      // Manually fire one instance off a recurring template. This is the
+      // v1 stopgap for the real scheduler worker (docs/patterns/recurring-
+      // jobs.md) — ops or an external cron can poke this endpoint at the
+      // schedule's cadence until a proper scheduler lands.
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const payload = await readJsonBody(request);
+      const templateId = typeof payload?.templateId === "string" ? payload.templateId.trim() : "";
+      if (!templateId) {
+        throw new ValidationError("templateId is required.");
+      }
+      const firedAt = payload?.firedAt ? new Date(payload.firedAt) : new Date();
+      if (Number.isNaN(firedAt.getTime())) {
+        throw new ValidationError("firedAt must be ISO-8601 if provided.");
+      }
+      return respond(response, 201, service.fireRecurringJob(templateId, { firedAt }));
     }
 
     if (request.method === "POST" && pathname === "/gas/quote") {

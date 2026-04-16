@@ -104,6 +104,10 @@ export class PlatformService {
     return this.jobCatalogService.createJob(input);
   }
 
+  fireRecurringJob(templateId, options = {}) {
+    return this.jobCatalogService.fireRecurringJob(templateId, options);
+  }
+
   getJobDefinition(jobId) {
     return this.jobCatalogService.getJobDefinition(jobId);
   }
