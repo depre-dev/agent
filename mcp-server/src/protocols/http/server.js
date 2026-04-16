@@ -197,6 +197,7 @@ function metricPathLabel(pathname) {
     "/",
     "/health",
     "/metrics",
+    "/agent-tools.json",
     "/onboarding",
     "/jobs",
     "/jobs/definition",
@@ -285,6 +286,7 @@ const server = createServer(async (request, response) => {
         endpoints: [
           "/health",
           "/metrics",
+          "/agent-tools.json",
           "/onboarding",
           "/auth/nonce",
           "/auth/verify",
@@ -352,6 +354,32 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/onboarding") {
       return respond(response, 200, service.getPlatformCapabilities());
+    }
+
+    if (request.method === "GET" && pathname === "/agent-tools.json") {
+      // Discovery manifest. The canonical copy is served by the static
+      // site at https://averray.com/.well-known/agent-tools.json — this
+      // API mirror lets MCP clients that only know the api host still
+      // find the capability listing. Bumps refer to
+      // discovery/.well-known/agent-tools.json in the repo.
+      const capabilities = service.getPlatformCapabilities();
+      return respond(
+        response,
+        200,
+        {
+          name: capabilities?.name ?? "Averray",
+          baseUrl: process.env.PUBLIC_BASE_URL ?? undefined,
+          discoveryUrl: capabilities?.discoveryUrl ?? undefined,
+          protocols: capabilities?.protocols ?? ["mcp", "a2a", "http"],
+          onboarding: capabilities?.onboarding ?? undefined,
+          tools: capabilities?.tools ?? [],
+          schemas: {
+            agentBadge: "https://averray.com/schemas/agent-badge-v1.json",
+            agentProfile: "https://averray.com/schemas/agent-profile-v1.json"
+          }
+        },
+        { "cache-control": "public, max-age=300" }
+      );
     }
 
     if (request.method === "GET" && pathname === "/jobs") {
