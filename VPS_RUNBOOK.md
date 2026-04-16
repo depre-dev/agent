@@ -7,6 +7,7 @@ This runbook captures the production-like setup currently running on the OVH VPS
 - Stack root on server: `/srv/agent-stack`
 - Repo checkout: `/srv/agent-stack/app`
 - Compose file: `/srv/agent-stack/docker-compose.yml`
+- Recommended repo-owned Caddy template: [deploy/Caddyfile.averray](/Users/pascalkuriger/repo/Polkadot/deploy/Caddyfile.averray)
 - Infra services:
   - `agent-postgres`
   - `agent-redis`
@@ -17,12 +18,57 @@ This runbook captures the production-like setup currently running on the OVH VPS
 
 ## Public endpoints
 
+- Main site: [https://averray.com](https://averray.com)
 - Discovery: [https://averray.com/.well-known/agent-tools.json](https://averray.com/.well-known/agent-tools.json)
+- LLM index: [https://averray.com/llms.txt](https://averray.com/llms.txt)
+- Sitemap: [https://averray.com/sitemap.xml](https://averray.com/sitemap.xml)
+- Public agent profiles: `https://averray.com/agents/<wallet>`
 - App: [https://app.averray.com](https://app.averray.com)
 - API: [https://api.averray.com](https://api.averray.com)
 - API SSE: `https://app.averray.com/api/events?token=<jwt>` (strict mode) or `?wallet=0x...` (permissive only)
 - Indexer: [https://index.averray.com](https://index.averray.com)
 - Gas sponsor health: [https://api.averray.com/gas/health](https://api.averray.com/gas/health)
+
+## Caddy routing shape
+
+The intended production split is:
+
+- `averray.com` / `www.averray.com` → static public site from `app/site`
+- `app.averray.com` → static operator app from `app/frontend`
+- `api.averray.com` → reverse proxy to backend container
+- `index.averray.com` → reverse proxy to indexer container
+
+The repo-owned template lives at:
+
+```text
+/Users/pascalkuriger/repo/Polkadot/deploy/Caddyfile.averray
+```
+
+On the VPS, the live file should be:
+
+```text
+/srv/agent-stack/Caddyfile
+```
+
+Key routing rules:
+
+- `averray.com/.well-known/agent-tools.json` is served statically from `site/.well-known/`
+- `averray.com/robots.txt`, `averray.com/llms.txt`, and `averray.com/sitemap.xml` are served statically from `site/`
+- `averray.com/agents/:wallet` rewrites to `site/agent.html?wallet=:wallet`
+- `app.averray.com/api/*` proxies to `backend:8787`
+- `app.averray.com/index/*` proxies to `indexer:42069`
+
+### Applying a new Caddy config
+
+Copy the repo template onto the server and restart Caddy:
+
+```bash
+cd /srv/agent-stack/app
+cp deploy/Caddyfile.averray /srv/agent-stack/Caddyfile
+cd /srv/agent-stack
+docker compose restart caddy
+docker compose logs --tail=100 caddy
+```
 
 ## Quick health checks
 
@@ -31,24 +77,32 @@ Run these on the VPS:
 ```bash
 cd /srv/agent-stack
 docker ps
+curl -fsS https://averray.com/
 curl -fsS https://api.averray.com/health
 curl -fsS https://api.averray.com/gas/health
 curl -fsS https://index.averray.com/
 curl -fsS https://averray.com/.well-known/agent-tools.json
+curl -fsS https://averray.com/llms.txt
+curl -fsS https://averray.com/sitemap.xml
+curl -fsS https://averray.com/agents/0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519
 ```
 
 Expected signals:
 
+- Main site returns HTML
 - API health returns `status: ok`
 - Gas health returns Pimlico status or a clean disabled mode
 - Indexer root returns `status: ok`
 - Discovery manifest returns JSON with `baseUrl` set to `https://api.averray.com`
+- `llms.txt` and `sitemap.xml` return plain text / XML from the static site root
+- `/agents/<wallet>` returns HTML and hydrates the public profile shell
 
 ## Redeploy flows
 
 ### Frontend-only changes
 
-Frontend files are mounted directly into Caddy, so a repo pull is enough:
+Public site and app frontend files are mounted directly into Caddy, so a repo
+pull is enough:
 
 ```bash
 cd /srv/agent-stack/app
@@ -56,6 +110,13 @@ git pull
 ```
 
 Hard refresh the browser after pulling.
+
+If the Caddy routing shape changed too, also restart Caddy:
+
+```bash
+cd /srv/agent-stack
+docker compose restart caddy
+```
 
 ### Backend changes
 
@@ -156,6 +217,11 @@ Important server-side files:
 - `/srv/agent-stack/indexer.env`
 - `/srv/agent-stack/Caddyfile`
 
+Important repo-side static roots:
+
+- `/srv/agent-stack/app/site`
+- `/srv/agent-stack/app/frontend`
+
 Optional gas sponsorship vars for `/gas/*` endpoints:
 
 - `PIMLICO_BUNDLER_URL`
@@ -176,7 +242,7 @@ Required authentication env vars (backend, strict mode):
 - `AUTH_MODE=strict`
 - `AUTH_JWT_SECRETS` (comma-separated HS256 secrets, each ≥32 chars)
 - `AUTH_DOMAIN=api.averray.com`
-- `AUTH_CHAIN_ID=420420422`
+- `AUTH_CHAIN_ID=420420417`
 
 ### JWT secret rotation
 

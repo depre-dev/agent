@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="72" fill="#F2E6D2"/>
+  <rect x="28" y="28" width="456" height="456" rx="52" fill="#FFFDF7" stroke="#1D6A46" stroke-width="10"/>
+  <path d="M164 210 112 256 164 302" stroke="#1D6A46" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M348 210 400 256 348 302" stroke="#1D6A46" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M291 168 221 344" stroke="#111315" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="256" cy="108" r="34" fill="#111315"/>
+  <text x="256" y="118" text-anchor="middle" font-family="Manrope, Arial, sans-serif" font-size="26" font-weight="800" fill="#FFFDF7">2</text>
+  <text x="256" y="424" text-anchor="middle" font-family="Manrope, Arial, sans-serif" font-size="28" font-weight="800" fill="#111315">CODING</text>
+</svg>

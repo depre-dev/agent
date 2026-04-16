@@ -1,0 +1,54 @@
+{
+  email {$ACME_EMAIL}
+}
+
+# Main public site
+# Serves the marketing / trust / schemas-lite surface from the repo's `site/`
+# folder, including robots/sitemap/llms and the discovery manifest. Public
+# agent profiles live on the main domain, with `/agents/:wallet` rewritten to
+# the static profile shell that hydrates itself from
+# https://api.averray.com/agents/:wallet.
+averray.com, www.averray.com {
+  root * /srv/agent-stack/app/site
+  encode zstd gzip
+
+  handle /.well-known/* {
+    file_server
+  }
+
+  @agentProfile path_regexp agentProfile ^/agents/(0x[a-fA-F0-9]{40})/?$
+  rewrite @agentProfile /agent.html?wallet={re.agentProfile.1}
+
+  file_server
+}
+
+# Operator app
+# Static frontend shell with same-origin `/api/*` and `/index/*` proxy paths so
+# the browser never talks to the API/indexer origins directly during normal app
+# usage.
+app.averray.com {
+  encode zstd gzip
+
+  handle /api/* {
+    reverse_proxy backend:8787
+  }
+
+  handle /index/* {
+    reverse_proxy indexer:42069
+  }
+
+  root * /srv/agent-stack/app/frontend
+  file_server
+}
+
+# Backend API
+api.averray.com {
+  encode zstd gzip
+  reverse_proxy backend:8787
+}
+
+# Indexer
+index.averray.com {
+  encode zstd gzip
+  reverse_proxy indexer:42069
+}

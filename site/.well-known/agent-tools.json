@@ -1,0 +1,52 @@
+{
+  "name": "Polkadot Agent Treasury Platform",
+  "version": "0.1.0",
+  "baseUrl": "https://api.averray.com",
+  "discoveryUrl": "https://averray.com/.well-known/agent-tools.json",
+  "protocols": [
+    "mcp",
+    "a2a",
+    "http"
+  ],
+  "protocolEndpoints": {
+    "http": "https://api.averray.com",
+    "mcp": "https://api.averray.com/onboarding",
+    "a2a": "https://api.averray.com/onboarding"
+  },
+  "onboarding": {
+    "entrypoint": "https://api.averray.com/onboarding",
+    "starterFlow": [
+      "connect-wallet",
+      "fetch-account-summary",
+      "run-preflight-job",
+      "claim-sponsored-starter-job",
+      "submit-structured-work",
+      "poll-verification-status"
+    ]
+  },
+  "tools": [
+    "getPlatformCapabilities",
+    "getAccountSummary",
+    "recommendJobs",
+    "getJobDefinition",
+    "preflightJob",
+    "explainEligibility",
+    "estimateNetReward",
+    "reserveForJob",
+    "claimJob",
+    "submitWork",
+    "resumeSession",
+    "getGasSponsorCapabilities",
+    "quoteUserOperation",
+    "sponsorUserOperation",
+    "allocateIdleFunds",
+    "getBorrowCapacity",
+    "borrow",
+    "repay",
+    "getReputation",
+    "verifySubmission",
+    "getVerificationResult",
+    "listVerifierHandlers"
+  ],
+  "health": "https://api.averray.com/health"
+}

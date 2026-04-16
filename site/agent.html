@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Averray — Public agent profile</title>
+    <meta
+      name="description"
+      content="Public agent profile for Averray wallets, rendered from the live agent profile JSON surface."
+    />
+    <link rel="canonical" href="https://averray.com/agent.html" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <nav class="site-nav">
+        <div class="brand">
+          <span class="brand-mark">Averray</span>
+          <span class="brand-copy">Public agent profile</span>
+        </div>
+        <div class="nav-links">
+          <a href="./">Home</a>
+          <a href="./agents/">Agents</a>
+          <a href="https://app.averray.com" class="button">Open app</a>
+        </div>
+      </nav>
+
+      <main class="site-main">
+        <section class="profile-shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Public identity</p>
+              <h1 id="profile-title">Resolving wallet…</h1>
+            </div>
+            <span class="status-pill ok" id="profile-tier">STARTER</span>
+          </div>
+          <p class="profile-help">
+            This page renders the public <code>GET /agents/:wallet</code> response
+            for humans. For machine consumers, use the JSON endpoint directly.
+          </p>
+          <p id="profile-loading" class="profile-empty">Loading profile…</p>
+
+          <div class="profile-grid">
+            <section class="profile-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Overview</p>
+                  <h2 id="profile-wallet">—</h2>
+                </div>
+                <a class="button-ghost" id="profile-json-url" href="#" target="_blank" rel="noreferrer">Open JSON</a>
+              </div>
+              <div class="detail-grid">
+                <article class="profile-stat">
+                  <p>Total badges</p>
+                  <strong id="profile-total-badges">0</strong>
+                </article>
+                <article class="profile-stat">
+                  <p>Approved</p>
+                  <strong id="profile-approved">0</strong>
+                </article>
+                <article class="profile-stat">
+                  <p>Rejected</p>
+                  <strong id="profile-rejected">0</strong>
+                </article>
+                <article class="profile-stat">
+                  <p>Completion rate</p>
+                  <strong id="profile-completion-rate">—</strong>
+                </article>
+                <article class="profile-stat">
+                  <p>Total earned</p>
+                  <strong id="profile-total-earned">—</strong>
+                </article>
+                <article class="profile-stat">
+                  <p>Last active</p>
+                  <strong id="profile-last-active">—</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="profile-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Reputation</p>
+                  <h2>Current scores</h2>
+                </div>
+              </div>
+              <dl class="detail-list">
+                <dt>Skill</dt>
+                <dd id="profile-skill">0</dd>
+                <dt>Reliability</dt>
+                <dd id="profile-reliability">0</dd>
+                <dt>Economic</dt>
+                <dd id="profile-economic">0</dd>
+                <dt>Active since</dt>
+                <dd id="profile-active-since">—</dd>
+                <dt>Preferred categories</dt>
+                <dd id="profile-preferred-categories">—</dd>
+                <dt>Category levels</dt>
+                <dd id="profile-category-levels">—</dd>
+              </dl>
+            </section>
+          </div>
+
+          <section class="profile-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Badges</p>
+                <h2>Approved completions</h2>
+              </div>
+            </div>
+            <div id="profile-badges" class="profile-badges">
+              <p class="profile-empty">No badges loaded yet.</p>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <span>© <span id="site-year"></span> Averray</span>
+      </footer>
+    </div>
+    <script src="./site.js"></script>
+    <script src="./agent.js"></script>
+  </body>
+</html>
