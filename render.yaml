@@ -12,6 +12,10 @@ services:
         value: 22
       - key: REDIS_NAMESPACE
         value: agent-platform
+      - key: DWELLER_RPC_URL
+        sync: false
+      - key: POLKADOT_RPC_URL
+        sync: false
       - key: RPC_URL
         sync: false
       - key: SIGNER_PRIVATE_KEY
@@ -37,6 +41,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22
+      - key: DWELLER_RPC_URL
+        sync: false
+      - key: POLKADOT_RPC_URL
+        sync: false
       - key: PONDER_RPC_URL_420420417
         value: https://eth-rpc-testnet.polkadot.io/
       - key: DATABASE_URL

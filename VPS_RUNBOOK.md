@@ -327,6 +327,38 @@ Preferred RPC env convention:
 - `POLKADOT_RPC_URL` as a generic explicit override
 - `RPC_URL` as the legacy fallback still used by older tooling
 
+### Preparing a future Dwellir cutover
+
+The stack is already wired so Dwellir can stay dormant until launch day.
+Current precedence is:
+
+- backend: `DWELLER_RPC_URL` -> `POLKADOT_RPC_URL` -> `RPC_URL`
+- indexer: `DWELLER_RPC_URL` -> `POLKADOT_RPC_URL` -> `PONDER_RPC_URL_<chainId>`
+
+That means you can keep the free public RPC in place today and later switch to
+Dwellir without another code change.
+
+When the live Dwellir endpoint and API key are ready:
+
+1. Set `DWELLER_RPC_URL` in `/srv/agent-stack/backend.env`
+2. Set `DWELLER_RPC_URL` in `/srv/agent-stack/indexer.env`
+3. Leave the existing public-RPC vars in place during the first cutover
+4. Redeploy backend and indexer
+5. Verify `/health`, `/onboarding`, `/status`, and the hosted smoke check
+
+Suggested cutover commands:
+
+```bash
+cd /srv/agent-stack/app
+./scripts/ops/redeploy-backend.sh
+./scripts/ops/redeploy-indexer.sh
+./scripts/ops/check-hosted-stack.sh
+```
+
+After the Dwellir path proves stable, you may remove the fallback public-RPC
+vars in a later cleanup pass. Keeping them during the first cutover makes
+rollback simpler.
+
 Important repo-side static roots:
 
 - `/srv/agent-stack/app/site`
