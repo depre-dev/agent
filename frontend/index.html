@@ -139,9 +139,17 @@
         </a>
       </section>
 
+      <nav class="workspace-nav" aria-label="Operator workspace navigation">
+        <a class="workspace-nav-link" href="#workspace-core">Workspace</a>
+        <a class="workspace-nav-link" href="#jobs-workspace">Jobs</a>
+        <a class="workspace-nav-link" href="#admin-workspace">Admin</a>
+        <a class="workspace-nav-link" href="#catalog-workspace">Catalog</a>
+        <a class="workspace-nav-link" href="#ops-details">Ops details</a>
+      </nav>
+
       <main>
         <section class="operator-grid">
-          <article class="panel operator-panel">
+          <article class="panel operator-panel" id="workspace-core">
             <div class="section-heading compact">
               <div>
                 <p class="panel-label">Operator console</p>
@@ -291,121 +299,135 @@
               </p>
             </section>
 
-            <section class="stats-shell">
-              <div class="detail-head">
-                <h3>Account positions</h3>
-                <span class="section-note">Deposited Mock DOT only. Native gas balance is still external to this view.</span>
-              </div>
-              <div class="stats-grid">
-                <article class="stat-card">
-                  <p>Liquid DOT</p>
-                  <strong id="liquid-dot">-</strong>
-                  <span id="deposited-balance-dot">Available working balance</span>
-                </article>
-                <article class="stat-card">
-                  <p>Reserved DOT</p>
-                  <strong id="reserved-dot">-</strong>
-                  <span>Locked for active jobs</span>
-                </article>
-                <article class="stat-card">
-                  <p>Allocated</p>
-                  <strong id="allocated-dot">-</strong>
-                  <span>Idle capital routed to strategies</span>
-                </article>
-                <article class="stat-card">
-                  <p>Staked DOT</p>
-                  <strong id="staked-dot">-</strong>
-                  <span id="active-stake-dot">Claim stake locked across active jobs</span>
-                </article>
-                <article class="stat-card">
-                  <p>Debt</p>
-                  <strong id="debt-dot">-</strong>
-                  <span>Current outstanding balance</span>
-                </article>
-              </div>
-            </section>
+            <details class="operator-disclosure" open>
+              <summary>
+                <span>Positions, reputation, and routes</span>
+                <span class="operator-disclosure-copy">Balances, reputation, and health endpoints in one place.</span>
+              </summary>
 
-            <div class="detail-grid">
-              <section class="detail-card">
+              <section class="stats-shell">
                 <div class="detail-head">
-                  <h3>Reputation</h3>
-                  <span id="tier-badge" class="tier-badge">Checking</span>
+                  <h3>Account positions</h3>
+                  <span class="section-note">Deposited Mock DOT only. Native gas balance is still external to this view.</span>
                 </div>
-                <dl class="metric-list">
-                  <div>
-                    <dt>Skill</dt>
-                    <dd id="rep-skill">-</dd>
-                  </div>
-                  <div>
-                    <dt>Reliability</dt>
-                    <dd id="rep-reliability">-</dd>
-                  </div>
-                  <div>
-                    <dt>Economic</dt>
-                    <dd id="rep-economic">-</dd>
-                  </div>
-                </dl>
+                <div class="stats-grid">
+                  <article class="stat-card">
+                    <p>Liquid DOT</p>
+                    <strong id="liquid-dot">-</strong>
+                    <span id="deposited-balance-dot">Available working balance</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Reserved DOT</p>
+                    <strong id="reserved-dot">-</strong>
+                    <span>Locked for active jobs</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Allocated</p>
+                    <strong id="allocated-dot">-</strong>
+                    <span>Idle capital routed to strategies</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Staked DOT</p>
+                    <strong id="staked-dot">-</strong>
+                    <span id="active-stake-dot">Claim stake locked across active jobs</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Debt</p>
+                    <strong id="debt-dot">-</strong>
+                    <span>Current outstanding balance</span>
+                  </article>
+                </div>
               </section>
 
-              <section class="detail-card">
+              <div class="detail-grid">
+                <section class="detail-card">
+                  <div class="detail-head">
+                    <h3>Reputation</h3>
+                    <span id="tier-badge" class="tier-badge">Checking</span>
+                  </div>
+                  <dl class="metric-list">
+                    <div>
+                      <dt>Skill</dt>
+                      <dd id="rep-skill">-</dd>
+                    </div>
+                    <div>
+                      <dt>Reliability</dt>
+                      <dd id="rep-reliability">-</dd>
+                    </div>
+                    <div>
+                      <dt>Economic</dt>
+                      <dd id="rep-economic">-</dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <section class="detail-card">
+                  <div class="detail-head">
+                    <h3>Live entrypoints</h3>
+                  </div>
+                  <div class="endpoint-list">
+                    <a href="/api/health" target="_blank" rel="noreferrer">
+                      <span>API health</span>
+                      <code>/api/health</code>
+                    </a>
+                    <a href="/api/onboarding" target="_blank" rel="noreferrer">
+                      <span>API onboarding</span>
+                      <code>/api/onboarding</code>
+                    </a>
+                    <a href="/index/" target="_blank" rel="noreferrer">
+                      <span>Indexer root</span>
+                      <code>/index/</code>
+                    </a>
+                    <a href="/index/graphql" target="_blank" rel="noreferrer">
+                      <span>Indexer GraphQL</span>
+                      <code>/index/graphql</code>
+                    </a>
+                  </div>
+                </section>
+              </div>
+            </details>
+
+            <details class="operator-disclosure" id="ops-details">
+              <summary>
+                <span>Live activity and session history</span>
+                <span class="operator-disclosure-copy">Expand for event feed and historical runs.</span>
+              </summary>
+
+              <section class="history-shell">
                 <div class="detail-head">
-                  <h3>Live entrypoints</h3>
+                  <h3>Live activity</h3>
+                  <span id="activity-count" class="section-note">Waiting for live activity</span>
                 </div>
-                <div class="endpoint-list">
-                  <a href="/api/health" target="_blank" rel="noreferrer">
-                    <span>API health</span>
-                    <code>/api/health</code>
-                  </a>
-                  <a href="/api/onboarding" target="_blank" rel="noreferrer">
-                    <span>API onboarding</span>
-                    <code>/api/onboarding</code>
-                  </a>
-                  <a href="/index/" target="_blank" rel="noreferrer">
-                    <span>Indexer root</span>
-                    <code>/index/</code>
-                  </a>
-                  <a href="/index/graphql" target="_blank" rel="noreferrer">
-                    <span>Indexer GraphQL</span>
-                    <code>/index/graphql</code>
-                  </a>
+                <div id="activity-feed" class="activity-feed">
+                  <p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>
                 </div>
               </section>
-            </div>
 
-            <section class="history-shell">
-              <div class="detail-head">
-                <h3>Live activity</h3>
-                <span id="activity-count" class="section-note">Waiting for live activity</span>
-              </div>
-              <div id="activity-feed" class="activity-feed">
-                <p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>
-              </div>
-            </section>
-
-            <section class="history-shell">
-              <div class="detail-head">
-                <h3>Recent sessions</h3>
-                <div class="detail-actions">
-                  <label class="inline-filter" for="history-filter">
-                    <span>Session filter</span>
-                    <select id="history-filter">
-                      <option value="all" selected>All runs</option>
-                      <option value="active">Active</option>
-                      <option value="approved">Approved</option>
-                      <option value="rejected">Rejected</option>
-                      <option value="disputed">Disputed</option>
-                    </select>
-                  </label>
-                  <span id="history-count" class="section-note">Waiting for session data</span>
+              <section class="history-shell">
+                <div class="detail-head">
+                  <h3>Recent sessions</h3>
+                  <div class="detail-actions">
+                    <label class="inline-filter" for="history-filter">
+                      <span>Session filter</span>
+                      <select id="history-filter">
+                        <option value="all" selected>All runs</option>
+                        <option value="active">Active</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="disputed">Disputed</option>
+                      </select>
+                    </label>
+                    <span id="history-count" class="section-note">Waiting for session data</span>
+                  </div>
                 </div>
-              </div>
-              <div id="history-list" class="history-list">
-                <p class="empty-state">Session history will load here for the active worker wallet.</p>
-              </div>
-            </section>
+                <div id="history-list" class="history-list">
+                  <p class="empty-state">Session history will load here for the active worker wallet.</p>
+                </div>
+              </section>
+            </details>
           </article>
 
-          <article class="panel recommendation-panel">
+          <article class="panel recommendation-panel" id="jobs-workspace">
             <div class="section-heading compact">
               <div>
                 <p class="panel-label">Job routing</p>
@@ -513,28 +535,35 @@
               </dl>
             </section>
 
-            <section class="job-detail-shell">
-              <div class="detail-head">
-                <h3>Session detail</h3>
-                <span id="session-detail-count" class="section-note">No session selected</span>
-              </div>
-              <div id="session-detail-summary" class="job-detail-summary">
-                <p class="empty-state">Claim a job or open a past run to inspect session metadata, settlement status, and impact notes here.</p>
-              </div>
-            </section>
+            <details class="operator-disclosure">
+              <summary>
+                <span>Selected job diagnostics</span>
+                <span class="operator-disclosure-copy">Expand for session metadata, verifier detail, and job run history.</span>
+              </summary>
 
-            <section class="job-detail-shell">
-              <div class="detail-head">
-                <h3>Job detail</h3>
-                <span id="job-detail-count" class="section-note">No job selected</span>
-              </div>
-              <div id="job-detail-summary" class="job-detail-summary">
-                <p class="empty-state">Select a job to inspect its verifier, rules, and recent runs.</p>
-              </div>
-              <div id="job-detail-history" class="job-detail-history">
-                <p class="empty-state">Job-specific run history will appear here after you select a job.</p>
-              </div>
-            </section>
+              <section class="job-detail-shell">
+                <div class="detail-head">
+                  <h3>Session detail</h3>
+                  <span id="session-detail-count" class="section-note">No session selected</span>
+                </div>
+                <div id="session-detail-summary" class="job-detail-summary">
+                  <p class="empty-state">Claim a job or open a past run to inspect session metadata, settlement status, and impact notes here.</p>
+                </div>
+              </section>
+
+              <section class="job-detail-shell">
+                <div class="detail-head">
+                  <h3>Job detail</h3>
+                  <span id="job-detail-count" class="section-note">No job selected</span>
+                </div>
+                <div id="job-detail-summary" class="job-detail-summary">
+                  <p class="empty-state">Select a job to inspect its verifier, rules, and recent runs.</p>
+                </div>
+                <div id="job-detail-history" class="job-detail-history">
+                  <p class="empty-state">Job-specific run history will appear here after you select a job.</p>
+                </div>
+              </section>
+            </details>
           </article>
         </section>
 
@@ -584,25 +613,32 @@
               </article>
             </div>
 
-            <section class="admin-status-shell">
-              <div class="detail-head">
-                <h3>Recurring template status</h3>
-                <span id="admin-recurring-count" class="section-note">Waiting for admin status</span>
-              </div>
-              <div id="admin-recurring-status" class="admin-status-list">
-                <p class="empty-state">Recurring templates will appear here once an admin-scoped wallet is signed in and templates exist in the live catalog.</p>
-              </div>
-            </section>
+            <details class="operator-disclosure">
+              <summary>
+                <span>Admin status and maintenance</span>
+                <span class="operator-disclosure-copy">Expand for recurring templates, maintenance posture, and release docs.</span>
+              </summary>
 
-            <section class="admin-status-shell">
-              <div class="detail-head">
-                <h3>Maintenance posture</h3>
-                <span class="section-note">Pause state, policy roles, and release docs in one place.</span>
-              </div>
-              <div id="admin-maintenance-status" class="admin-status-list">
-                <p class="empty-state">Sign in with an admin-scoped wallet to load maintenance and release posture.</p>
-              </div>
-            </section>
+              <section class="admin-status-shell">
+                <div class="detail-head">
+                  <h3>Recurring template status</h3>
+                  <span id="admin-recurring-count" class="section-note">Waiting for admin status</span>
+                </div>
+                <div id="admin-recurring-status" class="admin-status-list">
+                  <p class="empty-state">Recurring templates will appear here once an admin-scoped wallet is signed in and templates exist in the live catalog.</p>
+                </div>
+              </section>
+
+              <section class="admin-status-shell">
+                <div class="detail-head">
+                  <h3>Maintenance posture</h3>
+                  <span class="section-note">Pause state, policy roles, and release docs in one place.</span>
+                </div>
+                <div id="admin-maintenance-status" class="admin-status-list">
+                  <p class="empty-state">Sign in with an admin-scoped wallet to load maintenance and release posture.</p>
+                </div>
+              </section>
+            </details>
 
             <section class="admin-fire-shell">
               <div class="detail-head">
@@ -746,7 +782,7 @@ summary</textarea>
             </form>
           </article>
 
-          <article class="panel catalog-panel">
+          <article class="panel catalog-panel" id="catalog-workspace">
             <div class="section-heading compact">
               <div>
                 <p class="panel-label">Catalog</p>
@@ -759,38 +795,45 @@ summary</textarea>
               <p class="empty-state">Live job inventory will load here once the API responds.</p>
             </div>
 
-            <section class="catalog-detail-shell">
-              <div class="detail-head">
-                <h3>Poster detail</h3>
-                <div class="detail-actions">
-                  <label class="inline-filter" for="catalog-activity-filter">
-                    <span>Run filter</span>
-                    <select id="catalog-activity-filter">
-                      <option value="all" selected>All runs</option>
-                      <option value="active">Active</option>
-                      <option value="approved">Approved</option>
-                      <option value="rejected">Rejected</option>
-                      <option value="disputed">Disputed</option>
-                    </select>
-                  </label>
-                  <span id="catalog-job-count" class="section-note">No job selected</span>
+            <details class="operator-disclosure">
+              <summary>
+                <span>Catalog activity detail</span>
+                <span class="operator-disclosure-copy">Expand for poster-side run history and selected job activity.</span>
+              </summary>
+
+              <section class="catalog-detail-shell">
+                <div class="detail-head">
+                  <h3>Poster detail</h3>
+                  <div class="detail-actions">
+                    <label class="inline-filter" for="catalog-activity-filter">
+                      <span>Run filter</span>
+                      <select id="catalog-activity-filter">
+                        <option value="all" selected>All runs</option>
+                        <option value="active">Active</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="disputed">Disputed</option>
+                      </select>
+                    </label>
+                    <span id="catalog-job-count" class="section-note">No job selected</span>
+                  </div>
                 </div>
-              </div>
-              <div id="catalog-job-summary" class="job-detail-summary">
-                <p class="empty-state">Load a catalog job to inspect poster-side activity and worker runs.</p>
-              </div>
-              <div id="catalog-job-history" class="job-detail-history">
-                <p class="empty-state">Poster-side run activity will appear here after you load a catalog job.</p>
-              </div>
-            </section>
+                <div id="catalog-job-summary" class="job-detail-summary">
+                  <p class="empty-state">Load a catalog job to inspect poster-side activity and worker runs.</p>
+                </div>
+                <div id="catalog-job-history" class="job-detail-history">
+                  <p class="empty-state">Poster-side run activity will appear here after you load a catalog job.</p>
+                </div>
+              </section>
+            </details>
           </article>
         </section>
 
-        <section class="roadmap">
-          <div class="section-heading">
-            <p class="panel-label">Roadmap-ready</p>
-            <h2>Built to grow without replatforming again.</h2>
-          </div>
+        <details class="roadmap operator-disclosure">
+          <summary>
+            <span>Platform roadmap</span>
+            <span class="operator-disclosure-copy">Expand for the broader product context behind this operator surface.</span>
+          </summary>
 
           <div class="timeline">
             <article class="timeline-step">
@@ -809,7 +852,7 @@ summary</textarea>
               <p>Admin flows, richer verifier logic, and a full app shell can ship without changing the infrastructure base.</p>
             </article>
           </div>
-        </section>
+        </details>
       </main>
     </div>
 
