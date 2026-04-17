@@ -47,19 +47,16 @@
         apiBaseUrl: "/api",
         chainId: 0,
         chainName: "",
-        // Leave sentryDsn empty to disable client-side Sentry. When set, also
-        // uncomment the Sentry CDN <script> below so `window.Sentry` is
-        // available before frontend/observability.js runs init().
+        // Leave sentryDsn empty to disable client-side Sentry. When set, the
+        // app will auto-load the browser SDK from the default CDN URL unless
+        // you override it with sentryScriptUrl.
         sentryDsn: "",
+        sentryScriptUrl: "",
         sentryEnvironment: "production",
         sentryRelease: "",
         sentryTracesSampleRate: 0
       };
     </script>
-    <!--
-      Optional: Sentry browser SDK. Uncomment + pin a release to enable.
-      <script src="https://browser.sentry-cdn.com/7.120.0/bundle.min.js" crossorigin="anonymous"></script>
-    -->
   </head>
   <body>
     <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>

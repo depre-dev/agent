@@ -15,6 +15,7 @@
 const defaults = {
   apiBaseUrl: "/api",
   sentryDsn: "",
+  sentryScriptUrl: "",
   sentryEnvironment: "production",
   sentryRelease: "",
   sentryTracesSampleRate: 0,
@@ -43,6 +44,7 @@ function normalise(raw) {
   return {
     apiBaseUrl: apiBaseUrl || "/api",
     sentryDsn: stringOr(raw.sentryDsn, defaults.sentryDsn).trim(),
+    sentryScriptUrl: stringOr(raw.sentryScriptUrl, defaults.sentryScriptUrl).trim(),
     sentryEnvironment: stringOr(raw.sentryEnvironment, defaults.sentryEnvironment),
     sentryRelease: stringOr(raw.sentryRelease, defaults.sentryRelease),
     sentryTracesSampleRate: clamp01(

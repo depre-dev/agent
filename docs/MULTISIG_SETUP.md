@@ -244,3 +244,10 @@ value movement regardless of owner compromise.
       scenarios on paper.
 - [ ] Incident-response tabletop: walk through "hot key compromised" with
       at least one other person if possible.
+
+After the control-plane rehearsal is green, fold it into the broader release
+gate in [PRODUCTION_CHECKLIST.md](PRODUCTION_CHECKLIST.md) and run:
+
+```bash
+./scripts/ops/check-release-readiness.sh testnet
+```

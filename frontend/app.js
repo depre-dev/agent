@@ -787,7 +787,7 @@ function wireAuthControls() {
 }
 
 async function boot() {
-  // Init Sentry (no-op when sentryDsn is empty or window.Sentry isn't loaded).
+  // Init Sentry (no-op when sentryDsn is empty; the browser SDK auto-loads).
   initObservability();
 
   const walletInput = document.getElementById("wallet-input");

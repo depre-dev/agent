@@ -155,6 +155,34 @@ HEALTH_TIMEOUT_SEC=180 \
 
 Note: the staking and slashing contract changes require a contract redeploy and refreshed backend env values, not just a backend image rebuild.
 
+### Indexer changes
+
+Use the dedicated indexer flow from the repo checkout:
+
+```bash
+cd /srv/agent-stack/app
+./scripts/ops/redeploy-indexer.sh
+```
+
+The script:
+
+1. Pins the pre-deploy SHA for rollback.
+2. Fast-forwards the repo to `origin/main`.
+3. Rebuilds `agent-indexer`.
+4. Polls `https://index.averray.com/health` until the process is listening.
+5. Polls `https://index.averray.com/ready` until historical indexing is complete.
+6. Automatically rolls back to the previous SHA if either gate fails.
+
+Useful overrides:
+
+```bash
+# Skip the /ready gate during a known long historical backfill.
+WAIT_FOR_READY=0 ./scripts/ops/redeploy-indexer.sh
+
+# Give a heavy backfill more time before rollback.
+READY_TIMEOUT_SEC=3600 ./scripts/ops/redeploy-indexer.sh
+```
+
 ### Remote hosted-stack smoke test
 
 From the repo checkout:
@@ -191,7 +219,39 @@ Each backup is a gzipped SQL dump:
 agent-YYYYMMDD-HHMMSS.sql.gz
 ```
 
-### Restore outline
+### Redis snapshot export
+
+Redis is not optional bookkeeping here: it backs SIWE nonces, JWT revocation,
+claim locks, SSE/session state, and rate-limit buckets. Back it up before risky
+backend/auth changes the same way you would Postgres.
+
+Run:
+
+```bash
+cd /srv/agent-stack/app
+./scripts/ops/backup-redis.sh
+```
+
+Backups are written to:
+
+```text
+/srv/agent-stack/backups/redis
+```
+
+Each backup is a gzipped Redis RDB snapshot:
+
+```text
+redis-YYYYMMDD-HHMMSS.rdb.gz
+```
+
+The script:
+
+1. Loads `/srv/agent-stack/.env` and `/srv/agent-stack/backend.env` when present.
+2. Resolves the live Redis snapshot path via `CONFIG GET dir` + `dbfilename`.
+3. Forces a fresh `SAVE`.
+4. Streams the resulting RDB file out of the container into a compressed backup.
+
+### Postgres restore outline
 
 Restore should be done deliberately and only after confirming the target file:
 
@@ -202,6 +262,43 @@ docker compose --project-directory /srv/agent-stack -f /srv/agent-stack/docker-c
 ```
 
 Do not restore over a live database unless you mean to replace it.
+
+### Redis restore outline
+
+Restore should be done deliberately because it rewinds nonce, session, lock,
+and token-revocation state. The safest path is:
+
+1. Confirm the target backup file.
+2. Stop the backend so it cannot mutate Redis during the restore.
+3. Stop Redis.
+4. Replace the Redis snapshot on disk.
+5. Start Redis, then backend, then verify `/health`.
+
+Assuming the Redis service uses the default `/data/dump.rdb` path:
+
+```bash
+TMPDIR=$(mktemp -d)
+gunzip -c /srv/agent-stack/backups/redis/<dump>.rdb.gz > "$TMPDIR/dump.rdb"
+
+cd /srv/agent-stack
+docker compose stop backend redis
+docker compose run --rm -T -v "$TMPDIR:/restore:ro" redis \
+  sh -lc 'cp /restore/dump.rdb /data/dump.rdb'
+docker compose up -d redis
+docker compose exec -T redis redis-cli PING
+docker compose up -d backend
+curl -fsS https://api.averray.com/health
+
+rm -rf "$TMPDIR"
+```
+
+If your Redis config uses a non-default `dir` or `dbfilename`, replace
+`/data/dump.rdb` with the correct target path first:
+
+```bash
+docker compose exec -T redis redis-cli CONFIG GET dir
+docker compose exec -T redis redis-cli CONFIG GET dbfilename
+```
 
 ## Useful docker commands
 
@@ -327,9 +424,41 @@ Do not commit server secrets back into the repository.
 
 At minimum:
 
-- take a Postgres backup before risky backend or schema changes
+- take both Postgres and Redis backups before risky backend, auth, or schema changes
 - use the scripted backend redeploy instead of ad-hoc commands
 - verify `api`, `index`, and discovery immediately after deploys
+
+## Release gate
+
+When you want one promotion-style command instead of four separate checks, run:
+
+```bash
+cd /srv/agent-stack/app
+./scripts/ops/check-release-readiness.sh testnet
+```
+
+This gate runs:
+
+1. frontend tests
+2. backend tests
+3. `npm run build:site`
+4. `npm run typecheck:indexer`
+5. `./scripts/verify_deployment.sh <profile>`
+6. `./scripts/ops/check-hosted-stack.sh`
+
+Useful variants:
+
+```bash
+# If you are already on the VPS and only want the live hosted checks:
+RUN_FRONTEND_TESTS=0 RUN_BACKEND_TESTS=0 RUN_SITE_BUILD=0 RUN_INDEXER_TYPECHECK=0 \
+  ./scripts/ops/check-release-readiness.sh testnet
+
+# If the stack is intentionally paused during a rehearsal:
+ALLOW_PAUSED=1 ./scripts/ops/check-release-readiness.sh testnet
+```
+
+For the human-readable checklist that goes with this command, see
+[docs/PRODUCTION_CHECKLIST.md](/Users/pascalkuriger/repo/Polkadot/docs/PRODUCTION_CHECKLIST.md).
 
 ## Observability
 
@@ -338,6 +467,10 @@ At minimum:
   `rate_limit_rejections_total`, `sse_active_connections`,
   `state_store_backend`. Leave `METRICS_BEARER_TOKEN` unset for same-network
   scrapers, or set it to a random token when `/metrics` is publicly reachable.
+- Ponder's indexer server exposes:
+  - `/health` — process is up and serving HTTP
+  - `/ready` — historical indexing is complete
+  - `/status` — latest indexed block number + timestamp per chain
 - Sentry is opt-in. To enable on the backend:
   ```bash
   cd /srv/agent-stack/app/mcp-server
@@ -349,10 +482,21 @@ At minimum:
   ```
   The error path only ships 5xx exceptions to Sentry; 4xx auth failures stay in
   logs + metrics.
-- Frontend Sentry: uncomment the Sentry CDN `<script>` in `frontend/index.html`
-  and set `sentryDsn` under `window.__AVERRAY_CONFIG__`.
+- Frontend Sentry is runtime-configurable now. Set `sentryDsn` under
+  `window.__AVERRAY_CONFIG__` in `frontend/index.html`; the app will
+  auto-load the browser SDK from the default CDN URL. If you need to pin a
+  different browser bundle, also set `sentryScriptUrl`.
 - Structured logs are JSON on stdout with a per-request `requestId`. Filter with
   `docker compose logs backend | jq 'select(.requestId == "...")'`.
+- For an external uptime runner or cron smoke check, use:
+  ```bash
+  cd /srv/agent-stack/app
+  ./scripts/ops/check-hosted-stack.sh
+  ```
+  It verifies the public site, discovery manifest, operator app shell, API
+  health, onboarding contract, indexer root, indexer readiness, and indexer
+  status freshness. A non-zero exit should page someone if the stack is meant
+  to be available.
 
 ## Monthly backup-restore drill
 
@@ -380,6 +524,30 @@ docker rm -f pg-restore-test
 
 If the restore fails, check `docker compose logs postgres` for schema or
 version drift; a failed drill is a P1 — fix it before the next risky change.
+
+### Redis drill
+
+Run the same kind of restore proof for Redis in a disposable container:
+
+```bash
+LATEST_REDIS=$(ls -1t /srv/agent-stack/backups/redis/*.rdb.gz | head -1)
+TMPDIR=$(mktemp -d)
+
+gunzip -c "$LATEST_REDIS" > "$TMPDIR/dump.rdb"
+
+docker run -d --name redis-restore-test \
+  -v "$TMPDIR:/data" redis:7 redis-server --dir /data --dbfilename dump.rdb
+
+docker exec redis-restore-test redis-cli PING
+docker exec redis-restore-test redis-cli DBSIZE
+docker exec redis-restore-test redis-cli --scan "agent-platform:*" | head
+
+docker rm -f redis-restore-test
+rm -rf "$TMPDIR"
+```
+
+If `PING` fails or `DBSIZE` is unexpectedly zero, treat it like a broken
+backup pipeline and fix it before the next risky deploy.
 
 ## Incident response
 

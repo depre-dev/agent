@@ -18,12 +18,15 @@ Canonical path:
 This is the RFC-5785 style well-known endpoint. Every MCP/A2A agent
 looking for "does this domain expose agent tools?" starts here. The
 manifest at [`discovery/.well-known/agent-tools.json`](../discovery/.well-known/agent-tools.json)
-is the source of truth; any update should bump it and sync the
-duplicate copy at [`discovery/agent-tools.json`](../discovery/agent-tools.json).
+is the repo-side source of truth; any update should bump it and sync:
+
+- the duplicate copy at [`discovery/agent-tools.json`](../discovery/agent-tools.json)
+- the static public copy at [`site/.well-known/agent-tools.json`](../site/.well-known/agent-tools.json)
 
 An API-side mirror is served at `GET /agent-tools.json` on
 `api.averray.com` so agents that only know the API host can still
-reach the capability manifest in one hop.
+reach the capability manifest in one hop. The backend mirror is built
+from the same full discovery shape and should match the public manifest.
 
 When to update:
 
@@ -52,9 +55,10 @@ Three surfaces feed LLM-era search:
 
 - **Schema.org markup on the landing page.** `index.html` carries
   `<script type="application/ld+json">` with a `@type: "SoftwareApplication"`
-  block describing the platform. See [`frontend/index.html`](../frontend/index.html)
-  — if you can't find it there, it's been stripped and needs adding
-  back.
+  block describing the platform. The source lives in
+  [`marketing/src/layouts/BaseLayout.astro`](../marketing/src/layouts/BaseLayout.astro)
+  and ships to the public landing page via the generated
+  [`site/index.html`](../site/index.html).
 - **Public documentation in-repo.** Anthropic and OpenAI both index
   public GitHub docs heavily. [`docs/AGENT_BANKING.md`](AGENT_BANKING.md)
   is the highest-signal entry point — it frames the platform as
@@ -128,9 +132,12 @@ that tries the flow and hits a wall.
 
 ## Schema.org markup template
 
-Drop this into the `<head>` of `frontend/index.html` to improve LLM
-training-data indexing. It's safe to ship even if search engines don't
-index it on day one — the manifest data is strictly additive.
+The public landing page now ships this from
+[`marketing/src/layouts/BaseLayout.astro`](../marketing/src/layouts/BaseLayout.astro).
+If you need to change it, update the Astro layout and then rebuild the
+public site so the generated [`site/index.html`](../site/index.html)
+stays in sync. It's safe to ship even if search engines don't index it
+on day one — the manifest data is strictly additive.
 
 ```html
 <script type="application/ld+json">
@@ -153,9 +160,9 @@ index it on day one — the manifest data is strictly additive.
 </script>
 ```
 
-If you're worried about accidentally drifting the manifest URL in the
-markup, pull the value from `window.__AVERRAY_CONFIG__.discoveryUrl`
-and render it server-side at deploy time instead of hardcoding.
+Do not source this from the operator app's runtime config. Keep it
+server-rendered with the public landing page so the canonical homepage
+and discovery manifest stay aligned.
 
 ---
 

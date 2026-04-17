@@ -16,15 +16,30 @@ import { getConfig } from "./config.js";
 import { debug } from "./ui-helpers.js";
 
 let initialised = false;
+let sentryLoadPromise = undefined;
+const DEFAULT_SENTRY_SCRIPT_URL = "https://browser.sentry-cdn.com/7.120.0/bundle.min.js";
 
-export function initObservability() {
+export async function initObservability() {
   if (initialised) return;
   initialised = true;
 
   const config = getConfig();
   if (!config.sentryDsn) return;
-  if (typeof window === "undefined" || !window.Sentry) {
-    debug.warn("[observability] sentryDsn configured but window.Sentry is not loaded");
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!window.Sentry) {
+    try {
+      await ensureSentryLoaded(config);
+    } catch (error) {
+      debug.warn("[observability] failed to load Sentry browser SDK", error);
+      return;
+    }
+  }
+
+  if (!window.Sentry) {
+    debug.warn("[observability] sentryDsn configured but window.Sentry is not available");
     return;
   }
 
@@ -50,6 +65,39 @@ export function initObservability() {
   } catch (error) {
     debug.error("[observability] Sentry.init threw", error);
   }
+}
+
+function ensureSentryLoaded(config) {
+  if (typeof window === "undefined") {
+    return Promise.resolve(undefined);
+  }
+  if (window.Sentry) {
+    return Promise.resolve(window.Sentry);
+  }
+  if (sentryLoadPromise) {
+    return sentryLoadPromise;
+  }
+
+  const scriptUrl = config.sentryScriptUrl || DEFAULT_SENTRY_SCRIPT_URL;
+  sentryLoadPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-sentry-loader="true"][src="${scriptUrl}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.Sentry), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`Failed to load ${scriptUrl}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = scriptUrl;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.dataset.sentryLoader = "true";
+    script.addEventListener("load", () => resolve(window.Sentry), { once: true });
+    script.addEventListener("error", () => reject(new Error(`Failed to load ${scriptUrl}`)), { once: true });
+    document.head.appendChild(script);
+  });
+
+  return sentryLoadPromise;
 }
 
 export function captureException(error, context = {}) {

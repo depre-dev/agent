@@ -185,6 +185,11 @@ Current testnet values (reproducible via [deploy_contracts.sh](../scripts/deploy
 | `MAX_MILESTONES` | `32` | Constant in `EscrowCore`. |
 | `DISPUTE_WINDOW` | `1 days` | Constant in `EscrowCore`. |
 
+The deploy script now treats those policy values as testnet-friendly defaults
+only. `PROFILE=mainnet` refuses to proceed unless the outflow cap, borrow cap,
+collateral ratio, claim-stake basis points, and slash penalties are all set
+explicitly at deploy time.
+
 ---
 
 ## 7. How to run the tests
@@ -209,10 +214,15 @@ RUN_HTTP_SMOKE=1 npm test
 
 Expected counts at the time this doc was last updated:
 
-- Foundry: **22** tests (10 core + 12 hardening).
-- Node: **60** tests (auth, rate-limit, state-store, http-config, logger, metrics, event-bus).
-- HTTP smoke (opt-in): **6** tests.
-- Frontend (node --test on escape helpers + config): **13** tests.
+- Foundry: **43** tests across the core, hardening, payments, and strategy suites.
+- Node backend: **127** tests (auth, rate-limit, state-store, http-config, logger, metrics, event-bus, discovery, profile, badge, recurring jobs, transfers, pagination).
+- HTTP smoke (opt-in): **19** tests.
+- Frontend (node --test on escape helpers + config): **14** tests.
+
+These numbers should be refreshed whenever new tests land. At the time of this
+update, the backend and frontend counts were re-checked locally; the Foundry
+count was derived from the current Solidity test files because `forge test
+--summary` hit a local Foundry/system-proxy crash on this machine.
 
 ---
 

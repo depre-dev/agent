@@ -25,6 +25,7 @@ test("getConfig returns defaults when window.__AVERRAY_CONFIG__ is absent", () =
   const config = getConfig();
   assert.equal(config.apiBaseUrl, "/api");
   assert.equal(config.sentryDsn, "");
+  assert.equal(config.sentryScriptUrl, "");
   assert.equal(config.chainId, 0);
   assert.equal(config.debug, false);
 });
@@ -55,6 +56,12 @@ test("getConfig clamps sentryTracesSampleRate into [0, 1]", () => {
   });
   withGlobalWindow({ sentryTracesSampleRate: -1 }, () => {
     assert.equal(getConfig().sentryTracesSampleRate, 0);
+  });
+});
+
+test("getConfig trims sentryScriptUrl", () => {
+  withGlobalWindow({ sentryScriptUrl: " https://browser.sentry-cdn.com/custom.js " }, () => {
+    assert.equal(getConfig().sentryScriptUrl, "https://browser.sentry-cdn.com/custom.js");
   });
 });
 
