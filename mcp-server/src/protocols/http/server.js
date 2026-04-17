@@ -14,6 +14,7 @@ import { resolveRequestId } from "../../core/logger.js";
 import { getAddress } from "ethers";
 import { buildBadgeFromSession } from "../../core/badge-metadata.js";
 import { buildAgentProfile } from "../../core/agent-profile.js";
+import { buildDiscoveryManifest } from "../../core/discovery-manifest.js";
 import { TIER_REQUIREMENTS } from "../../core/job-catalog-service.js";
 
 const {
@@ -363,22 +364,12 @@ const server = createServer(async (request, response) => {
       // API mirror lets MCP clients that only know the api host still
       // find the capability listing. Bumps refer to
       // discovery/.well-known/agent-tools.json in the repo.
-      const capabilities = service.getPlatformCapabilities();
       return respond(
         response,
         200,
-        {
-          name: capabilities?.name ?? "Averray",
-          baseUrl: process.env.PUBLIC_BASE_URL ?? undefined,
-          discoveryUrl: capabilities?.discoveryUrl ?? undefined,
-          protocols: capabilities?.protocols ?? ["mcp", "a2a", "http"],
-          onboarding: capabilities?.onboarding ?? undefined,
-          tools: capabilities?.tools ?? [],
-          schemas: {
-            agentBadge: "https://averray.com/schemas/agent-badge-v1.json",
-            agentProfile: "https://averray.com/schemas/agent-profile-v1.json"
-          }
-        },
+        buildDiscoveryManifest({
+          baseUrl: process.env.PUBLIC_BASE_URL?.trim() || undefined
+        }),
         { "cache-control": "public, max-age=300" }
       );
     }

@@ -4,6 +4,7 @@ import { JobCatalogService } from "./job-catalog-service.js";
 import { JobExecutionService } from "./job-execution-service.js";
 import { VerificationIngestionService } from "../services/verification-ingestion-service.js";
 import { ValidationError } from "./errors.js";
+import { buildPlatformCapabilities } from "./discovery-manifest.js";
 
 const STARTER_REPUTATION = {
   skill: 0,
@@ -46,54 +47,7 @@ export class PlatformService {
   }
 
   getPlatformCapabilities() {
-    return {
-      name: "Averray — agent-native treasury + job runtime",
-      discoveryUrl: "https://averray.com/.well-known/agent-tools.json",
-      protocols: ["mcp", "a2a", "http"],
-      onboarding: {
-        starterFlow: [
-          "discover-tiers",
-          "sign-in-with-ethereum",
-          "fetch-account-summary",
-          "run-preflight-job",
-          "claim-starter-job",
-          "submit-structured-work",
-          "poll-verification-status",
-          "inspect-earned-badge"
-        ]
-      },
-      tools: [
-        "getPlatformCapabilities",
-        "getAccountSummary",
-        "fundAccount",
-        "listJobs",
-        "recommendJobs",
-        "getJobDefinition",
-        "createJob",
-        "preflightJob",
-        "explainEligibility",
-        "estimateNetReward",
-        "getJobTierLadder",
-        "reserveForJob",
-        "claimJob",
-        "submitWork",
-        "resumeSession",
-        "sendToAgent",
-        "allocateIdleFunds",
-        "listStrategies",
-        "getBorrowCapacity",
-        "borrow",
-        "repay",
-        "getReputation",
-        "getAgentProfile",
-        "getAgentBadge",
-        "verifySubmission",
-        "getVerificationResult",
-        "listVerifierHandlers",
-        "signIn",
-        "signOut"
-      ]
-    };
+    return buildPlatformCapabilities();
   }
 
   listJobs() {
