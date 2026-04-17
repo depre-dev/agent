@@ -11,5 +11,7 @@ out/
 broadcast/
 .ponder/
 .pglite/
+marketing/.astro/
+marketing/dist/
 
 *.log

@@ -26,6 +26,7 @@ body {
   min-height: 100vh;
   font-family: "Manrope", sans-serif;
   color: var(--ink);
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(240, 216, 184, 0.55), transparent 24rem),
     linear-gradient(180deg, #fbf7f0 0%, var(--bg) 100%);
@@ -109,6 +110,7 @@ a:focus-visible {
 .brand-copy {
   color: var(--muted);
   font-size: 0.92rem;
+  overflow-wrap: anywhere;
 }
 
 .nav-links {
@@ -373,6 +375,7 @@ h3 {
 .profile-stat strong {
   font-size: 1.05rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .section-heading {
@@ -499,6 +502,21 @@ code {
 }
 
 @media (max-width: 960px) {
+  .site-shell {
+    width: min(var(--max-width), calc(100% - 1.25rem));
+  }
+
+  .site-nav {
+    position: static;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+  }
+
+  .nav-links {
+    justify-content: flex-start;
+  }
+
   .site-hero,
   .profile-grid,
   .triple-grid,
@@ -525,6 +543,7 @@ code {
   .site-shell {
     width: min(var(--max-width), calc(100% - 1rem));
     padding-top: 0.75rem;
+    padding-bottom: 3rem;
   }
 
   .site-nav,
@@ -543,12 +562,138 @@ code {
     padding: 1rem;
   }
 
+  .site-main {
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
   .site-hero,
   .profile-shell {
     padding: 1.35rem;
   }
 
+  .site-nav {
+    gap: 0.8rem;
+  }
+
+  .nav-links {
+    flex-wrap: nowrap;
+    gap: 0.55rem;
+    overflow-x: auto;
+    justify-content: flex-start;
+    margin: 0 -0.15rem;
+    padding: 0 0.15rem 0.15rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .nav-links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-links a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 0.58rem 0.82rem;
+    font-size: 0.9rem;
+  }
+
+  .brand-copy {
+    font-size: 0.84rem;
+    max-width: 28ch;
+  }
+
   h1 {
+    font-size: clamp(2.35rem, 13vw, 3.35rem);
     max-width: none;
+    line-height: 0.92;
+  }
+
+  h2 {
+    font-size: clamp(1.45rem, 7vw, 1.95rem);
+  }
+
+  .section-heading {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .hero-actions,
+  .cta-row,
+  .profile-actions,
+  .site-card .link-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .hero-actions a,
+  .cta-row a,
+  .profile-actions a,
+  .site-card .link-row a {
+    width: 100%;
+  }
+
+  .button,
+  .button-ghost {
+    min-height: 2.85rem;
+  }
+
+  .metric-card,
+  .profile-stat,
+  .badge-card {
+    padding: 1rem;
+  }
+
+  .code-block {
+    padding: 0.95rem 1rem;
+    font-size: 0.84rem;
+    line-height: 1.55;
+  }
+}
+
+@media (max-width: 560px) {
+  .site-shell {
+    width: calc(100% - 0.75rem);
+    padding-top: 0.5rem;
+    padding-bottom: 2.5rem;
+  }
+
+  .site-nav,
+  .site-hero,
+  .site-card,
+  .site-footer,
+  .profile-shell,
+  .profile-panel {
+    border-radius: 1rem;
+  }
+
+  .site-nav,
+  .site-footer,
+  .site-card,
+  .profile-panel {
+    padding: 0.9rem;
+  }
+
+  .site-hero,
+  .profile-shell {
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .brand-mark {
+    font-size: 0.74rem;
+  }
+
+  .brand-copy {
+    font-size: 0.8rem;
+    max-width: 24ch;
+  }
+
+  .eyebrow {
+    margin-bottom: 0.7rem;
+  }
+
+  .status-pill {
+    width: fit-content;
   }
 }

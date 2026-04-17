@@ -52,11 +52,18 @@ On the VPS, the live file should be:
 
 Key routing rules:
 
+- `averray.com/` is the generated Astro landing page synced into `site/index.html`
 - `averray.com/.well-known/agent-tools.json` is served statically from `site/.well-known/`
 - `averray.com/robots.txt`, `averray.com/llms.txt`, and `averray.com/sitemap.xml` are served statically from `site/`
 - `averray.com/agents/:wallet` rewrites to `site/agent.html?wallet=:wallet`
 - `app.averray.com/api/*` proxies to `backend:8787`
 - `app.averray.com/index/*` proxies to `indexer:42069`
+
+Before pushing landing page changes from your local machine, regenerate the public site shell:
+
+```bash
+npm run build:site
+```
 
 ### Applying a new Caddy config
 
