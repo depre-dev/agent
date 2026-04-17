@@ -29,6 +29,8 @@ import { debug, html, renderHtml, setButtonBusy, setOverallStatus, setText, show
 let stopEventStream = undefined;
 let liveRefreshTimer = undefined;
 let authMode = "strict";
+const WORKSPACE_MODE_STORAGE_KEY = "averray:workspace-mode";
+const WORKSPACE_MODES = ["work", "admin", "observe"];
 const platformStatus = {
   protocols: [],
   verifierModes: [],
@@ -36,6 +38,72 @@ const platformStatus = {
   catalogCount: 0,
   indexReady: false
 };
+
+function inferWorkspaceModeFromHash(hash = window.location.hash) {
+  if (!hash) return undefined;
+  if (hash === "#admin-workspace" || hash === "#catalog-workspace") return "admin";
+  if (hash === "#ops-details") return "observe";
+  if (hash === "#workspace-core" || hash === "#jobs-workspace") return "work";
+  return undefined;
+}
+
+function setWorkspaceMode(mode = "work", options = {}) {
+  const { persist = true, focusTargetId = undefined } = options;
+  const nextMode = WORKSPACE_MODES.includes(mode) ? mode : "work";
+  const buttons = document.querySelectorAll("[data-workspace-mode]");
+  const panels = document.querySelectorAll("[data-workspace-panel]");
+
+  buttons.forEach((button) => {
+    const active = button.getAttribute("data-workspace-mode") === nextMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+
+  panels.forEach((panel) => {
+    const active = panel.getAttribute("data-workspace-panel") === nextMode;
+    panel.hidden = !active;
+    panel.setAttribute("aria-hidden", active ? "false" : "true");
+  });
+
+  if (persist) {
+    localStorage.setItem(WORKSPACE_MODE_STORAGE_KEY, nextMode);
+  }
+
+  if (focusTargetId) {
+    requestAnimationFrame(() => {
+      document.getElementById(focusTargetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+}
+
+function wireWorkspaceModes() {
+  const buttons = document.querySelectorAll("[data-workspace-mode]");
+  const adminLink = document.getElementById("auth-admin-link");
+  const initialMode = inferWorkspaceModeFromHash()
+    || localStorage.getItem(WORKSPACE_MODE_STORAGE_KEY)
+    || "work";
+
+  setWorkspaceMode(initialMode, { persist: false });
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setWorkspaceMode(button.getAttribute("data-workspace-mode") ?? "work");
+    });
+  });
+
+  adminLink?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setWorkspaceMode("admin", { focusTargetId: "admin-workspace" });
+    window.history.replaceState(null, "", "#admin-workspace");
+  });
+
+  window.addEventListener("hashchange", () => {
+    const mode = inferWorkspaceModeFromHash();
+    if (mode) {
+      setWorkspaceMode(mode, { persist: false });
+    }
+  });
+}
 
 function formatAdminNumber(value) {
   const number = Number(value);
@@ -1211,6 +1279,7 @@ async function boot() {
   const verifierModeSelect = document.getElementById("poster-verifier-mode");
   const catalogActivityFilter = document.getElementById("catalog-activity-filter");
 
+  wireWorkspaceModes();
   syncPosterDefaults(true);
   syncPosterAdvancedFields();
   await loadPlatformStatus();

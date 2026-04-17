@@ -139,15 +139,29 @@
         </a>
       </section>
 
-      <nav class="workspace-nav" aria-label="Operator workspace navigation">
-        <a class="workspace-nav-link" href="#workspace-core">Workspace</a>
-        <a class="workspace-nav-link" href="#jobs-workspace">Jobs</a>
-        <a class="workspace-nav-link" href="#admin-workspace">Admin</a>
-        <a class="workspace-nav-link" href="#catalog-workspace">Catalog</a>
-        <a class="workspace-nav-link" href="#ops-details">Ops details</a>
-      </nav>
+      <section class="workspace-modebar" aria-label="Operator workspace modes">
+        <div class="workspace-mode-copy">
+          <p class="panel-label">Control modes</p>
+          <h2>Switch between worker, admin, and observer views.</h2>
+        </div>
+        <div class="workspace-mode-actions" role="tablist" aria-label="Workspace modes">
+          <button class="workspace-mode-button is-active" id="workspace-mode-work" type="button" data-workspace-mode="work" role="tab" aria-selected="true">
+            <span>Work</span>
+            <small>Sign in, fund, and run jobs</small>
+          </button>
+          <button class="workspace-mode-button" id="workspace-mode-admin" type="button" data-workspace-mode="admin" role="tab" aria-selected="false">
+            <span>Admin</span>
+            <small>Create jobs and operate templates</small>
+          </button>
+          <button class="workspace-mode-button" id="workspace-mode-observe" type="button" data-workspace-mode="observe" role="tab" aria-selected="false">
+            <span>Observe</span>
+            <small>Watch positions, history, and posture</small>
+          </button>
+        </div>
+      </section>
 
       <main>
+        <section class="workspace-mode-panel" data-workspace-panel="work">
         <section class="operator-grid">
           <article class="panel operator-panel" id="workspace-core">
             <div class="section-heading compact">
@@ -298,133 +312,6 @@
                 Mints Mock DOT to the active signer wallet and deposits it into AgentAccountCore in one step.
               </p>
             </section>
-
-            <details class="operator-disclosure" open>
-              <summary>
-                <span>Positions, reputation, and routes</span>
-                <span class="operator-disclosure-copy">Balances, reputation, and health endpoints in one place.</span>
-              </summary>
-
-              <section class="stats-shell">
-                <div class="detail-head">
-                  <h3>Account positions</h3>
-                  <span class="section-note">Deposited Mock DOT only. Native gas balance is still external to this view.</span>
-                </div>
-                <div class="stats-grid">
-                  <article class="stat-card">
-                    <p>Liquid DOT</p>
-                    <strong id="liquid-dot">-</strong>
-                    <span id="deposited-balance-dot">Available working balance</span>
-                  </article>
-                  <article class="stat-card">
-                    <p>Reserved DOT</p>
-                    <strong id="reserved-dot">-</strong>
-                    <span>Locked for active jobs</span>
-                  </article>
-                  <article class="stat-card">
-                    <p>Allocated</p>
-                    <strong id="allocated-dot">-</strong>
-                    <span>Idle capital routed to strategies</span>
-                  </article>
-                  <article class="stat-card">
-                    <p>Staked DOT</p>
-                    <strong id="staked-dot">-</strong>
-                    <span id="active-stake-dot">Claim stake locked across active jobs</span>
-                  </article>
-                  <article class="stat-card">
-                    <p>Debt</p>
-                    <strong id="debt-dot">-</strong>
-                    <span>Current outstanding balance</span>
-                  </article>
-                </div>
-              </section>
-
-              <div class="detail-grid">
-                <section class="detail-card">
-                  <div class="detail-head">
-                    <h3>Reputation</h3>
-                    <span id="tier-badge" class="tier-badge">Checking</span>
-                  </div>
-                  <dl class="metric-list">
-                    <div>
-                      <dt>Skill</dt>
-                      <dd id="rep-skill">-</dd>
-                    </div>
-                    <div>
-                      <dt>Reliability</dt>
-                      <dd id="rep-reliability">-</dd>
-                    </div>
-                    <div>
-                      <dt>Economic</dt>
-                      <dd id="rep-economic">-</dd>
-                    </div>
-                  </dl>
-                </section>
-
-                <section class="detail-card">
-                  <div class="detail-head">
-                    <h3>Live entrypoints</h3>
-                  </div>
-                  <div class="endpoint-list">
-                    <a href="/api/health" target="_blank" rel="noreferrer">
-                      <span>API health</span>
-                      <code>/api/health</code>
-                    </a>
-                    <a href="/api/onboarding" target="_blank" rel="noreferrer">
-                      <span>API onboarding</span>
-                      <code>/api/onboarding</code>
-                    </a>
-                    <a href="/index/" target="_blank" rel="noreferrer">
-                      <span>Indexer root</span>
-                      <code>/index/</code>
-                    </a>
-                    <a href="/index/graphql" target="_blank" rel="noreferrer">
-                      <span>Indexer GraphQL</span>
-                      <code>/index/graphql</code>
-                    </a>
-                  </div>
-                </section>
-              </div>
-            </details>
-
-            <details class="operator-disclosure" id="ops-details">
-              <summary>
-                <span>Live activity and session history</span>
-                <span class="operator-disclosure-copy">Expand for event feed and historical runs.</span>
-              </summary>
-
-              <section class="history-shell">
-                <div class="detail-head">
-                  <h3>Live activity</h3>
-                  <span id="activity-count" class="section-note">Waiting for live activity</span>
-                </div>
-                <div id="activity-feed" class="activity-feed">
-                  <p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>
-                </div>
-              </section>
-
-              <section class="history-shell">
-                <div class="detail-head">
-                  <h3>Recent sessions</h3>
-                  <div class="detail-actions">
-                    <label class="inline-filter" for="history-filter">
-                      <span>Session filter</span>
-                      <select id="history-filter">
-                        <option value="all" selected>All runs</option>
-                        <option value="active">Active</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
-                        <option value="disputed">Disputed</option>
-                      </select>
-                    </label>
-                    <span id="history-count" class="section-note">Waiting for session data</span>
-                  </div>
-                </div>
-                <div id="history-list" class="history-list">
-                  <p class="empty-state">Session history will load here for the active worker wallet.</p>
-                </div>
-              </section>
-            </details>
           </article>
 
           <article class="panel recommendation-panel" id="jobs-workspace">
@@ -566,7 +453,9 @@
             </details>
           </article>
         </section>
+        </section>
 
+        <section class="workspace-mode-panel" data-workspace-panel="admin" hidden>
         <section class="poster-grid">
           <article class="panel poster-panel" id="admin-workspace">
             <div class="section-heading compact">
@@ -828,8 +717,145 @@ summary</textarea>
             </details>
           </article>
         </section>
+        </section>
 
-        <details class="roadmap operator-disclosure">
+        <section class="workspace-mode-panel" data-workspace-panel="observe" hidden>
+          <section class="observe-grid">
+            <article class="panel observe-panel" id="ops-details">
+              <div class="section-heading compact">
+                <div>
+                  <p class="panel-label">Observe</p>
+                  <h2>Track balances, reputation, and runtime posture.</h2>
+                </div>
+                <p class="section-note">The same live state, without the work and admin controls competing for attention.</p>
+              </div>
+
+              <section class="stats-shell">
+                <div class="detail-head">
+                  <h3>Account positions</h3>
+                  <span class="section-note">Deposited Mock DOT only. Native gas balance is still external to this view.</span>
+                </div>
+                <div class="stats-grid">
+                  <article class="stat-card">
+                    <p>Liquid DOT</p>
+                    <strong id="liquid-dot">-</strong>
+                    <span id="deposited-balance-dot">Available working balance</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Reserved DOT</p>
+                    <strong id="reserved-dot">-</strong>
+                    <span>Locked for active jobs</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Allocated</p>
+                    <strong id="allocated-dot">-</strong>
+                    <span>Idle capital routed to strategies</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Staked DOT</p>
+                    <strong id="staked-dot">-</strong>
+                    <span id="active-stake-dot">Claim stake locked across active jobs</span>
+                  </article>
+                  <article class="stat-card">
+                    <p>Debt</p>
+                    <strong id="debt-dot">-</strong>
+                    <span>Current outstanding balance</span>
+                  </article>
+                </div>
+              </section>
+
+              <div class="detail-grid">
+                <section class="detail-card">
+                  <div class="detail-head">
+                    <h3>Reputation</h3>
+                    <span id="tier-badge" class="tier-badge">Checking</span>
+                  </div>
+                  <dl class="metric-list">
+                    <div>
+                      <dt>Skill</dt>
+                      <dd id="rep-skill">-</dd>
+                    </div>
+                    <div>
+                      <dt>Reliability</dt>
+                      <dd id="rep-reliability">-</dd>
+                    </div>
+                    <div>
+                      <dt>Economic</dt>
+                      <dd id="rep-economic">-</dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <section class="detail-card">
+                  <div class="detail-head">
+                    <h3>Live entrypoints</h3>
+                  </div>
+                  <div class="endpoint-list">
+                    <a href="/api/health" target="_blank" rel="noreferrer">
+                      <span>API health</span>
+                      <code>/api/health</code>
+                    </a>
+                    <a href="/api/onboarding" target="_blank" rel="noreferrer">
+                      <span>API onboarding</span>
+                      <code>/api/onboarding</code>
+                    </a>
+                    <a href="/index/" target="_blank" rel="noreferrer">
+                      <span>Indexer root</span>
+                      <code>/index/</code>
+                    </a>
+                    <a href="/index/graphql" target="_blank" rel="noreferrer">
+                      <span>Indexer GraphQL</span>
+                      <code>/index/graphql</code>
+                    </a>
+                  </div>
+                </section>
+              </div>
+            </article>
+
+            <article class="panel observe-panel">
+              <div class="section-heading compact">
+                <div>
+                  <p class="panel-label">Observe</p>
+                  <h2>Live activity and run history.</h2>
+                </div>
+                <p class="section-note">Expand the timeline of what this wallet is doing and how runs are resolving.</p>
+              </div>
+
+              <section class="history-shell">
+                <div class="detail-head">
+                  <h3>Live activity</h3>
+                  <span id="activity-count" class="section-note">Waiting for live activity</span>
+                </div>
+                <div id="activity-feed" class="activity-feed">
+                  <p class="empty-state">Sign in and keep this page open to watch claim, verification, stake, and reputation events arrive in real time.</p>
+                </div>
+              </section>
+
+              <section class="history-shell">
+                <div class="detail-head">
+                  <h3>Recent sessions</h3>
+                  <div class="detail-actions">
+                    <label class="inline-filter" for="history-filter">
+                      <span>Session filter</span>
+                      <select id="history-filter">
+                        <option value="all" selected>All runs</option>
+                        <option value="active">Active</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="disputed">Disputed</option>
+                      </select>
+                    </label>
+                    <span id="history-count" class="section-note">Waiting for session data</span>
+                  </div>
+                </div>
+                <div id="history-list" class="history-list">
+                  <p class="empty-state">Session history will load here for the active worker wallet.</p>
+                </div>
+              </section>
+            </article>
+          </section>
+
+        <details class="roadmap operator-disclosure" open>
           <summary>
             <span>Platform roadmap</span>
             <span class="operator-disclosure-copy">Expand for the broader product context behind this operator surface.</span>
@@ -853,6 +879,7 @@ summary</textarea>
             </article>
           </div>
         </details>
+        </section>
       </main>
     </div>
 
