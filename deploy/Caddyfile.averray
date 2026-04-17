@@ -1,7 +1,3 @@
-{
-  email {$ACME_EMAIL}
-}
-
 # Main public site
 # Serves the marketing / trust / schemas-lite surface from the repo's `site/`
 # folder, including robots/sitemap/llms and the discovery manifest. Public
@@ -9,7 +5,7 @@
 # the static profile shell that hydrates itself from
 # https://api.averray.com/agents/:wallet.
 averray.com, www.averray.com {
-  root * /srv/agent-stack/app/site
+  root * /srv/site
   encode zstd gzip
 
   handle /.well-known/* {
@@ -37,7 +33,7 @@ app.averray.com {
     reverse_proxy indexer:42069
   }
 
-  root * /srv/agent-stack/app/frontend
+  root * /srv/frontend
   file_server
 }
 

@@ -58,6 +58,7 @@ Key routing rules:
 - `averray.com/agents/:wallet` rewrites to `site/agent.html?wallet=:wallet`
 - `app.averray.com/api/*` proxies to `backend:8787`
 - `app.averray.com/index/*` proxies to `indexer:42069`
+- inside the Caddy container, the static mounts are `/srv/site` and `/srv/frontend`
 
 Before pushing landing page changes from your local machine, regenerate the public site shell:
 
