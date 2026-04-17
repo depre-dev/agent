@@ -27,7 +27,9 @@
 #   VERIFIER                verifier EOA                (defaults to deployer on dev)
 #   ARBITRATOR              arbitrator EOA              (defaults to deployer on dev)
 #   DOT_NAME / DOT_SYMBOL   mock token name (dev only)
-#   *_BPS / *_CAP / *_PENALTY  policy params (defaults retained from v1)
+#   *_BPS / *_CAP / *_PENALTY  policy params (defaults retained from v1;
+#                              see docs/MAINNET_PARAMETERS.md for the
+#                              intended mainnet launch profile)
 #   MAINNET_CONFIRM         must equal "I-understand" for PROFILE=mainnet
 #
 # Output: deployments/<profile>.json with all deployed addresses.

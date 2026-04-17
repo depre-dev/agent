@@ -190,6 +190,14 @@ only. `PROFILE=mainnet` refuses to proceed unless the outflow cap, borrow cap,
 collateral ratio, claim-stake basis points, and slash penalties are all set
 explicitly at deploy time.
 
+The recommended **mainnet launch profile** lives in
+[MAINNET_PARAMETERS.md](./MAINNET_PARAMETERS.md), with the corresponding
+operator env template in
+[deployments/mainnet.env.example](../deployments/mainnet.env.example).
+Auditors should treat that package as the intended production stance for
+v1, rather than assuming the loose testnet defaults above would ever be
+used with real funds.
+
 ---
 
 ## 7. How to run the tests

@@ -110,12 +110,21 @@ If any of these drift, external agents will learn the wrong contract.
 
 ---
 
-## 7. Mainnet blockers that still remain
+## 7. Mainnet parameter package
+
+- [ ] [MAINNET_PARAMETERS.md](./MAINNET_PARAMETERS.md) is still the intended launch profile.
+- [ ] The private mainnet deploy env matches [deployments/mainnet.env.example](../deployments/mainnet.env.example) except for secrets and final addresses.
+- [ ] Any deviation from the recommended launch values has been written down and approved before deploy.
+- [ ] No operator is relying on the old testnet-friendly defaults from `deploy_contracts.sh`.
+
+---
+
+## 8. Mainnet blockers that still remain
 
 This checklist improves release discipline, but it does not replace:
 
 - external audit sign-off on the mainnet contract set
-- explicitly chosen mainnet risk limits (`deploy_contracts.sh` now refuses to use the default testnet-style policy values on `PROFILE=mainnet`)
+- the explicit mainnet launch profile in [MAINNET_PARAMETERS.md](./MAINNET_PARAMETERS.md)
 - a real, audited strategy adapter path instead of the mock vDOT adapter
 - explicit incident ownership and paging
 
