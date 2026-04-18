@@ -523,8 +523,8 @@ function renderAuthUi(snapshot = getAuthSnapshot()) {
     authHint.textContent = snapshot.authenticated
       ? "This signed-in wallet is now the operator identity for wallet-scoped reads, claims, funding, and the live event stream."
       : authMode === "permissive"
-        ? "Strict sign-in is preferred. In permissive mode, the legacy wallet form remains visible for local demos."
-        : "Strict mode is live. Sign in with your wallet before the operator workspace, funding tools, and event stream unlock.";
+        ? "Browser access and wallet sign-in are separate. In permissive mode, the legacy wallet form remains visible for local development."
+        : "Browser access and wallet sign-in are separate. After the page loads, sign in with your wallet before the operator workspace, funding tools, and event stream unlock.";
   }
 
   syncPublicProfileLinks(snapshot.authenticated ? snapshot.wallet ?? "" : "");
@@ -770,13 +770,13 @@ async function loadWallet(wallet) {
 async function fundCurrentWallet() {
   const amountInput = document.getElementById("fund-amount-input");
   const amount = Number(amountInput?.value ?? "0");
-  setFundingFeedback(`Funding ${state.wallet} with ${amount} Mock DOT...`, "loading");
+  setFundingFeedback(`Funding ${state.wallet} with ${amount} DOT...`, "loading");
 
   const account = await postJson("/api/account/fund", { asset: "DOT", amount });
 
   updateAccount(account);
-  setFundingFeedback(`Minted and deposited ${amount} Mock DOT into AgentAccountCore.`, "success");
-  showToast(`Funded ${amount} Mock DOT.`, "success");
+  setFundingFeedback(`Credited and deposited ${amount} DOT into AgentAccountCore.`, "success");
+  showToast(`Funded ${amount} DOT.`, "success");
   await refreshWalletPanels();
 }
 
@@ -1271,7 +1271,7 @@ async function loadPlatformStatus() {
     setText(
       "admin-auth-mode",
       authMode === "permissive"
-        ? "Permissive auth is only appropriate for local demos."
+        ? "Permissive auth is only appropriate for local development."
         : "Strict auth is live. Admin and verifier actions follow JWT role claims."
     );
     setOverallStatus("Online", "status-ok");

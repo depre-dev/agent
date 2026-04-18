@@ -192,7 +192,7 @@ function getFundingReadiness() {
       availableLabel: "-",
       stakeLabel: "-",
       guidance:
-        "The claim stake is enforced against deposited Mock DOT inside AgentAccountCore. Native faucet DOT only covers chain gas.",
+        "Claim stake is enforced against deposited DOT inside AgentAccountCore. Native wallet gas remains separate from the in-app balance.",
       shortfall,
       canClaim: false
     };
@@ -207,7 +207,7 @@ function getFundingReadiness() {
       availableLabel: `${formatAmount(state.account?.liquid?.DOT)} DOT`,
       stakeLabel: "0 DOT",
       guidance:
-        "Your deposited Mock DOT balance is live, but claim readiness is computed per selected job.",
+        "Your deposited DOT balance is live, but claim readiness is computed per selected job.",
       shortfall,
       canClaim: false
     };
@@ -239,7 +239,7 @@ function getFundingReadiness() {
       availableLabel: `${formatAmount(availableLiquidity)} ${rewardAsset}`,
       stakeLabel: `${formatAmount(claimStake)} ${rewardAsset}`,
       guidance:
-        "Use Fund Mock DOT to mint and deposit the missing amount. Faucet gas funds do not count toward claim stake.",
+        "Top up the missing deposited DOT before claiming. Native wallet gas funds do not count toward claim stake.",
       shortfall,
       canClaim: false
     };
@@ -253,7 +253,7 @@ function getFundingReadiness() {
     availableLabel: `${formatAmount(availableLiquidity)} ${rewardAsset}`,
     stakeLabel: `${formatAmount(claimStake)} ${rewardAsset}`,
     guidance:
-      "Claim stake is already covered by deposited Mock DOT. You still need native faucet DOT in the wallet for chain gas.",
+      "Claim stake is already covered by deposited DOT. You still need enough native wallet gas for chain execution.",
     shortfall,
     canClaim: true
   };
@@ -315,7 +315,7 @@ function getExecutionState() {
   if (!readiness.canClaim) {
     return {
       stage: readiness.label,
-      next: readiness.shortfall > 0 ? "Fund Mock DOT and deposit it into AgentAccountCore." : "Pick another eligible job or improve the worker profile.",
+      next: readiness.shortfall > 0 ? "Top up deposited DOT in AgentAccountCore." : "Pick another eligible job or improve the worker profile.",
       blocker: readiness.guidance
     };
   }
@@ -522,7 +522,7 @@ export function renderRecommendations(recommendations) {
 
   if (!recommendations.length) {
     root.innerHTML = state.wallet
-      ? '<p class="empty-state">No recommendations are ready for this wallet yet. Try funding Mock DOT, raising reputation, or creating a fresh job from the poster panel.</p>'
+      ? '<p class="empty-state">No recommendations are ready for this wallet yet. Try topping up deposited DOT, raising reputation, or creating a fresh job from the poster panel.</p>'
       : '<p class="empty-state">Sign in to load recommendations tailored to the active worker wallet.</p>';
     return;
   }
@@ -971,7 +971,7 @@ function updateWorkRunbook(readiness, hasSession, hasVerification, hasVerifierRo
   setRunbookStepState(
     "work-step-funding",
     !walletReady ? "default" : canClaim || hasSession ? "complete" : "active",
-    canClaim || hasSession ? "Stake covered" : "Load Mock DOT",
+    canClaim || hasSession ? "Stake covered" : "Top up balance",
     canClaim || hasSession
       ? "The wallet can cover the selected claim stake."
       : "Fund the wallet if the selected run needs claim stake."
@@ -1007,7 +1007,7 @@ function updateWorkRunbook(readiness, hasSession, hasVerification, hasVerifierRo
       focusPill.className = "status-pill status-pending";
       focusPill.textContent = readiness?.label ?? "Fund first";
       setText("work-focus-title", "Cover the claim stake for the selected run.");
-      setText("work-focus-copy", readiness?.guidance ?? "Add Mock DOT until the selected claim is fully covered.");
+      setText("work-focus-copy", readiness?.guidance ?? "Add deposited DOT until the selected claim is fully covered.");
       return;
     }
     if (!hasSession) {
@@ -1071,7 +1071,7 @@ export function refreshActionPanel() {
 
   if (!state.wallet) {
     setActionStatus("Sign in", "status-pending");
-    setText("action-guidance", "Authenticate first, then fund Mock DOT if the selected job needs claim stake coverage.");
+    setText("action-guidance", "Authenticate first, then top up deposited DOT if the selected job needs claim stake coverage.");
     return;
   }
 

@@ -176,7 +176,7 @@
                   <p class="panel-label">Session</p>
                   <h3>Signed-in operator identity</h3>
                   <p id="auth-hint" class="section-note">
-                    Sign in once to unlock worker, admin, and live event flows.
+                    Browser access and wallet sign-in are separate. After the page loads, sign in with your wallet to unlock worker, admin, and live event flows.
                   </p>
                 </div>
                 <div class="auth-actions">
@@ -214,7 +214,7 @@
                 </article>
               </div>
               <p id="auth-feedback" class="wallet-feedback">
-                Sign in with your wallet to unlock the worker workspace, funding tools, and live event stream.
+                Browser access only opens the page. Wallet sign-in still controls operator access inside the app.
               </p>
               <div class="auth-links" id="auth-profile-links" hidden>
                 <a
@@ -274,7 +274,7 @@
                 </article>
                 <article class="work-step-card" id="work-step-funding">
                   <p>2. Cover stake</p>
-                  <strong>Load Mock DOT</strong>
+                  <strong>Top up balance</strong>
                   <span>Fund the wallet if the selected run needs claim stake.</span>
                 </article>
                 <article class="work-step-card" id="work-step-execution">
@@ -312,7 +312,7 @@
                 <article class="funding-card funding-card-strong">
                   <p>Funding gap</p>
                   <strong id="funding-gap-amount">-</strong>
-                  <span>How much Mock DOT must still be deposited before this wallet can claim the selected job.</span>
+                  <span>How much more deposited DOT this wallet needs before it can claim the selected job.</span>
                 </article>
                 <article class="funding-card">
                   <p>Claim stake</p>
@@ -332,18 +332,18 @@
               </div>
               <div class="funding-callout">
                 <p id="funding-guidance-copy">
-                  The claim stake is enforced against deposited Mock DOT inside AgentAccountCore. Native faucet DOT only covers chain gas.
+                  Claim stake is enforced against deposited DOT inside AgentAccountCore. Native wallet gas remains separate from the in-app balance shown here.
                 </p>
               </div>
               <div class="funding-row">
                 <label class="wallet-label" for="fund-amount-input">Top-up amount</label>
                 <div class="wallet-row">
                   <input id="fund-amount-input" type="number" min="0.01" step="0.01" value="1" />
-                  <button id="fund-account-button" type="button">Fund Mock DOT</button>
+                  <button id="fund-account-button" type="button">Top up deposited DOT</button>
                 </div>
               </div>
               <p id="funding-feedback" class="wallet-feedback">
-                Mints Mock DOT to the active signer wallet and deposits it into AgentAccountCore in one step.
+                Credits DOT to the active signer and deposits it into AgentAccountCore in one step for this environment.
               </p>
             </section>
           </article>
@@ -792,7 +792,7 @@ summary</textarea>
               <section class="stats-shell">
                 <div class="detail-head">
                   <h3>Account positions</h3>
-                  <span class="section-note">Deposited Mock DOT only. Native gas balance is still external to this view.</span>
+                  <span class="section-note">Deposited DOT only. Native gas balance is still external to this view.</span>
                 </div>
                 <div class="stats-grid">
                   <article class="stat-card">
