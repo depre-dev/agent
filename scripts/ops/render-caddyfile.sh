@@ -78,7 +78,10 @@ if [[ -n "$APP_BASIC_AUTH_USER" || -n "$APP_BASIC_AUTH_PASSWORD" || -n "$APP_BAS
 
   auth_block_file=$(mktemp)
   cat >"$auth_block_file" <<EOF
-  basic_auth bcrypt "Averray Operator" {
+  @protectedOperatorShell {
+    not path /api/* /index/*
+  }
+  basic_auth @protectedOperatorShell bcrypt "Averray Operator" {
     $APP_BASIC_AUTH_USER $APP_BASIC_AUTH_PASSWORD_HASH
   }
 

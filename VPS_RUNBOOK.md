@@ -112,12 +112,13 @@ docker compose logs --tail=100 caddy
 What this protects:
 
 - `https://app.averray.com/`
-- `https://app.averray.com/api/*`
-- `https://app.averray.com/index/*`
+- static app assets served from `app.averray.com`
 
 What stays public:
 
 - `https://averray.com/`
+- `https://app.averray.com/api/*`
+- `https://app.averray.com/index/*`
 - `https://api.averray.com/`
 - `https://index.averray.com/`
 
