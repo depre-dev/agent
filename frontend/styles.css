@@ -685,6 +685,7 @@ main {
   display: grid;
   gap: 0.85rem;
   padding: 1rem;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.82);
@@ -698,9 +699,19 @@ main {
 
 .treasury-console-topline {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: start;
   gap: 0.8rem;
+}
+
+.treasury-console-topline > div,
+.treasury-console-topline .section-note {
+  min-width: 0;
+}
+
+.treasury-console-topline .section-note {
+  max-width: 100%;
 }
 
 .treasury-console-topline h4,
@@ -1347,12 +1358,15 @@ main {
 
 .wallet-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.85rem;
 }
 
 .wallet-row input {
   flex: 1;
-  min-width: 0;
+  min-width: min(100%, 11rem);
+  width: 100%;
+  box-sizing: border-box;
   min-height: 3rem;
   padding: 0 1rem;
   border: 1px solid var(--line);
@@ -1360,6 +1374,10 @@ main {
   background: rgba(255, 255, 255, 0.68);
   color: var(--ink);
   font: inherit;
+}
+
+.wallet-row button {
+  flex: 0 1 auto;
 }
 
 .inline-filter {
@@ -2090,6 +2108,18 @@ main {
   .timeline,
   .workspace-modebar {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1320px) {
+  .observe-grid,
+  .treasury-console-grid,
+  .strategy-shelf {
+    grid-template-columns: 1fr;
+  }
+
+  .treasury-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
