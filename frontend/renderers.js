@@ -24,6 +24,149 @@ function formatStrategyKind(kind = "") {
   return kind ? kind.replaceAll("_", " ") : "strategy";
 }
 
+function formatPercentFromBps(bps = 0) {
+  const value = Number(bps ?? 0);
+  if (!Number.isFinite(value)) return "-";
+  return `${(value / 100).toFixed(value >= 1000 ? 0 : 1)}%`;
+}
+
+function formatStrategyMovement(position = {}) {
+  if (position.lastMovementAt) {
+    const action = position.lastAction ? `${position.lastAction} · ` : "";
+    return `${action}${formatEventTime(position.lastMovementAt)}`;
+  }
+  return "No movement metadata reported";
+}
+
+function formatSharePrice(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "-";
+  return `${number.toFixed(4)}x`;
+}
+
+function formatSignedBps(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${number >= 0 ? "+" : ""}${number} bps`;
+}
+
+function formatSignedAmount(value, asset = "DOT") {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return `- ${asset}`;
+  return `${number >= 0 ? "+" : ""}${formatAmount(Math.abs(number))} ${asset}`;
+}
+
+function summarizeTreasuryTimeline(entry = {}) {
+  const strategy = entry.strategyId ? `${entry.strategyId} · ` : "";
+  switch (entry.type) {
+    case "allocate":
+      return {
+        title: `${strategy}Capital routed`,
+        copy: `${formatAmount(entry.amount)} ${entry.asset ?? "DOT"} moved into a strategy lane.`
+      };
+    case "deallocate":
+      return {
+        title: `${strategy}Capital unwound`,
+        copy: `${formatAmount(entry.amount)} ${entry.asset ?? "DOT"} returned to liquid${Number.isFinite(Number(entry.yieldDelta)) ? ` with ${formatSignedAmount(entry.yieldDelta, entry.asset ?? "DOT")} realized` : ""}.`
+      };
+    case "yield_mark":
+      return {
+        title: `${strategy}Yield mark`,
+        copy: `${formatSignedAmount(entry.yieldDelta, entry.asset ?? "DOT")} change in marked lane value.`
+      };
+    case "borrow":
+      return {
+        title: "Credit draw",
+        copy: `${formatAmount(entry.amount)} ${entry.asset ?? "DOT"} borrowed into liquid balance.`
+      };
+    case "repay":
+      return {
+        title: "Credit repay",
+        copy: `${formatAmount(entry.amount)} ${entry.asset ?? "DOT"} repaid against outstanding debt.`
+      };
+    case "fund":
+      return {
+        title: "Account funded",
+        copy: `${formatAmount(entry.amount)} ${entry.asset ?? "DOT"} deposited into the account.`
+      };
+    default:
+      return {
+        title: strategy || "Treasury move",
+        copy: `${formatAmount(entry.amount)} ${entry.asset ?? "DOT"} changed in treasury state.`
+      };
+  }
+}
+
+function renderTreasuryConsole() {
+  const strategySelect = document.getElementById("treasury-strategy-select");
+  const allocateButton = document.getElementById("treasury-allocate-button");
+  const deallocateButton = document.getElementById("treasury-deallocate-button");
+  const borrowButton = document.getElementById("treasury-borrow-button");
+  const repayButton = document.getElementById("treasury-repay-button");
+  const strategies = Array.isArray(state.strategies) ? state.strategies : [];
+  const positions = Array.isArray(state.strategyPositions) ? state.strategyPositions : [];
+  const liquid = Number(state.account?.liquid?.DOT ?? 0);
+  const totalAllocated = Number(state.account?.strategyAllocated?.DOT ?? 0);
+  const debt = Number(state.account?.debtOutstanding?.DOT ?? 0);
+  const headroom = Number.isFinite(Number(state.borrowCapacity)) ? Number(state.borrowCapacity) : 0;
+
+  if (!strategySelect) return;
+
+  strategySelect.innerHTML = strategies.length
+    ? strategies.map((strategy) => `
+        <option value="${strategy.strategyId}">${strategy.strategyId} · ${formatStrategyKind(strategy.kind ?? "")}</option>
+      `).join("")
+    : '<option value="">No strategy lanes available</option>';
+
+  const selectedStrategy = strategies.find((entry) => entry.strategyId === strategySelect.value) ?? strategies[0];
+  if (selectedStrategy && strategySelect.value !== selectedStrategy.strategyId) {
+    strategySelect.value = selectedStrategy.strategyId;
+  }
+  const selectedPosition = positions.find((entry) => entry.strategyId === selectedStrategy?.strategyId);
+  const selectedShares = Number(selectedPosition?.routedAmount ?? selectedPosition?.shares ?? 0);
+
+  setText("treasury-console-liquid", `${formatAmount(liquid)} DOT`);
+  setText("treasury-console-allocated", `${formatAmount(selectedShares)} DOT`);
+  setText("treasury-console-headroom", `${formatAmount(headroom)} DOT`);
+  setText("treasury-console-debt", `${formatAmount(debt)} DOT`);
+
+  if (!state.wallet) {
+    setStatusPill("treasury-console-pill", "Waiting for wallet", "status-pending");
+    setText("treasury-strategy-posture", "No lane selected");
+    setText("treasury-credit-posture-note", "Waiting for account posture");
+    allocateButton.disabled = true;
+    deallocateButton.disabled = true;
+    borrowButton.disabled = true;
+    repayButton.disabled = true;
+    return;
+  }
+
+  setStatusPill(
+    "treasury-console-pill",
+    debt > 0 ? "Credit live" : totalAllocated > 0 ? "Capital routed" : "Treasury ready",
+    debt > 0 ? "tier-warn" : "status-ok"
+  );
+  setText(
+    "treasury-strategy-posture",
+    selectedStrategy
+      ? `${selectedStrategy.strategyId} · ${selectedPosition?.statusLabel ?? "Lane registered"} · ${formatAmount(selectedShares)} DOT routed · ${selectedPosition?.yieldReported ? `${formatSharePrice(selectedPosition.sharePrice)} adapter price` : (selectedPosition?.yieldLabel ?? selectedStrategy.riskLabel ?? "Yield posture unavailable")}`
+      : "No lane selected"
+  );
+  setText(
+    "treasury-credit-posture-note",
+    debt > 0
+      ? `${formatAmount(debt)} DOT outstanding`
+      : headroom > 0
+        ? `${formatAmount(headroom)} DOT available to draw`
+        : "No live credit room"
+  );
+
+  allocateButton.disabled = !selectedStrategy || liquid <= 0;
+  deallocateButton.disabled = !selectedStrategy || selectedShares <= 0;
+  borrowButton.disabled = headroom <= 0;
+  repayButton.disabled = debt <= 0;
+}
+
 function renderTreasuryOverview() {
   const account = state.account ?? {};
   const liquid = Number(account.liquid?.DOT ?? 0);
@@ -33,7 +176,10 @@ function renderTreasuryOverview() {
   const collateral = Number(account.collateralLocked?.DOT ?? 0);
   const debt = Number(account.debtOutstanding?.DOT ?? 0);
   const capitalAtWork = allocated + stakeLocked;
-  const borrowHeadroom = Math.max((collateral / 1.5) - debt, 0);
+  const estimatedBorrowHeadroom = Math.max((collateral / 1.5) - debt, 0);
+  const liveBorrowHeadroom = Number(state.borrowCapacity);
+  const hasLiveBorrowHeadroom = Number.isFinite(liveBorrowHeadroom);
+  const borrowHeadroom = hasLiveBorrowHeadroom ? liveBorrowHeadroom : estimatedBorrowHeadroom;
 
   if (!state.wallet) {
     setStatusPill("treasury-overview-pill", "Waiting for wallet", "status-pending");
@@ -76,31 +222,91 @@ function renderTreasuryOverview() {
   setText(
     "treasury-borrow-copy",
     borrowHeadroom > 0
-      ? "Estimated headroom from current collateral and debt."
+      ? hasLiveBorrowHeadroom
+        ? "Live borrow headroom from the account protocol."
+        : "Estimated headroom from current collateral and debt."
       : collateral > 0
-        ? "No additional headroom remains at the current collateral ratio."
+        ? hasLiveBorrowHeadroom
+          ? "The live account protocol reports no additional headroom right now."
+          : "No additional headroom remains at the current collateral ratio."
         : "Borrowing stays locked until collateral is posted."
   );
 }
 
 function renderStrategyShelf() {
   const root = document.getElementById("strategy-shelf");
+  const attentionRoot = document.getElementById("strategy-attention-list");
+  const deployedCount = document.getElementById("strategy-deployed-count");
+  const deployedShare = document.getElementById("strategy-deployed-share");
+  const unrealizedYield = document.getElementById("strategy-unrealized-yield");
+  const realizedYield = document.getElementById("strategy-realized-yield");
+  const attentionCount = document.getElementById("strategy-attention-count");
   if (!root) return;
 
   const strategies = Array.isArray(state.strategies) ? state.strategies : [];
-  const allocated = Number(state.account?.strategyAllocated?.DOT ?? 0);
+  const positions = Array.isArray(state.strategyPositions) ? state.strategyPositions : [];
   const countLabel = document.getElementById("strategy-count");
+  const summary = state.strategySummary ?? {};
 
   if (!strategies.length) {
     if (countLabel) {
       countLabel.textContent = state.wallet ? "No strategy adapters reported" : "Loading strategy posture";
     }
+    setText("strategy-deployed-count", "-");
+    setText("strategy-deployed-share", "-");
+    setText("strategy-unrealized-yield", "-");
+    setText("strategy-realized-yield", "-");
+    setText("strategy-attention-count", "-");
+    if (attentionRoot) {
+      renderHtml(attentionRoot, html`<p class="empty-state">No treasury lane queue yet.</p>`);
+    }
     renderHtml(root, html`<p class="empty-state">No strategy adapters are visible for this deployment yet.</p>`);
     return;
   }
 
+  const activePositions = positions.filter((entry) => Number(entry?.routedAmount ?? entry?.shares ?? 0) > 0);
+  const attentionItems = positions.filter((entry) => entry?.attention);
+  const liveFeeds = positions.filter((entry) => entry?.yieldReported).length;
+
   if (countLabel) {
-    countLabel.textContent = `${strategies.length} strategy lane${strategies.length === 1 ? "" : "s"} visible`;
+    countLabel.textContent = `${activePositions.length}/${strategies.length} lane${strategies.length === 1 ? "" : "s"} routed · ${liveFeeds} live adapter feed${liveFeeds === 1 ? "" : "s"} · ${attentionItems.length} needing attention`;
+  }
+  if (deployedCount) {
+    deployedCount.textContent = `${summary.deployedLanes ?? activePositions.length}`;
+  }
+  if (deployedShare) {
+    deployedShare.textContent = `${formatAmount(summary.allocated ?? state.account?.strategyAllocated?.DOT ?? 0)} DOT`;
+  }
+  if (unrealizedYield) {
+    unrealizedYield.textContent = `${formatSignedAmount(summary.unrealizedYield ?? 0)}`;
+  }
+  if (realizedYield) {
+    realizedYield.textContent = `${formatSignedAmount(summary.realizedYield ?? 0)}`;
+  }
+  if (attentionCount) {
+    attentionCount.textContent = `${summary.attentionCount ?? attentionItems.length}`;
+  }
+
+  if (attentionRoot) {
+    if (!attentionItems.length) {
+      renderHtml(attentionRoot, html`<p class="empty-state">No treasury lane needs action right now.</p>`);
+    } else {
+      renderHtml(
+        attentionRoot,
+        html`${attentionItems.map((entry) => html`
+          <article class="ops-row-card ${entry.attention?.tone === "tier-warn" ? "ops-row-card-alert" : ""}">
+            <div>
+              <p class="job-id">${entry.strategyId}</p>
+              <p class="activity-copy">${entry.attention?.message}</p>
+            </div>
+            <div class="ops-row-meta">
+              <span class="status-pill ${entry.attention?.tone ?? "status-pending"}">${entry.attention?.code?.replaceAll("_", " ") ?? "attention"}</span>
+              <span>${formatAmount(entry.routedAmount ?? entry.shares)} DOT</span>
+            </div>
+          </article>
+        `)}`
+      );
+    }
   }
 
   renderHtml(
@@ -109,49 +315,136 @@ function renderStrategyShelf() {
       const isMock = String(strategy.kind ?? "").includes("mock");
       const riskLabel = strategy.riskLabel ?? (isMock ? "Testnet mock strategy." : "Risk label unavailable.");
       const title = isMock ? "vDOT yield lane (testnet mock)" : `${formatStrategyKind(strategy.kind)} lane`;
-      const posture = allocated > 0
-        ? `${formatAmount(allocated)} DOT currently sits in the strategyAllocated bucket for this wallet.`
-        : "No DOT from this wallet is currently allocated into the strategy bucket.";
+      const position = positions.find((entry) => entry.strategyId === strategy.strategyId) ?? {};
+      const shares = Number(position.routedAmount ?? position.shares ?? 0);
+      const statusTone = position.attention?.tone ?? (shares > 0 ? "status-ok" : "status-pending");
       return html`
         <article class="strategy-card">
           <div class="strategy-card-topline">
             <div>
-              <p>${strategy.asset ?? "DOT"} strategy</p>
+              <p>${position.assetSymbol ?? "DOT"} strategy</p>
               <strong>${title}</strong>
             </div>
-            <span class="status-pill ${isMock ? "tier-warn" : "status-ok"}">
-              ${isMock ? "Testnet mock" : "Registered"}
+            <span class="status-pill ${statusTone}">
+              ${position.statusLabel ?? (isMock ? "Testnet mock" : "Registered")}
             </span>
           </div>
           <div class="strategy-meta-grid">
             <div>
-              <dt>Status</dt>
-              <dd>${riskLabel}</dd>
+              <dt>Routed now</dt>
+              <dd>${formatAmount(shares)} DOT</dd>
             </div>
             <div>
               <dt>Lane</dt>
               <dd>${strategy.strategyId ?? "Unknown id"}</dd>
             </div>
             <div>
-              <dt>Wallet posture</dt>
-              <dd>${posture}</dd>
+              <dt>Share of deployed</dt>
+              <dd>${formatPercentFromBps(position.deploymentShareBps)}</dd>
+            </div>
+            <div>
+              <dt>Share of treasury</dt>
+              <dd>${formatPercentFromBps(position.treasuryShareBps)}</dd>
+            </div>
+            <div>
+              <dt>Yield signal</dt>
+              <dd>${position.yieldLabel ?? (isMock ? "Simulated yield adapter" : "Yield feed unavailable")}</dd>
+            </div>
+            <div>
+              <dt>Entry value</dt>
+              <dd>${formatAmount(position.principalValue ?? 0)} DOT</dd>
+            </div>
+            <div>
+              <dt>Open yield</dt>
+              <dd>${formatSignedAmount(position.unrealizedYield ?? 0)}</dd>
+            </div>
+            <div>
+              <dt>Realized yield</dt>
+              <dd>${formatSignedAmount(position.realizedYield ?? 0)}</dd>
+            </div>
+            <div>
+              <dt>Adapter share price</dt>
+              <dd>${formatSharePrice(position.sharePrice)}</dd>
+            </div>
+            <div>
+              <dt>Adapter drift</dt>
+              <dd>${formatSignedBps(position.performanceBps)}</dd>
+            </div>
+            <div>
+              <dt>Last move</dt>
+              <dd>${formatStrategyMovement(position)}</dd>
+            </div>
+            <div>
+              <dt>Risk</dt>
+              <dd>${position.riskLabel || riskLabel}</dd>
+            </div>
+            <div>
+              <dt>Attention</dt>
+              <dd>${position.attention?.message ?? "No lane-specific issue detected."}</dd>
             </div>
           </div>
           <p class="strategy-footnote">
-            ${isMock
-              ? "This adapter proves the treasury UX and accounting shape, but it is not real staking yield."
-              : "This adapter is registered on the deployment and can act as the idle-capital destination for the account layer."}
+            ${shares > 0
+              ? `${formatAmount(shares)} DOT is actively routed here. The card now combines live adapter performance with wallet-scoped routed capital.`
+              : isMock
+                ? "This adapter is available but idle. It proves the treasury/yield lane UX with a real adapter-side exchange rate, but not real market yield."
+                : "This lane is registered and ready, and the card now shows the adapter's own performance view even before this wallet routes capital into it."}
           </p>
-          ${state.strategyDocs ? html`<a class="secondary-action strategy-doc-link" href="${state.strategyDocs}" target="_blank" rel="noreferrer">Open strategy docs</a>` : ""}
+          <div class="strategy-actions">
+            <button class="secondary-action" type="button" data-strategy-select="${strategy.strategyId}">
+              Load lane in console
+            </button>
+            ${state.strategyDocs ? html`<a class="secondary-action strategy-doc-link" href="${state.strategyDocs}" target="_blank" rel="noreferrer">Open strategy docs</a>` : ""}
+          </div>
         </article>
       `;
     })}`,
   );
 }
 
+function renderStrategyTimeline() {
+  const root = document.getElementById("strategy-timeline-list");
+  const countLabel = document.getElementById("strategy-timeline-count");
+  if (!root) return;
+
+  const timeline = Array.isArray(state.strategyTimeline) ? state.strategyTimeline : [];
+  if (!timeline.length) {
+    if (countLabel) {
+      countLabel.textContent = state.wallet ? "No treasury movement recorded yet" : "Waiting for wallet activity";
+    }
+    renderHtml(root, html`<p class="empty-state">Treasury routing, yield marks, and credit moves will appear here.</p>`);
+    return;
+  }
+
+  if (countLabel) {
+    countLabel.textContent = `${timeline.length} recent treasury move${timeline.length === 1 ? "" : "s"}`;
+  }
+
+  renderHtml(
+    root,
+    html`${timeline.map((entry) => {
+      const summary = summarizeTreasuryTimeline(entry);
+      return html`
+        <article class="ops-row-card ${entry.type === "yield_mark" && Number(entry.yieldDelta) < 0 ? "ops-row-card-alert" : ""}">
+          <div>
+            <p class="job-id">${summary.title}</p>
+            <p class="activity-copy">${summary.copy}</p>
+          </div>
+          <div class="ops-row-meta">
+            <span class="status-pill ${entry.type === "yield_mark" && Number(entry.yieldDelta) < 0 ? "tier-warn" : "status-pending"}">${entry.type.replaceAll("_", " ")}</span>
+            <span>${formatEventTime(entry.at)}</span>
+          </div>
+        </article>
+      `;
+    })}`
+  );
+}
+
 export function refreshTreasurySurfaces() {
   renderTreasuryOverview();
+  renderTreasuryConsole();
   renderStrategyShelf();
+  renderStrategyTimeline();
 }
 
 function formatEventTime(timestamp) {
@@ -578,7 +871,6 @@ export function renderOpsDeck(snapshot = {}) {
   if (!topJobsRoot || !pulseRoot) return;
 
   setText("ops-headline", snapshot.headline ?? "Operator picture unavailable");
-  setText("ops-copy", snapshot.copy ?? "Operator data is not available right now.");
   setText("ops-active-runs", snapshot.metrics?.activeRuns?.value ?? "-");
   setText("ops-active-runs-copy", snapshot.metrics?.activeRuns?.copy ?? "Waiting for run data");
   setText("ops-active-agents", snapshot.metrics?.activeAgents?.value ?? "-");

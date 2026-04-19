@@ -9,6 +9,7 @@ import {StrategyAdapterRegistry} from "../contracts/StrategyAdapterRegistry.sol"
 import {AgentAccountCore} from "../contracts/AgentAccountCore.sol";
 import {EscrowCore} from "../contracts/EscrowCore.sol";
 import {ReputationSBT} from "../contracts/ReputationSBT.sol";
+import {MockVDotAdapter} from "../contracts/strategies/MockVDotAdapter.sol";
 
 contract AgentPlatformTest is Test {
     TreasuryPolicy internal policy;
@@ -107,6 +108,36 @@ contract AgentPlatformTest is Test {
         (, , , , , debtOutstanding) = accounts.positions(worker, address(dot));
         assertEq(debtOutstanding, 0);
         vm.stopPrank();
+    }
+
+    function testStrategyAllocationSettlesIntoAdapterAndUnwindsWithYield() public {
+        bytes32 strategyId = bytes32("VDOT_V1_MOCK");
+        MockVDotAdapter adapter = new MockVDotAdapter(policy, address(dot), strategyId);
+        policy.setApprovedStrategy(address(adapter), true);
+        registry.registerStrategy(address(adapter));
+
+        vm.prank(worker);
+        accounts.allocateIdleFunds(worker, strategyId, 20 ether);
+
+        (uint256 liquidAfterAllocate,, uint256 allocatedAfterAllocate,,,) = accounts.positions(worker, address(dot));
+        assertEq(liquidAfterAllocate, WORKER_DEPOSIT - 20 ether);
+        assertEq(allocatedAfterAllocate, 20 ether);
+        assertEq(accounts.strategyShares(worker, strategyId), 20 ether);
+        assertEq(dot.balanceOf(address(accounts)), POSTER_DEPOSIT + WORKER_DEPOSIT - 20 ether);
+        assertEq(dot.balanceOf(address(adapter)), 20 ether);
+
+        dot.mint(address(adapter), 1 ether);
+        adapter.simulateYieldBps(500);
+
+        vm.prank(worker);
+        accounts.deallocateIdleFunds(worker, strategyId, 21 ether);
+
+        (uint256 liquidAfterDeallocate,, uint256 allocatedAfterDeallocate,,,) = accounts.positions(worker, address(dot));
+        assertEq(liquidAfterDeallocate, WORKER_DEPOSIT + 1 ether);
+        assertEq(allocatedAfterDeallocate, 0);
+        assertEq(accounts.strategyShares(worker, strategyId), 0);
+        assertEq(dot.balanceOf(address(accounts)), POSTER_DEPOSIT + WORKER_DEPOSIT + 1 ether);
+        assertEq(dot.balanceOf(address(adapter)), 0);
     }
 
     function testClaimTimeoutReopensJobAndSlashesStake() public {

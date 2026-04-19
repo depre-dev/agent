@@ -7,6 +7,8 @@ export const AGENT_ACCOUNT_ABI = [
   "function releaseJobStake(address account, address asset, uint256 amount)",
   "function slashJobStake(address account, address asset, uint256 amount, address posterRecipient)",
   "function allocateIdleFunds(address account, bytes32 strategyId, uint256 amount)",
+  "function deallocateIdleFunds(address account, bytes32 strategyId, uint256 amount)",
+  "function strategyShares(address account, bytes32 strategyId) view returns (uint256)",
   "function borrow(address asset, uint256 amount)",
   "function repay(address asset, uint256 amount)",
   "function sendToAgent(address recipient, address asset, uint256 amount)",
@@ -62,4 +64,10 @@ export const ERC20_MOCK_ABI = [
   "function balanceOf(address account) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
   "function mint(address to, uint256 amount)"
+];
+
+export const STRATEGY_ADAPTER_ABI = [
+  "function totalAssets() view returns (uint256)",
+  "function totalShares() view returns (uint256)",
+  "function riskLabel() view returns (string)"
 ];

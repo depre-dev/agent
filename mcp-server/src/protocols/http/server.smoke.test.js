@@ -230,6 +230,20 @@ test("http smoke: /auth/logout revokes the current token", { skip: !RUN }, async
   });
 });
 
+test("http smoke: /account/borrow-capacity returns the signed-in wallet headroom", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const token = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+    const response = await fetch(`${base}/account/borrow-capacity?asset=DOT`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.wallet, ADMIN_WALLET.toLowerCase());
+    assert.equal(payload.asset, "DOT");
+    assert.equal(payload.borrowCapacity, 0);
+  });
+});
+
 test("http smoke: /badges/:sessionId returns 404 for unknown sessions", { skip: !RUN }, async () => {
   await runWithServer(async (base) => {
     const response = await fetch(`${base}/badges/unknown-session-id`);

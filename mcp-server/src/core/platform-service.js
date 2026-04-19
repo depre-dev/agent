@@ -337,13 +337,20 @@ export class PlatformService {
 
   async getAccountSummary(wallet) {
     if (this.blockchainGateway?.isEnabled()) {
-      return this.blockchainGateway.getAccountSummary(wallet);
+      return this.accountMutationService.attachStoredTreasuryMetadata(
+        wallet,
+        await this.blockchainGateway.getAccountSummary(wallet)
+      );
     }
     return this.accounts.get(wallet) ?? {
       wallet,
       liquid: {},
       reserved: {},
       strategyAllocated: {},
+      strategyShares: {},
+      strategyActivity: {},
+      strategyAccounting: {},
+      treasuryTimeline: [],
       collateralLocked: {},
       jobStakeLocked: {},
       debtOutstanding: {}
@@ -352,7 +359,16 @@ export class PlatformService {
 
   async fundAccount(wallet, asset, amount) {
     if (this.blockchainGateway?.isEnabled()) {
-      return this.blockchainGateway.fundAccount(wallet, asset, amount);
+      this.accountMutationService.attachStoredTreasuryMetadata(
+        wallet,
+        await this.blockchainGateway.fundAccount(wallet, asset, amount)
+      );
+      await this.accountMutationService.recordTreasuryMutation(wallet, {
+        type: "fund",
+        asset,
+        amount: Number(amount)
+      });
+      return this.getAccountSummary(wallet);
     }
 
     const numericAmount = Number(amount);
@@ -363,6 +379,11 @@ export class PlatformService {
     const account = await this.getAccountSummary(wallet);
     account.liquid[asset] = (account.liquid[asset] ?? 0) + numericAmount;
     this.accounts.set(wallet, account);
+    await this.accountMutationService.recordTreasuryMutation(wallet, {
+      type: "fund",
+      asset,
+      amount: numericAmount
+    });
     return account;
   }
 
@@ -395,6 +416,14 @@ export class PlatformService {
 
   async allocateIdleFunds(wallet, asset, amount, strategyId = "default-low-risk") {
     return this.accountMutationService.allocateIdleFunds(wallet, asset, amount, strategyId);
+  }
+
+  async deallocateIdleFunds(wallet, asset, amount, strategyId = "default-low-risk") {
+    return this.accountMutationService.deallocateIdleFunds(wallet, asset, amount, strategyId);
+  }
+
+  async recordStrategySnapshots(wallet, snapshots = []) {
+    return this.accountMutationService.recordStrategySnapshots(wallet, snapshots);
   }
 
   async getBorrowCapacity(wallet, asset) {

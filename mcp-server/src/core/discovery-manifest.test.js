@@ -16,14 +16,14 @@ test("buildDiscoveryManifest returns the full public discovery shape", () => {
   assert.equal(manifest.profile, "https://app.example.com/agents/<wallet>");
   assert.deepEqual(manifest.protocolEndpoints, {
     http: "https://api.example.com",
-    mcp: "https://api.example.com/onboarding",
-    a2a: "https://api.example.com/onboarding"
+    mcp: "https://api.example.com/onboarding"
   });
   assert.equal(manifest.onboarding.entrypoint, "https://api.example.com/onboarding");
   assert.equal(manifest.health, "https://api.example.com/health");
   assert.ok(Array.isArray(manifest.publicEndpoints));
   assert.ok(Array.isArray(manifest.authenticatedEndpoints));
   assert.ok(Array.isArray(manifest.tools));
+  assert.ok(manifest.authenticatedEndpoints.some((entry) => entry.path === "/account/borrow-capacity"));
   assert.equal(manifest.tools[0]?.name, "getPlatformCapabilities");
   assert.equal(manifest.schemas.agentBadge, "https://averray.com/schemas/agent-badge-v1.json");
 });

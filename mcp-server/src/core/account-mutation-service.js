@@ -12,6 +12,174 @@ export class AccountMutationService {
     this.getAccountSummary = getAccountSummary;
   }
 
+  getStoredAccount(wallet) {
+    const existing = this.accounts.get(wallet);
+    if (existing) {
+      this.ensureTreasuryMetadata(existing);
+      return existing;
+    }
+
+    const created = {
+      wallet,
+      liquid: {},
+      reserved: {},
+      strategyAllocated: {},
+      strategyShares: {},
+      strategyActivity: {},
+      strategyAccounting: {},
+      treasuryTimeline: [],
+      collateralLocked: {},
+      jobStakeLocked: {},
+      debtOutstanding: {}
+    };
+    this.accounts.set(wallet, created);
+    return created;
+  }
+
+  ensureTreasuryMetadata(account) {
+    account.strategyShares = account.strategyShares ?? {};
+    account.strategyActivity = account.strategyActivity ?? {};
+    account.strategyAccounting = account.strategyAccounting ?? {};
+    account.treasuryTimeline = account.treasuryTimeline ?? [];
+    return account;
+  }
+
+  attachStoredTreasuryMetadata(wallet, liveAccount = {}) {
+    const stored = this.getStoredAccount(wallet);
+    return this.ensureTreasuryMetadata({
+      ...liveAccount,
+      strategyShares: {
+        ...(liveAccount.strategyShares ?? {}),
+        ...(stored.strategyShares ?? {})
+      },
+      strategyActivity: {
+        ...(liveAccount.strategyActivity ?? {}),
+        ...(stored.strategyActivity ?? {})
+      },
+      strategyAccounting: {
+        ...(liveAccount.strategyAccounting ?? {}),
+        ...(stored.strategyAccounting ?? {})
+      },
+      treasuryTimeline: [...(stored.treasuryTimeline ?? [])]
+    });
+  }
+
+  getStrategyAccounting(account, strategyId, asset = "DOT") {
+    this.ensureTreasuryMetadata(account);
+    account.strategyAccounting[strategyId] = account.strategyAccounting[strategyId] ?? {
+      asset,
+      principal: 0,
+      realizedYield: 0,
+      markValue: 0,
+      sharePrice: undefined,
+      markedAt: undefined
+    };
+    if (!account.strategyAccounting[strategyId].asset) {
+      account.strategyAccounting[strategyId].asset = asset;
+    }
+    return account.strategyAccounting[strategyId];
+  }
+
+  recordTreasuryEvent(account, event) {
+    this.ensureTreasuryMetadata(account);
+    const timeline = account.treasuryTimeline;
+    timeline.unshift({
+      id: `treasury-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      at: new Date().toISOString(),
+      ...event
+    });
+    if (timeline.length > 40) {
+      timeline.length = 40;
+    }
+  }
+
+  updateStrategyAccountingOnAllocate(account, strategyId, asset, amount) {
+    const entry = this.getStrategyAccounting(account, strategyId, asset);
+    entry.principal = Number(entry.principal ?? 0) + amount;
+    entry.markValue = Number(entry.markValue ?? 0) + amount;
+    entry.markedAt = new Date().toISOString();
+    this.recordTreasuryEvent(account, {
+      type: "allocate",
+      strategyId,
+      asset,
+      amount,
+      principalAfter: entry.principal
+    });
+  }
+
+  updateStrategyAccountingOnDeallocate(account, strategyId, asset, assetsReturned) {
+    const entry = this.getStrategyAccounting(account, strategyId, asset);
+    const principalBefore = Number(entry.principal ?? 0);
+    const markValueBefore = Number(entry.markValue ?? principalBefore ?? 0);
+    const denominator = Math.max(markValueBefore, assetsReturned, 0);
+    const principalReleased = denominator > 0
+      ? Math.min(principalBefore, principalBefore * (assetsReturned / denominator))
+      : Math.min(principalBefore, assetsReturned);
+    const realizedYieldDelta = assetsReturned - principalReleased;
+
+    entry.principal = Math.max(principalBefore - principalReleased, 0);
+    entry.realizedYield = Number(entry.realizedYield ?? 0) + realizedYieldDelta;
+    entry.markValue = Math.max(markValueBefore - assetsReturned, 0);
+    entry.markedAt = new Date().toISOString();
+
+    this.recordTreasuryEvent(account, {
+      type: "deallocate",
+      strategyId,
+      asset,
+      amount: assetsReturned,
+      realizedYieldDelta,
+      principalAfter: entry.principal
+    });
+  }
+
+  async recordStrategySnapshots(wallet, snapshots = []) {
+    const account = this.getStoredAccount(wallet);
+    this.ensureTreasuryMetadata(account);
+
+    for (const snapshot of snapshots) {
+      const strategyId = snapshot?.strategyId;
+      if (!strategyId) continue;
+
+      const asset = snapshot.assetSymbol ?? snapshot.asset ?? "DOT";
+      const currentValue = Number(snapshot.currentValue ?? snapshot.routedAmount ?? 0);
+      const shares = Number(snapshot.shares ?? snapshot.shareCount ?? 0);
+      const sharePrice = Number(snapshot.sharePrice);
+      const recordedAt = snapshot.recordedAt ?? new Date().toISOString();
+      const entry = this.getStrategyAccounting(account, strategyId, asset);
+      const previousValue = Number(entry.markValue ?? 0);
+      const hasPriorMark = Boolean(entry.markedAt);
+      const delta = currentValue - previousValue;
+
+      if (shares > 0 && hasPriorMark && Math.abs(delta) >= 0.01) {
+        this.recordTreasuryEvent(account, {
+          type: "yield_mark",
+          strategyId,
+          asset,
+          amount: currentValue,
+          yieldDelta: delta,
+          sharePrice: Number.isFinite(sharePrice) ? sharePrice : undefined
+        });
+      }
+
+      entry.asset = asset;
+      entry.markValue = currentValue;
+      entry.markedAt = recordedAt;
+      if (Number.isFinite(sharePrice)) {
+        entry.sharePrice = sharePrice;
+      }
+    }
+
+    this.accounts.set(wallet, account);
+    return account.treasuryTimeline;
+  }
+
+  async recordTreasuryMutation(wallet, event) {
+    const account = this.getStoredAccount(wallet);
+    this.recordTreasuryEvent(account, event);
+    this.accounts.set(wallet, account);
+    return account.treasuryTimeline;
+  }
+
   async reserveForJob(wallet, asset, amount) {
     if (this.blockchainGateway?.isEnabled()) {
       return this.blockchainGateway.reserveForJob(wallet, asset, amount);
@@ -97,11 +265,20 @@ export class AccountMutationService {
   }
 
   async allocateIdleFunds(wallet, asset, amount, strategyId = "default-low-risk") {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new ValidationError("amount must be a positive number");
+    }
     if (this.blockchainGateway?.isEnabled()) {
-      return this.blockchainGateway.allocateIdleFunds(wallet, strategyId, amount);
+      const liveAccount = await this.blockchainGateway.allocateIdleFunds(wallet, strategyId, amount);
+      const account = this.attachStoredTreasuryMetadata(wallet, liveAccount);
+      this.markStrategyActivity(account, strategyId, "allocate", amount, asset);
+      this.updateStrategyAccountingOnAllocate(account, strategyId, asset, amount);
+      this.accounts.set(wallet, account);
+      return account;
     }
 
     const account = await this.getAccountSummary(wallet);
+    this.ensureTreasuryMetadata(account);
     const liquid = account.liquid[asset] ?? 0;
     if (liquid < amount) {
       throw new InsufficientLiquidityError(asset);
@@ -109,8 +286,54 @@ export class AccountMutationService {
 
     account.liquid[asset] = liquid - amount;
     account.strategyAllocated[asset] = (account.strategyAllocated[asset] ?? 0) + amount;
+    account.strategyShares[strategyId] = (account.strategyShares[strategyId] ?? 0) + amount;
+    this.markStrategyActivity(account, strategyId, "allocate", amount, asset);
+    this.updateStrategyAccountingOnAllocate(account, strategyId, asset, amount);
     this.accounts.set(wallet, account);
     return account;
+  }
+
+  async deallocateIdleFunds(wallet, asset, amount, strategyId = "default-low-risk") {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new ValidationError("amount must be a positive number");
+    }
+    if (this.blockchainGateway?.isEnabled()) {
+      const liveAccount = await this.blockchainGateway.deallocateIdleFunds(wallet, strategyId, amount, asset);
+      const assetsReturned = Number(liveAccount?.returnedAmount ?? amount);
+      const account = this.attachStoredTreasuryMetadata(wallet, liveAccount);
+      this.markStrategyActivity(account, strategyId, "deallocate", assetsReturned, asset);
+      this.updateStrategyAccountingOnDeallocate(account, strategyId, asset, assetsReturned);
+      this.accounts.set(wallet, account);
+      return account;
+    }
+
+    const account = await this.getAccountSummary(wallet);
+    this.ensureTreasuryMetadata(account);
+    const allocated = account.strategyAllocated[asset] ?? 0;
+    const strategyShares = account.strategyShares;
+    const currentShares = strategyShares[strategyId] ?? 0;
+    if (allocated < amount || currentShares < amount) {
+      throw new ConflictError(`Deallocate amount exceeds routed funds for ${asset}`, "deallocate_exceeds_allocated");
+    }
+
+    account.strategyAllocated[asset] = allocated - amount;
+    account.liquid[asset] = (account.liquid[asset] ?? 0) + amount;
+    account.strategyShares = strategyShares;
+    account.strategyShares[strategyId] = currentShares - amount;
+    this.markStrategyActivity(account, strategyId, "deallocate", amount, asset);
+    this.updateStrategyAccountingOnDeallocate(account, strategyId, asset, amount);
+    this.accounts.set(wallet, account);
+    return account;
+  }
+
+  markStrategyActivity(account, strategyId, action, amount, asset) {
+    this.ensureTreasuryMetadata(account);
+    account.strategyActivity[strategyId] = {
+      action,
+      amount,
+      asset,
+      at: new Date().toISOString()
+    };
   }
 
   async getBorrowCapacity(wallet, asset) {
@@ -125,6 +348,9 @@ export class AccountMutationService {
   }
 
   async borrow(wallet, asset, amount) {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new ValidationError("amount must be a positive number");
+    }
     const capacity = await this.getBorrowCapacity(wallet, asset);
     if (capacity < amount) {
       throw new BorrowCapacityExceededError(asset);
@@ -132,12 +358,17 @@ export class AccountMutationService {
 
     if (this.blockchainGateway?.isEnabled()) {
       await this.blockchainGateway.borrow(asset, amount);
-      return this.getAccountSummary(wallet);
+      const account = this.attachStoredTreasuryMetadata(wallet, await this.getAccountSummary(wallet));
+      this.recordTreasuryEvent(account, { type: "borrow", asset, amount });
+      this.accounts.set(wallet, account);
+      return account;
     }
 
     const account = await this.getAccountSummary(wallet);
+    this.ensureTreasuryMetadata(account);
     account.liquid[asset] = (account.liquid[asset] ?? 0) + amount;
     account.debtOutstanding[asset] = (account.debtOutstanding[asset] ?? 0) + amount;
+    this.recordTreasuryEvent(account, { type: "borrow", asset, amount });
     this.accounts.set(wallet, account);
     return account;
   }
@@ -186,12 +417,19 @@ export class AccountMutationService {
   }
 
   async repay(wallet, asset, amount) {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new ValidationError("amount must be a positive number");
+    }
     if (this.blockchainGateway?.isEnabled()) {
       await this.blockchainGateway.repay(asset, amount);
-      return this.getAccountSummary(wallet);
+      const account = this.attachStoredTreasuryMetadata(wallet, await this.getAccountSummary(wallet));
+      this.recordTreasuryEvent(account, { type: "repay", asset, amount });
+      this.accounts.set(wallet, account);
+      return account;
     }
 
     const account = await this.getAccountSummary(wallet);
+    this.ensureTreasuryMetadata(account);
     const outstanding = account.debtOutstanding[asset] ?? 0;
     if (outstanding < amount) {
       throw new ConflictError(`Repay amount exceeds debt for ${asset}`, "repay_amount_exceeds_debt");
@@ -199,6 +437,7 @@ export class AccountMutationService {
 
     account.debtOutstanding[asset] = outstanding - amount;
     account.liquid[asset] = Math.max((account.liquid[asset] ?? 0) - amount, 0);
+    this.recordTreasuryEvent(account, { type: "repay", asset, amount });
     this.accounts.set(wallet, account);
     return account;
   }

@@ -16,6 +16,8 @@ contract StrategyAdapterRegistry {
     }
 
     mapping(bytes32 => StrategyMetadata) public strategies;
+    bytes32[] internal strategyIds;
+    mapping(bytes32 => bool) internal strategyKnown;
 
     event StrategyRegistered(bytes32 indexed strategyId, address indexed adapter, address indexed asset, string riskLabel);
     event StrategyStatusUpdated(bytes32 indexed strategyId, bool active);
@@ -35,6 +37,10 @@ contract StrategyAdapterRegistry {
     function registerStrategy(address adapter) external onlyOwner {
         if (!policy.approvedStrategies(adapter)) revert StrategyNotApproved();
         bytes32 id = IStrategyAdapter(adapter).strategyId();
+        if (!strategyKnown[id]) {
+            strategyKnown[id] = true;
+            strategyIds.push(id);
+        }
         strategies[id] = StrategyMetadata({
             strategyId: id,
             adapter: adapter,
@@ -52,5 +58,9 @@ contract StrategyAdapterRegistry {
 
     function getStrategy(bytes32 strategyId) external view returns (StrategyMetadata memory) {
         return strategies[strategyId];
+    }
+
+    function listStrategyIds() external view returns (bytes32[] memory) {
+        return strategyIds;
     }
 }

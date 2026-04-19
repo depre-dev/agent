@@ -241,6 +241,84 @@ function metricPathLabel(pathname) {
   return "other";
 }
 
+function sumNumericValues(record = {}) {
+  return Object.values(record).reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
+function ratioToBps(numerator, denominator) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+    return 0;
+  }
+  return Math.round((numerator / denominator) * 10_000);
+}
+
+function resolveAssetSymbol(assetAddress) {
+  if (!assetAddress) return "DOT";
+  const supportedAssets = gateway?.config?.supportedAssets ?? [];
+  const match = supportedAssets.find((asset) => asset.address?.toLowerCase() === assetAddress.toLowerCase());
+  return match?.symbol ?? "DOT";
+}
+
+function buildLaneAttention({ shares, isMock, debtTotal, borrowCapacity, deploymentShareBps }) {
+  if (!(shares > 0)) {
+    return undefined;
+  }
+  if (isMock) {
+    return {
+      code: "simulated_yield",
+      tone: "tier-warn",
+      message: "This lane is using the mock vDOT adapter, so yield is simulated rather than market-backed."
+    };
+  }
+  if (debtTotal > 0 && !(borrowCapacity > 0)) {
+    return {
+      code: "credit_constrained",
+      tone: "tier-warn",
+      message: "This wallet has debt outstanding and no additional live borrow headroom."
+    };
+  }
+  if (deploymentShareBps >= 7000) {
+    return {
+      code: "lane_concentration",
+      tone: "status-pending",
+      message: "Most deployed capital is concentrated in this lane right now."
+    };
+  }
+  return undefined;
+}
+
+function formatAdapterYieldLabel({ telemetry, isMock, shares }) {
+  if (!telemetry?.reported) {
+    return isMock
+      ? "Mock adapter is registered, but no simulated yield data is reported yet."
+      : "Adapter is registered, but it is not reporting a live yield/performance read yet.";
+  }
+  const sharePrice = Number(telemetry.sharePrice);
+  const performanceBps = Number(telemetry.performanceBps);
+  const sharePriceLabel = Number.isFinite(sharePrice) ? `${sharePrice.toFixed(4)}x share price` : "share price unavailable";
+  const driftLabel = Number.isFinite(performanceBps)
+    ? `${performanceBps >= 0 ? "+" : ""}${performanceBps} bps`
+    : "drift unavailable";
+  if (shares > 0) {
+    return `${sharePriceLabel} · ${driftLabel} on the adapter for currently routed wallet capital.`;
+  }
+  return `${sharePriceLabel} · ${driftLabel} on deployed adapter capital.`;
+}
+
+function normalizeTimelineEntry(entry = {}) {
+  const amount = Number(entry.amount ?? 0);
+  const yieldDelta = Number(entry.yieldDelta ?? entry.realizedYieldDelta ?? 0);
+  return {
+    id: entry.id,
+    type: entry.type ?? "treasury_event",
+    strategyId: entry.strategyId,
+    asset: entry.asset ?? "DOT",
+    amount,
+    yieldDelta,
+    at: entry.at
+  };
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://localhost");
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
@@ -707,7 +785,46 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/account") {
       const auth = await authMiddleware(request, url);
-      return respond(response, 200, await service.getAccountSummary(auth.wallet));
+      const account = await service.getAccountSummary(auth.wallet);
+      if (!gateway?.isEnabled?.() || !strategies.length) {
+        return respond(response, 200, account);
+      }
+
+      const [strategyPositions, strategyTelemetry] = await Promise.all([
+        gateway.getStrategyPositions(auth.wallet, strategies).catch(() => []),
+        gateway.getStrategyTelemetry(strategies).catch(() => [])
+      ]);
+      const sharesByStrategy = Object.fromEntries(strategyPositions.map((entry) => [entry.strategyId, Number(entry.shares ?? 0)]));
+      const telemetryByStrategy = Object.fromEntries(strategyTelemetry.map((entry) => [entry.strategyId, entry]));
+      const liveAllocatedByAsset = {};
+      for (const strategy of strategies) {
+        const shares = Number(sharesByStrategy[strategy.strategyId] ?? 0);
+        if (!(shares > 0)) continue;
+        const telemetry = telemetryByStrategy[strategy.strategyId];
+        const liveValue = telemetry?.reported && Number.isFinite(Number(telemetry.sharePrice))
+          ? shares * Number(telemetry.sharePrice)
+          : shares;
+        const symbol = resolveAssetSymbol(strategy.asset);
+        liveAllocatedByAsset[symbol] = (liveAllocatedByAsset[symbol] ?? 0) + liveValue;
+      }
+
+      return respond(response, 200, {
+        ...account,
+        strategyAllocated: {
+          ...account.strategyAllocated,
+          ...liveAllocatedByAsset
+        }
+      });
+    }
+
+    if (request.method === "GET" && pathname === "/account/borrow-capacity") {
+      const auth = await authMiddleware(request, url);
+      const asset = url.searchParams.get("asset")?.trim() || "DOT";
+      return respond(response, 200, {
+        wallet: auth.wallet,
+        asset,
+        borrowCapacity: await service.getBorrowCapacity(auth.wallet, asset)
+      });
     }
 
     if (request.method === "POST" && pathname === "/account/fund") {
@@ -718,6 +835,161 @@ const server = createServer(async (request, response) => {
         : (url.searchParams.get("asset")?.trim() || "DOT");
       const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
       return respond(response, 200, await service.fundAccount(auth.wallet, asset, amount));
+    }
+
+    if (request.method === "POST" && pathname === "/account/allocate") {
+      const auth = await authMiddleware(request, url);
+      const payload = await readJsonBody(request);
+      const asset = typeof payload?.asset === "string" && payload.asset.trim()
+        ? payload.asset.trim()
+        : (url.searchParams.get("asset")?.trim() || "DOT");
+      const strategyId = typeof payload?.strategyId === "string" && payload.strategyId.trim()
+        ? payload.strategyId.trim()
+        : (url.searchParams.get("strategyId")?.trim() || "default-low-risk");
+      const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
+      return respond(response, 200, await service.allocateIdleFunds(auth.wallet, asset, amount, strategyId));
+    }
+
+    if (request.method === "POST" && pathname === "/account/deallocate") {
+      const auth = await authMiddleware(request, url);
+      const payload = await readJsonBody(request);
+      const asset = typeof payload?.asset === "string" && payload.asset.trim()
+        ? payload.asset.trim()
+        : (url.searchParams.get("asset")?.trim() || "DOT");
+      const strategyId = typeof payload?.strategyId === "string" && payload.strategyId.trim()
+        ? payload.strategyId.trim()
+        : (url.searchParams.get("strategyId")?.trim() || "default-low-risk");
+      const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
+      return respond(response, 200, await service.deallocateIdleFunds(auth.wallet, asset, amount, strategyId));
+    }
+
+    if (request.method === "GET" && pathname === "/account/strategies") {
+      const auth = await authMiddleware(request, url);
+      const account = await service.getAccountSummary(auth.wallet);
+      const borrowCapacity = await service.getBorrowCapacity(auth.wallet, "DOT").catch(() => undefined);
+      const adapterTelemetryByStrategy = gateway?.isEnabled?.()
+        ? Object.fromEntries((await gateway.getStrategyTelemetry(strategies)).map((entry) => [entry.strategyId, entry]))
+        : {};
+      const sharesByStrategy = gateway?.isEnabled?.()
+        ? Object.fromEntries((await gateway.getStrategyPositions(auth.wallet, strategies)).map((entry) => [entry.strategyId, entry.shares]))
+        : (account.strategyShares ?? {});
+      const totalLiquid = sumNumericValues(account.liquid);
+      const debtTotal = sumNumericValues(account.debtOutstanding);
+      const strategyActivity = account.strategyActivity ?? {};
+      const strategyAccounting = account.strategyAccounting ?? {};
+      const positions = strategies.map((strategy) => {
+        const shares = Number(sharesByStrategy[strategy.strategyId] ?? 0);
+        const lastMovement = strategyActivity[strategy.strategyId];
+        const accounting = strategyAccounting[strategy.strategyId] ?? {};
+        const isMock = String(strategy.kind ?? "").includes("mock");
+        const telemetry = adapterTelemetryByStrategy[strategy.strategyId];
+        const routedAmount = telemetry?.reported && Number.isFinite(Number(telemetry.sharePrice))
+          ? shares * Number(telemetry.sharePrice)
+          : shares;
+        const principalValue = Number(accounting.principal ?? shares);
+        const realizedYield = Number(accounting.realizedYield ?? 0);
+        const unrealizedYield = routedAmount - principalValue;
+        return {
+          strategyId: strategy.strategyId,
+          asset: strategy.asset,
+          assetSymbol: resolveAssetSymbol(strategy.asset),
+          shares,
+          shareCount: shares,
+          routedAmount,
+          principalValue,
+          unrealizedYield,
+          realizedYield,
+          totalYield: realizedYield + unrealizedYield,
+          statusLabel: shares > 0 ? "Routed" : "Idle",
+          yieldReported: Boolean(telemetry?.reported),
+          yieldStatus: telemetry?.reported ? (isMock ? "simulated" : "live") : (isMock ? "simulated_unreported" : "unreported"),
+          yieldLabel: formatAdapterYieldLabel({ telemetry, isMock, shares }),
+          sharePrice: telemetry?.sharePrice,
+          performanceBps: telemetry?.performanceBps,
+          adapterTotalAssets: telemetry?.totalAssets,
+          adapterTotalShares: telemetry?.totalShares,
+          adapterLinked: true,
+          adapterLinkStatus: shares > 0
+            ? "Wallet capital is now settled into the adapter and priced from live adapter reads."
+            : "Adapter performance is live even when this wallet has no routed capital in the lane.",
+          riskLabel: telemetry?.riskLabel || strategy.riskLabel || "",
+          lastAction: lastMovement?.action,
+          lastMovementAt: lastMovement?.at,
+          attention: buildLaneAttention({
+            shares,
+            isMock,
+            debtTotal,
+            borrowCapacity: Number(borrowCapacity),
+            deploymentShareBps: 0
+          })
+        };
+      });
+      const totalAllocated = positions.reduce((sum, entry) => sum + (Number(entry.routedAmount) || 0), 0);
+      const totalPrincipal = positions.reduce((sum, entry) => sum + (Number(entry.principalValue) || 0), 0);
+      const totalUnrealizedYield = positions.reduce((sum, entry) => sum + (Number(entry.unrealizedYield) || 0), 0);
+      const totalRealizedYield = positions.reduce((sum, entry) => sum + (Number(entry.realizedYield) || 0), 0);
+      const treasuryBase = totalLiquid + totalAllocated;
+      const normalizedPositions = positions.map((entry) => ({
+        ...entry,
+        deploymentShareBps: ratioToBps(Number(entry.routedAmount), totalAllocated),
+        treasuryShareBps: ratioToBps(Number(entry.routedAmount), treasuryBase),
+        attention: buildLaneAttention({
+          shares: Number(entry.routedAmount),
+          isMock: entry.yieldStatus === "simulated" || entry.yieldStatus === "simulated_unreported",
+          debtTotal,
+          borrowCapacity: Number(borrowCapacity),
+          deploymentShareBps: ratioToBps(Number(entry.routedAmount), totalAllocated)
+        })
+      }));
+      const treasuryTimeline = await service.recordStrategySnapshots(
+        auth.wallet,
+        normalizedPositions.map((entry) => ({
+          strategyId: entry.strategyId,
+          asset: entry.asset,
+          assetSymbol: entry.assetSymbol,
+          shares: entry.shares,
+          currentValue: entry.routedAmount,
+          sharePrice: entry.sharePrice
+        }))
+      );
+      return respond(response, 200, {
+        wallet: auth.wallet,
+        summary: {
+          treasuryBase,
+          liquid: totalLiquid,
+          allocated: totalAllocated,
+          principal: totalPrincipal,
+          unrealizedYield: totalUnrealizedYield,
+          realizedYield: totalRealizedYield,
+          totalYield: totalRealizedYield + totalUnrealizedYield,
+          debt: debtTotal,
+          borrowCapacity: Number.isFinite(Number(borrowCapacity)) ? Number(borrowCapacity) : undefined,
+          deployedLanes: normalizedPositions.filter((entry) => entry.routedAmount > 0).length,
+          attentionCount: normalizedPositions.filter((entry) => entry.attention).length
+        },
+        positions: normalizedPositions,
+        timeline: (treasuryTimeline ?? []).map(normalizeTimelineEntry)
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/account/borrow") {
+      const auth = await authMiddleware(request, url);
+      const payload = await readJsonBody(request);
+      const asset = typeof payload?.asset === "string" && payload.asset.trim()
+        ? payload.asset.trim()
+        : (url.searchParams.get("asset")?.trim() || "DOT");
+      const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
+      return respond(response, 200, await service.borrow(auth.wallet, asset, amount));
+    }
+
+    if (request.method === "POST" && pathname === "/account/repay") {
+      const auth = await authMiddleware(request, url);
+      const payload = await readJsonBody(request);
+      const asset = typeof payload?.asset === "string" && payload.asset.trim()
+        ? payload.asset.trim()
+        : (url.searchParams.get("asset")?.trim() || "DOT");
+      const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
+      return respond(response, 200, await service.repay(auth.wallet, asset, amount));
     }
 
     if (request.method === "GET" && pathname === "/reputation") {

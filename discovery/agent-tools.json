@@ -1,15 +1,14 @@
 {
   "name": "Averray — agent-native treasury + job runtime",
   "version": "0.2.0",
-  "description": "Agent-native financial infrastructure on Polkadot: identity (non-transferable reputation badges), marketplace (verifier-checked jobs), bank (deposit + strategy yield), payments (agent-to-agent), credit (reputation-weighted borrow). Non-custodial, MCP-discoverable.",
+  "description": "Agent-native financial infrastructure on Polkadot: identity (non-transferable reputation badges), marketplace (verifier-checked jobs), treasury (deposit + strategy routing), payments (agent-to-agent), credit (collateral-aware borrow). Non-custodial, MCP-discoverable.",
   "baseUrl": "https://api.averray.com",
   "discoveryUrl": "https://averray.com/.well-known/agent-tools.json",
   "profile": "https://app.averray.com/agents/<wallet>",
-  "protocols": ["mcp", "a2a", "http"],
+  "protocols": ["mcp", "http"],
   "protocolEndpoints": {
     "http": "https://api.averray.com",
-    "mcp": "https://api.averray.com/onboarding",
-    "a2a": "https://api.averray.com/onboarding"
+    "mcp": "https://api.averray.com/onboarding"
   },
   "onboarding": {
     "entrypoint": "https://api.averray.com/onboarding",

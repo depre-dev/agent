@@ -36,7 +36,11 @@ const WORKSPACE_MODES = ["work", "admin", "observe"];
 const platformStatus = {
   protocols: [],
   verifierModes: [],
+  borrowCapacity: undefined,
   strategies: [],
+  strategyPositions: [],
+  strategySummary: undefined,
+  strategyTimeline: [],
   strategyDocs: "",
   authMode: "strict",
   catalogCount: 0,
@@ -53,6 +57,28 @@ function formatCompactCount(value, fallback = "0") {
   const amount = Number(value ?? 0);
   if (!Number.isFinite(amount)) return fallback;
   return amount.toLocaleString("en-US");
+}
+
+function setTreasuryFeedback(id, text, tone = "neutral") {
+  const feedback = document.getElementById(id);
+  if (!feedback) return;
+  feedback.textContent = text;
+  feedback.setAttribute("data-tone", tone);
+}
+
+async function loadBorrowCapacity(wallet, asset = "DOT") {
+  if (!wallet) return undefined;
+  try {
+    const payload = await readJson(
+      `/api/account/borrow-capacity?wallet=${encodeURIComponent(wallet)}&asset=${encodeURIComponent(asset)}`
+    );
+    return Number.isFinite(Number(payload?.borrowCapacity))
+      ? Number(payload.borrowCapacity)
+      : undefined;
+  } catch (error) {
+    debug.warn("borrow capacity unavailable", error);
+    return undefined;
+  }
 }
 
 function inferWorkspaceModeFromHash(hash = window.location.hash) {
@@ -440,6 +466,8 @@ function renderProductMap(snapshot = getAuthSnapshot()) {
   const liquidDot = Number(state.account?.liquid?.DOT ?? 0);
   const allocatedDot = Number(state.account?.strategyAllocated?.DOT ?? 0);
   const debtDot = Number(state.account?.debtOutstanding?.DOT ?? 0);
+  const borrowHeadroomDot = Number(state.borrowCapacity);
+  const hasBorrowHeadroom = Number.isFinite(borrowHeadroomDot);
   const productPill = document.getElementById("product-map-pill");
 
   let pillLabel = "Loading picture";
@@ -448,7 +476,7 @@ function renderProductMap(snapshot = getAuthSnapshot()) {
   let workMetric = "Waiting for wallet";
   let workSupport = "Run lane offline";
 
-  let treasuryTitle = "Move capital through the account layer";
+  let treasuryTitle = "Move capital through strategy lanes";
   let treasuryMetric = "Waiting for balances";
   let treasurySupport = "Treasury lane offline";
 
@@ -479,11 +507,17 @@ function renderProductMap(snapshot = getAuthSnapshot()) {
 
     treasuryTitle = "See where account capital is sitting";
     treasuryMetric = `${formatOpsAmount(liquidDot)} liquid · ${formatOpsAmount(allocatedDot)} allocated`;
-    treasurySupport = debtDot > 0
-      ? `${formatOpsAmount(debtDot)} debt active`
-      : "No debt active";
+    treasurySupport = hasBorrowHeadroom
+      ? `${formatOpsAmount(borrowHeadroomDot)} borrow headroom${debtDot > 0 ? ` · ${formatOpsAmount(debtDot)} debt` : ""}`
+      : debtDot > 0
+        ? `${formatOpsAmount(debtDot)} debt active`
+        : "No debt active";
     heroTreasuryState = formatOpsAmount(liquidDot);
-    heroTreasuryCopy = debtDot > 0 ? `${formatOpsAmount(debtDot)} debt` : `${formatOpsAmount(allocatedDot)} allocated`;
+    heroTreasuryCopy = hasBorrowHeadroom
+      ? `${formatOpsAmount(borrowHeadroomDot)} headroom`
+      : debtDot > 0
+        ? `${formatOpsAmount(debtDot)} debt`
+        : `${formatOpsAmount(allocatedDot)} allocated`;
 
     if (isAdmin || isVerifier) {
       controlTitle = isAdmin ? "Operate the market side of the platform" : "Settle and monitor platform flow";
@@ -954,15 +988,21 @@ async function loadJobDefinitionWithPreflight(jobId) {
 }
 
 async function refreshWalletPanels() {
-  const [account, reputation, recommendations, history] = await Promise.all([
+  const [account, reputation, recommendations, history, borrowCapacity, strategyPositions] = await Promise.all([
     readJson(`/api/account?wallet=${encodeURIComponent(state.wallet)}`),
     readJson(`/api/reputation?wallet=${encodeURIComponent(state.wallet)}`),
     readJson(`/api/jobs/recommendations?wallet=${encodeURIComponent(state.wallet)}`),
-    readJson(`/api/sessions?wallet=${encodeURIComponent(state.wallet)}&limit=8`)
+    readJson(`/api/sessions?wallet=${encodeURIComponent(state.wallet)}&limit=8`),
+    loadBorrowCapacity(state.wallet),
+    readJson(`/api/account/strategies?wallet=${encodeURIComponent(state.wallet)}`)
   ]);
 
   state.recommendations = recommendations;
   state.history = history;
+  state.borrowCapacity = borrowCapacity;
+  state.strategyPositions = Array.isArray(strategyPositions?.positions) ? strategyPositions.positions : [];
+  state.strategySummary = strategyPositions?.summary;
+  state.strategyTimeline = Array.isArray(strategyPositions?.timeline) ? strategyPositions.timeline : [];
 
   updateAccount(account);
   updateReputation(reputation);
@@ -1105,15 +1145,21 @@ async function loadWallet(wallet) {
   }
   setWalletFeedback("Refreshing live operator view...", "loading");
 
-  const [account, reputation, recommendations, history] = await Promise.all([
+  const [account, reputation, recommendations, history, borrowCapacity, strategyPositions] = await Promise.all([
     readJson(`/api/account?wallet=${encodeURIComponent(wallet)}`),
     readJson(`/api/reputation?wallet=${encodeURIComponent(wallet)}`),
     readJson(`/api/jobs/recommendations?wallet=${encodeURIComponent(wallet)}`),
-    readJson(`/api/sessions?wallet=${encodeURIComponent(wallet)}&limit=8`)
+    readJson(`/api/sessions?wallet=${encodeURIComponent(wallet)}&limit=8`),
+    loadBorrowCapacity(wallet),
+    readJson(`/api/account/strategies?wallet=${encodeURIComponent(wallet)}`)
   ]);
 
   state.recommendations = recommendations;
   state.history = history;
+  state.borrowCapacity = borrowCapacity;
+  state.strategyPositions = Array.isArray(strategyPositions?.positions) ? strategyPositions.positions : [];
+  state.strategySummary = strategyPositions?.summary;
+  state.strategyTimeline = Array.isArray(strategyPositions?.timeline) ? strategyPositions.timeline : [];
 
   updateAccount(account);
   updateReputation(reputation);
@@ -1155,6 +1201,90 @@ async function fundCurrentWallet() {
   setFundingFeedback(`Credited and deposited ${amount} DOT into AgentAccountCore.`, "success");
   showToast(`Funded ${amount} DOT.`, "success");
   await refreshWalletPanels();
+}
+
+async function allocateTreasuryToLane() {
+  if (!state.wallet) {
+    throw new Error("Sign in first to route treasury into a strategy lane.");
+  }
+
+  const strategySelect = document.getElementById("treasury-strategy-select");
+  const amountInput = document.getElementById("treasury-allocate-amount");
+  const strategyId = strategySelect?.value?.trim() ?? "";
+  const amount = Number(amountInput?.value ?? "0");
+
+  if (!strategyId) {
+    throw new Error("Choose a strategy lane first.");
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Allocation amount must be a positive number.");
+  }
+
+  setTreasuryFeedback("treasury-strategy-feedback", `Routing ${amount} DOT into ${strategyId}...`, "loading");
+  await postJson("/api/account/allocate", { asset: "DOT", amount, strategyId });
+  await refreshWalletPanels();
+  setTreasuryFeedback("treasury-strategy-feedback", `Allocated ${amount} DOT into ${strategyId}.`, "success");
+  showToast(`Allocated ${amount} DOT into ${strategyId}.`, "success");
+}
+
+async function deallocateTreasuryFromLane() {
+  if (!state.wallet) {
+    throw new Error("Sign in first to unwind a treasury lane.");
+  }
+
+  const strategySelect = document.getElementById("treasury-strategy-select");
+  const amountInput = document.getElementById("treasury-allocate-amount");
+  const strategyId = strategySelect?.value?.trim() ?? "";
+  const amount = Number(amountInput?.value ?? "0");
+
+  if (!strategyId) {
+    throw new Error("Choose a strategy lane first.");
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Unwind amount must be a positive number.");
+  }
+
+  setTreasuryFeedback("treasury-strategy-feedback", `Unwinding ${amount} DOT from ${strategyId}...`, "loading");
+  await postJson("/api/account/deallocate", { asset: "DOT", amount, strategyId });
+  await refreshWalletPanels();
+  setTreasuryFeedback("treasury-strategy-feedback", `Unwound ${amount} DOT from ${strategyId} back to liquid balance.`, "success");
+  showToast(`Unwound ${amount} DOT from ${strategyId}.`, "success");
+}
+
+async function borrowTreasuryCapital() {
+  if (!state.wallet) {
+    throw new Error("Sign in first to draw from the treasury credit line.");
+  }
+
+  const amountInput = document.getElementById("treasury-credit-amount");
+  const amount = Number(amountInput?.value ?? "0");
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Borrow amount must be a positive number.");
+  }
+
+  setTreasuryFeedback("treasury-credit-feedback", `Borrowing ${amount} DOT...`, "loading");
+  await postJson("/api/account/borrow", { asset: "DOT", amount });
+  await refreshWalletPanels();
+  setTreasuryFeedback("treasury-credit-feedback", `Borrowed ${amount} DOT against the live collateral posture.`, "success");
+  showToast(`Borrowed ${amount} DOT.`, "success");
+}
+
+async function repayTreasuryCapital() {
+  if (!state.wallet) {
+    throw new Error("Sign in first to repay treasury debt.");
+  }
+
+  const amountInput = document.getElementById("treasury-credit-amount");
+  const amount = Number(amountInput?.value ?? "0");
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Repay amount must be a positive number.");
+  }
+
+  setTreasuryFeedback("treasury-credit-feedback", `Repaying ${amount} DOT...`, "loading");
+  await postJson("/api/account/repay", { asset: "DOT", amount });
+  await refreshWalletPanels();
+  setTreasuryFeedback("treasury-credit-feedback", `Repaid ${amount} DOT from the deposited treasury balance.`, "success");
+  showToast(`Repaid ${amount} DOT.`, "success");
 }
 
 async function loadCatalog() {
@@ -1650,7 +1780,11 @@ async function loadPlatformStatus() {
     platformStatus.strategyDocs = strategyResponse?.docs ?? "";
     platformStatus.authMode = health?.auth?.mode ?? onboarding?.authMode ?? authMode;
     platformStatus.indexReady = index.status === "ok";
+    platformStatus.borrowCapacity = state.borrowCapacity;
     state.strategies = platformStatus.strategies;
+    state.strategyPositions = state.strategyPositions ?? [];
+    state.strategySummary = state.strategySummary ?? undefined;
+    state.strategyTimeline = state.strategyTimeline ?? [];
     state.strategyDocs = platformStatus.strategyDocs;
 
     authMode = platformStatus.authMode;
@@ -1671,7 +1805,11 @@ async function loadPlatformStatus() {
     refreshTreasurySurfaces();
   } catch (error) {
     debug.error(error);
+    platformStatus.borrowCapacity = undefined;
     state.strategies = [];
+    state.strategyPositions = [];
+    state.strategySummary = undefined;
+    state.strategyTimeline = [];
     state.strategyDocs = "";
     setText("api-status", "Unavailable");
     setText("index-status", "Unavailable");
@@ -1714,6 +1852,7 @@ function wireAuthControls() {
     state.wallet = "";
     state.authRoles = [];
     state.account = undefined;
+    state.borrowCapacity = undefined;
     state.reputation = undefined;
     state.history = [];
     state.recommendations = [];
@@ -1723,6 +1862,9 @@ function wireAuthControls() {
     state.jobHistory = [];
     state.catalogJobActivity = [];
     state.strategies = platformStatus.strategies ?? [];
+    state.strategyPositions = [];
+    state.strategySummary = undefined;
+    state.strategyTimeline = [];
     state.strategyDocs = platformStatus.strategyDocs ?? "";
     setAuthFeedback("Signed out. Sign in again to reopen the operator workspace.", "neutral");
     // Clear the wallet-scoped panels so stale data doesn't linger on screen.
@@ -1823,11 +1965,72 @@ function wireObserveQuickNav() {
   document.getElementById("observe-nav-summary")?.addEventListener("click", () => {
     jumpToSection("observe-balance-sheet", { mode: "observe" });
   });
+  document.getElementById("observe-nav-console")?.addEventListener("click", () => {
+    jumpToSection("observe-treasury-console", { mode: "observe" });
+  });
   document.getElementById("observe-nav-strategies")?.addEventListener("click", () => {
     jumpToSection("observe-strategy-lanes", { mode: "observe" });
   });
   document.getElementById("observe-nav-activity")?.addEventListener("click", () => {
     jumpToSection("observe-live-feed", { mode: "observe" });
+  });
+}
+
+function wireTreasuryConsole() {
+  document.getElementById("strategy-shelf")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-strategy-select]");
+    if (!button) return;
+    const strategySelect = document.getElementById("treasury-strategy-select");
+    if (strategySelect) {
+      strategySelect.value = button.getAttribute("data-strategy-select") ?? "";
+    }
+    jumpToSection("observe-treasury-console", { mode: "observe" });
+    setTreasuryFeedback("treasury-strategy-feedback", `Loaded ${strategySelect?.value ?? "strategy"} into the treasury console.`, "neutral");
+  });
+
+  const allocateButton = document.getElementById("treasury-allocate-button");
+  const deallocateButton = document.getElementById("treasury-deallocate-button");
+  const borrowButton = document.getElementById("treasury-borrow-button");
+  const repayButton = document.getElementById("treasury-repay-button");
+
+  allocateButton?.addEventListener("click", async () => {
+    try {
+      await runWithBusyButton(allocateButton, "Allocating...", allocateTreasuryToLane);
+    } catch (error) {
+      debug.error(error);
+      setTreasuryFeedback("treasury-strategy-feedback", error.message ?? "Allocation failed.", "error");
+      showToast(error.message ?? "Allocation failed.", "error");
+    }
+  });
+
+  deallocateButton?.addEventListener("click", async () => {
+    try {
+      await runWithBusyButton(deallocateButton, "Unwinding...", deallocateTreasuryFromLane);
+    } catch (error) {
+      debug.error(error);
+      setTreasuryFeedback("treasury-strategy-feedback", error.message ?? "Unwind failed.", "error");
+      showToast(error.message ?? "Unwind failed.", "error");
+    }
+  });
+
+  borrowButton?.addEventListener("click", async () => {
+    try {
+      await runWithBusyButton(borrowButton, "Borrowing...", borrowTreasuryCapital);
+    } catch (error) {
+      debug.error(error);
+      setTreasuryFeedback("treasury-credit-feedback", error.message ?? "Borrow failed.", "error");
+      showToast(error.message ?? "Borrow failed.", "error");
+    }
+  });
+
+  repayButton?.addEventListener("click", async () => {
+    try {
+      await runWithBusyButton(repayButton, "Repaying...", repayTreasuryCapital);
+    } catch (error) {
+      debug.error(error);
+      setTreasuryFeedback("treasury-credit-feedback", error.message ?? "Repay failed.", "error");
+      showToast(error.message ?? "Repay failed.", "error");
+    }
   });
 }
 
@@ -1899,6 +2102,7 @@ async function boot() {
   wireStartGuideControls();
   wireProductMapControls();
   wireObserveQuickNav();
+  wireTreasuryConsole();
   wireAdminConsoleControls();
   wireWalletForm(walletForm, walletInput);
   wireJobSelection(jobList);

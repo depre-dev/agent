@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {TreasuryPolicy} from "./TreasuryPolicy.sol";
 import {StrategyAdapterRegistry} from "./StrategyAdapterRegistry.sol";
+import {IStrategyAdapter} from "./interfaces/IStrategyAdapter.sol";
 import {ReentrancyGuard} from "./lib/ReentrancyGuard.sol";
 import {SafeTransfer} from "./lib/SafeTransfer.sol";
 
@@ -53,6 +54,7 @@ contract AgentAccountCore is ReentrancyGuard {
     error ProtocolPaused();
     error InvalidRecipient();
     error ZeroAmount();
+    error InvalidStrategy();
 
     constructor(TreasuryPolicy policy_, StrategyAdapterRegistry registry_) {
         policy = policy_;
@@ -124,24 +126,42 @@ contract AgentAccountCore is ReentrancyGuard {
     }
 
     function allocateIdleFunds(address account, bytes32 strategyId, uint256 amount) external whenNotPaused onlyOwnerOrOperator(account) {
+        if (amount == 0) revert ZeroAmount();
         StrategyAdapterRegistry.StrategyMetadata memory strategy = registry.getStrategy(strategyId);
-        require(strategy.active, "INACTIVE_STRATEGY");
+        if (strategy.adapter == address(0) || !strategy.active) revert InvalidStrategy();
         AssetPosition storage position = positions[account][strategy.asset];
         if (position.liquid < amount) revert InsufficientLiquidity();
+
+        IStrategyAdapter adapter = IStrategyAdapter(strategy.adapter);
         position.liquid -= amount;
-        position.strategyAllocated += amount;
-        strategyShares[account][strategyId] += amount;
+        SafeTransfer.safeApprove(strategy.asset, strategy.adapter, 0);
+        SafeTransfer.safeApprove(strategy.asset, strategy.adapter, amount);
+        uint256 sharesMinted = adapter.deposit(amount);
+        strategyShares[account][strategyId] += sharesMinted;
+        _refreshStrategyAllocated(account, strategy.asset);
         emit StrategyAllocated(account, strategyId, strategy.asset, amount);
     }
 
     function deallocateIdleFunds(address account, bytes32 strategyId, uint256 amount) external whenNotPaused onlyOwnerOrOperator(account) {
+        if (amount == 0) revert ZeroAmount();
         StrategyAdapterRegistry.StrategyMetadata memory strategy = registry.getStrategy(strategyId);
+        if (strategy.adapter == address(0)) revert InvalidStrategy();
         AssetPosition storage position = positions[account][strategy.asset];
-        require(strategyShares[account][strategyId] >= amount, "INSUFFICIENT_SHARES");
-        strategyShares[account][strategyId] -= amount;
-        position.strategyAllocated -= amount;
-        position.liquid += amount;
-        emit StrategyDeallocated(account, strategyId, strategy.asset, amount);
+        IStrategyAdapter adapter = IStrategyAdapter(strategy.adapter);
+        uint256 accountShares = strategyShares[account][strategyId];
+        uint256 maxAssets = _assetValueForShares(accountShares, adapter.totalAssets(), adapter.totalShares());
+        if (maxAssets < amount) revert InsufficientLiquidity();
+
+        uint256 sharesToBurn = _sharesForAssetsRoundedUp(amount, adapter.totalAssets(), adapter.totalShares());
+        if (sharesToBurn > accountShares) {
+            sharesToBurn = accountShares;
+        }
+
+        uint256 assetsReturned = adapter.withdraw(sharesToBurn, address(this));
+        strategyShares[account][strategyId] = accountShares - sharesToBurn;
+        position.liquid += assetsReturned;
+        _refreshStrategyAllocated(account, strategy.asset);
+        emit StrategyDeallocated(account, strategyId, strategy.asset, assetsReturned);
     }
 
     function lockCollateral(address asset, uint256 amount) external whenNotPaused onlySupportedAsset(asset) {
@@ -306,5 +326,37 @@ contract AgentAccountCore is ReentrancyGuard {
     function _isHealthy(uint256 collateralLocked, uint256 debtOutstanding) internal view returns (bool) {
         if (debtOutstanding == 0) return true;
         return collateralLocked * 10_000 >= debtOutstanding * policy.minimumCollateralRatioBps();
+    }
+
+    function _assetValueForShares(uint256 shares, uint256 totalAssets_, uint256 totalShares_) internal pure returns (uint256) {
+        if (shares == 0 || totalAssets_ == 0 || totalShares_ == 0) {
+            return 0;
+        }
+        return (shares * totalAssets_) / totalShares_;
+    }
+
+    function _sharesForAssetsRoundedUp(uint256 assets, uint256 totalAssets_, uint256 totalShares_) internal pure returns (uint256) {
+        if (assets == 0 || totalAssets_ == 0 || totalShares_ == 0) {
+            return 0;
+        }
+        return ((assets * totalShares_) + totalAssets_ - 1) / totalAssets_;
+    }
+
+    function _refreshStrategyAllocated(address account, address asset) internal {
+        bytes32[] memory ids = registry.listStrategyIds();
+        uint256 totalAllocated;
+        for (uint256 i = 0; i < ids.length; i++) {
+            StrategyAdapterRegistry.StrategyMetadata memory strategy = registry.getStrategy(ids[i]);
+            if (strategy.adapter == address(0) || strategy.asset != asset) {
+                continue;
+            }
+            uint256 shares = strategyShares[account][ids[i]];
+            if (shares == 0) {
+                continue;
+            }
+            IStrategyAdapter adapter = IStrategyAdapter(strategy.adapter);
+            totalAllocated += _assetValueForShares(shares, adapter.totalAssets(), adapter.totalShares());
+        }
+        positions[account][asset].strategyAllocated = totalAllocated;
     }
 }

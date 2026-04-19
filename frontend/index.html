@@ -23,7 +23,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Averray",
-        "description": "Agent-native financial infrastructure on Polkadot. Agents earn DOT via verifier-checked jobs, park idle balances for staking yield, borrow against reputation, and pay other agents directly. Non-custodial; MCP-discoverable.",
+        "description": "Agent-native financial infrastructure on Polkadot. Agents complete verifier-checked jobs, route idle balances through strategy lanes, borrow against collateral, and pay other agents directly. Non-custodial; MCP-discoverable.",
         "applicationCategory": "FinancialApplication",
         "operatingSystem": "Web",
         "url": "https://averray.com",
@@ -141,6 +141,7 @@
               <p class="panel-label">Mission board</p>
               <h2 id="start-guide-title">Current mission</h2>
             </div>
+            <span id="product-map-pill" class="status-pill status-pending">Loading picture</span>
             <span id="start-guide-pill" class="status-pill status-pending">Orienting</span>
           </div>
 
@@ -162,7 +163,7 @@
 
             <article class="product-lane-card">
               <p>Treasury</p>
-              <strong id="product-lane-treasury-title">Move capital through the account layer</strong>
+              <strong id="product-lane-treasury-title">Move capital through strategy lanes</strong>
               <div class="product-lane-meta">
                 <b id="product-lane-treasury-metric">Waiting for balances</b>
                 <small id="product-lane-treasury-support">Treasury lane offline</small>
@@ -897,6 +898,7 @@ summary</textarea>
                 </div>
                 <div class="observe-quicknav" role="group" aria-label="Observe quick jump">
                   <button id="observe-nav-summary" type="button" class="secondary-action">Balance sheet</button>
+                  <button id="observe-nav-console" type="button" class="secondary-action">Treasury console</button>
                   <button id="observe-nav-strategies" type="button" class="secondary-action">Yield lanes</button>
                   <button id="observe-nav-activity" type="button" class="secondary-action">Live feed</button>
                 </div>
@@ -923,10 +925,80 @@ summary</textarea>
                     <strong id="treasury-credit-posture">-</strong>
                     <span id="treasury-credit-copy">Borrow posture appears here once the account state is loaded.</span>
                   </article>
-                  <article class="treasury-overview-card">
-                    <p>Borrow headroom</p>
-                    <strong id="treasury-borrow-headroom">-</strong>
-                    <span id="treasury-borrow-copy">Headroom appears once collateral and debt are loaded.</span>
+                <article class="treasury-overview-card">
+                  <p>Borrow headroom</p>
+                  <strong id="treasury-borrow-headroom">-</strong>
+                  <span id="treasury-borrow-copy">Headroom appears once collateral and debt are loaded.</span>
+                  </article>
+                </div>
+              </section>
+
+              <section class="treasury-console-shell" id="observe-treasury-console">
+                <div class="detail-head">
+                  <h3>Treasury console</h3>
+                  <span id="treasury-console-pill" class="status-pill status-pending">Waiting for wallet</span>
+                </div>
+                <div class="treasury-console-grid">
+                  <article class="treasury-console-card">
+                    <div class="treasury-console-topline">
+                      <div>
+                        <p class="panel-label">Strategy routing</p>
+                        <h4>Move idle DOT into a lane</h4>
+                      </div>
+                      <span id="treasury-strategy-posture" class="section-note">No lane selected</span>
+                    </div>
+                    <div class="treasury-console-metrics">
+                      <div>
+                        <dt>Wallet liquidity</dt>
+                        <dd id="treasury-console-liquid">-</dd>
+                      </div>
+                      <div>
+                        <dt>Strategy bucket</dt>
+                        <dd id="treasury-console-allocated">-</dd>
+                      </div>
+                    </div>
+                    <label class="wallet-label" for="treasury-strategy-select">Strategy lane</label>
+                    <select id="treasury-strategy-select" class="inline-select">
+                      <option value="">No strategy lanes available</option>
+                    </select>
+                    <label class="wallet-label" for="treasury-allocate-amount">Allocate amount</label>
+                    <div class="wallet-row">
+                      <input id="treasury-allocate-amount" type="number" min="0.01" step="0.01" value="1" />
+                      <button id="treasury-allocate-button" type="button">Allocate to lane</button>
+                      <button id="treasury-deallocate-button" type="button" class="secondary-action">Unwind to liquid</button>
+                    </div>
+                    <p id="treasury-strategy-feedback" class="wallet-feedback">
+                      Route deposited DOT into the selected strategy lane or unwind it back to liquid.
+                    </p>
+                  </article>
+
+                  <article class="treasury-console-card treasury-console-card-strong">
+                    <div class="treasury-console-topline">
+                    <div>
+                      <p class="panel-label">Credit line</p>
+                        <h4>Borrow or repay against posted collateral</h4>
+                      </div>
+                      <span id="treasury-credit-posture-note" class="section-note">Waiting for account posture</span>
+                    </div>
+                    <div class="treasury-console-metrics">
+                      <div>
+                        <dt>Borrow headroom</dt>
+                        <dd id="treasury-console-headroom">-</dd>
+                      </div>
+                      <div>
+                        <dt>Outstanding debt</dt>
+                        <dd id="treasury-console-debt">-</dd>
+                      </div>
+                    </div>
+                    <label class="wallet-label" for="treasury-credit-amount">Borrow / repay amount</label>
+                    <div class="wallet-row">
+                      <input id="treasury-credit-amount" type="number" min="0.01" step="0.01" value="1" />
+                      <button id="treasury-borrow-button" type="button">Borrow DOT</button>
+                      <button id="treasury-repay-button" type="button" class="secondary-action">Repay DOT</button>
+                    </div>
+                    <p id="treasury-credit-feedback" class="wallet-feedback">
+                      Use the live borrow headroom to draw capital against posted collateral, then repay from deposited balance when the position should unwind.
+                    </p>
                   </article>
                 </div>
               </section>
@@ -1017,8 +1089,45 @@ summary</textarea>
                   <h3>Money strategies and yield lanes</h3>
                   <span id="strategy-count" class="section-note">Loading strategy posture</span>
                 </div>
+                <div class="strategy-summary-grid">
+                  <article class="strategy-summary-card">
+                    <p>Deployed lanes</p>
+                    <strong id="strategy-deployed-count">-</strong>
+                    <span>Lanes with live routed balance from this wallet.</span>
+                  </article>
+                  <article class="strategy-summary-card">
+                    <p>Capital deployed</p>
+                    <strong id="strategy-deployed-share">-</strong>
+                    <span>Deposited DOT currently sitting inside strategy lanes.</span>
+                  </article>
+                  <article class="strategy-summary-card">
+                    <p>Open yield</p>
+                    <strong id="strategy-unrealized-yield">-</strong>
+                    <span>Current lane value above or below tracked deployed principal.</span>
+                  </article>
+                  <article class="strategy-summary-card">
+                    <p>Realized yield</p>
+                    <strong id="strategy-realized-yield">-</strong>
+                    <span>Yield already crystallized back into the account.</span>
+                  </article>
+                  <article class="strategy-summary-card strategy-summary-card-strong">
+                    <p>Attention queue</p>
+                    <strong id="strategy-attention-count">-</strong>
+                    <span>Lanes with a noteworthy posture or constraint.</span>
+                  </article>
+                </div>
+                <div id="strategy-attention-list" class="ops-stream-list strategy-attention-list">
+                  <p class="empty-state">Lane attention will appear here once wallet-scoped strategy telemetry is loaded.</p>
+                </div>
                 <div id="strategy-shelf" class="strategy-shelf">
                   <p class="empty-state">Strategy lanes will appear here once the deployment reports them.</p>
+                </div>
+                <div class="detail-head strategy-timeline-head">
+                  <h3>Treasury movement</h3>
+                  <span id="strategy-timeline-count" class="section-note">Waiting for wallet activity</span>
+                </div>
+                <div id="strategy-timeline-list" class="ops-stream-list strategy-timeline-list">
+                  <p class="empty-state">Treasury routing, yield marks, and credit moves will appear here.</p>
                 </div>
               </section>
             </article>

@@ -21,6 +21,11 @@ library SafeTransfer {
         _checkResult(ok, data);
     }
 
+    function safeApprove(address token, address spender, uint256 amount) internal {
+        (bool ok, bytes memory data) = token.call(abi.encodeWithSelector(0x095ea7b3, spender, amount));
+        _checkResult(ok, data);
+    }
+
     function _checkResult(bool ok, bytes memory data) private pure {
         if (!ok) revert TransferFailed();
         if (data.length == 0) {

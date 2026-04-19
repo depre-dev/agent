@@ -76,7 +76,7 @@ export default function HeroOrbit() {
         <div class="orbit-grid">
           <article class="orbit-panel">
             <p class="orbit-label">Protocols</p>
-            <strong>MCP / A2A / HTTP</strong>
+            <strong>MCP / HTTP</strong>
           </article>
           <article class="orbit-panel">
             <p class="orbit-label">Identity</p>

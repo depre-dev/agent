@@ -6,8 +6,8 @@ const BASE_MANIFEST = {
   name: "Averray — agent-native treasury + job runtime",
   version: "0.2.0",
   description:
-    "Agent-native financial infrastructure on Polkadot: identity (non-transferable reputation badges), marketplace (verifier-checked jobs), bank (deposit + strategy yield), payments (agent-to-agent), credit (reputation-weighted borrow). Non-custodial, MCP-discoverable.",
-  protocols: ["mcp", "a2a", "http"],
+    "Agent-native financial infrastructure on Polkadot: identity (non-transferable reputation badges), marketplace (verifier-checked jobs), treasury (deposit + strategy routing), payments (agent-to-agent), credit (collateral-aware borrow). Non-custodial, MCP-discoverable.",
+  protocols: ["mcp", "http"],
   onboarding: {
     starterFlow: [
       "discover-tiers",
@@ -51,7 +51,16 @@ const BASE_MANIFEST = {
       description:
         "Balance sheet for the signed-in wallet (liquid / reserved / strategyAllocated / collateralLocked / jobStakeLocked / debtOutstanding)."
     },
+    {
+      path: "/account/borrow-capacity",
+      description: "Live borrow headroom for the signed-in wallet against its current collateral."
+    },
     { path: "/account/fund", description: "Top up the signed-in wallet's liquid balance (testnet convenience)." },
+    { path: "/account/allocate", description: "Move deposited balance into a registered strategy lane." },
+    { path: "/account/deallocate", description: "Redeem routed capital from a strategy lane back to liquid balance." },
+    { path: "/account/strategies", description: "Signed-in lane positions plus treasury-share and adapter-backed yield/performance posture for each registered strategy adapter." },
+    { path: "/account/borrow", description: "Draw DOT against currently posted collateral." },
+    { path: "/account/repay", description: "Repay outstanding borrowed DOT from deposited balance." },
     { path: "/reputation", description: "Current reputation scores + tier." },
     { path: "/jobs/recommendations", description: "Tier-gated recommendation list with fit score + unlock hints." },
     { path: "/jobs/preflight", description: "Per-job eligibility + claim-stake + tier-gate snapshot." },
@@ -87,6 +96,7 @@ const BASE_MANIFEST = {
     { name: "listSessions", description: "Lifetime session history for a wallet." },
     { name: "allocateIdleFunds", description: "Move liquid into a strategy adapter." },
     { name: "deallocateIdleFunds", description: "Redeem strategy shares back to liquid." },
+    { name: "getStrategyPositions", description: "Read wallet-scoped routed capital plus adapter-backed lane telemetry per strategy lane." },
     { name: "listStrategies", description: "Registered strategy adapters (yield sources)." },
     { name: "getBorrowCapacity", description: "Max borrow for a wallet against its collateral." },
     { name: "borrow", description: "Draw against collateral." },
@@ -127,8 +137,7 @@ export function buildDiscoveryManifest({
   manifest.profile = profile;
   manifest.protocolEndpoints = {
     http: baseUrl,
-    mcp: `${baseUrl}/onboarding`,
-    a2a: `${baseUrl}/onboarding`
+    mcp: `${baseUrl}/onboarding`
   };
   manifest.onboarding.entrypoint = `${baseUrl}/onboarding`;
   manifest.health = `${baseUrl}/health`;

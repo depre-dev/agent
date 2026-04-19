@@ -623,6 +623,7 @@ main {
 }
 
 .treasury-overview-shell,
+.treasury-console-shell,
 .strategy-shell {
   display: grid;
   gap: 0.95rem;
@@ -672,6 +673,143 @@ main {
   border-color: rgba(30, 102, 66, 0.18);
   background:
     linear-gradient(180deg, rgba(214, 234, 223, 0.74), rgba(255, 255, 255, 0.9));
+}
+
+.treasury-console-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.treasury-console-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.treasury-console-card-strong {
+  border-color: rgba(30, 102, 66, 0.18);
+  background:
+    linear-gradient(180deg, rgba(214, 234, 223, 0.72), rgba(255, 255, 255, 0.92));
+}
+
+.treasury-console-topline {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.8rem;
+}
+
+.treasury-console-topline h4,
+.treasury-console-topline p,
+.treasury-console-metrics dt,
+.treasury-console-metrics dd {
+  margin: 0;
+}
+
+.treasury-console-topline h4 {
+  font-family: var(--display);
+  font-size: 1rem;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+
+.treasury-console-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(17, 19, 21, 0.08);
+  border-radius: 0.95rem;
+  background: rgba(255, 253, 247, 0.74);
+}
+
+.treasury-console-metrics dt {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.treasury-console-metrics dd {
+  margin-top: 0.18rem;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1rem;
+}
+
+.inline-select {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(17, 19, 21, 0.12);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  font: inherit;
+}
+
+.strategy-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.85rem;
+}
+
+.strategy-summary-card {
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.strategy-summary-card p,
+.strategy-summary-card strong,
+.strategy-summary-card span {
+  margin: 0;
+}
+
+.strategy-summary-card p {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.strategy-summary-card strong {
+  font-family: var(--display);
+  font-size: 1.1rem;
+  line-height: 1.15;
+}
+
+.strategy-summary-card span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.strategy-summary-card-strong {
+  border-color: rgba(30, 102, 66, 0.18);
+  background:
+    linear-gradient(180deg, rgba(214, 234, 223, 0.72), rgba(255, 255, 255, 0.92));
+}
+
+.strategy-attention-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.strategy-timeline-head {
+  margin-top: 1rem;
+}
+
+.strategy-timeline-list {
+  display: grid;
+  gap: 0.75rem;
 }
 
 .strategy-shelf {
@@ -750,6 +888,12 @@ main {
 
 .strategy-doc-link {
   justify-self: start;
+}
+
+.strategy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
 }
 
 .observe-quicknav {
@@ -1982,6 +2126,9 @@ main {
   .status-grid,
   .stats-grid,
   .treasury-overview-grid,
+  .treasury-console-grid,
+  .treasury-console-metrics,
+  .strategy-summary-grid,
   .strategy-shelf,
   .detail-grid,
   .job-detail-grid,

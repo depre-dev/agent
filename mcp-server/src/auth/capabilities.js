@@ -1,6 +1,10 @@
 const BASE_CAPABILITIES = [
   "account:read",
   "account:fund",
+  "account:allocate",
+  "account:deallocate",
+  "account:borrow",
+  "account:repay",
   "events:read",
   "jobs:list",
   "jobs:claim",
@@ -51,7 +55,12 @@ export function capabilityMatrix() {
     ),
     routes: {
       "/account": ["account:read"],
+      "/account/strategies": ["account:read", "strategies:list"],
       "/account/fund": ["account:fund"],
+      "/account/allocate": ["account:allocate"],
+      "/account/deallocate": ["account:deallocate"],
+      "/account/borrow": ["account:borrow"],
+      "/account/repay": ["account:repay"],
       "/jobs": ["jobs:list"],
       "/jobs/recommendations": ["jobs:recommend"],
       "/jobs/preflight": ["jobs:preflight"],

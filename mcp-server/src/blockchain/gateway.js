@@ -1,5 +1,5 @@
 import { Contract, JsonRpcProvider, Wallet, id, keccak256, toUtf8Bytes } from "ethers";
-import { AGENT_ACCOUNT_ABI, ERC20_MOCK_ABI, ESCROW_CORE_ABI, REPUTATION_SBT_ABI, TREASURY_POLICY_ABI } from "./abis.js";
+import { AGENT_ACCOUNT_ABI, ERC20_MOCK_ABI, ESCROW_CORE_ABI, REPUTATION_SBT_ABI, STRATEGY_ADAPTER_ABI, TREASURY_POLICY_ABI } from "./abis.js";
 import { loadBlockchainConfig } from "./config.js";
 import { BlockchainRevertError, ConfigError, ExternalServiceError, InsufficientLiquidityError, ValidationError } from "../core/errors.js";
 
@@ -105,6 +105,72 @@ export class BlockchainGateway {
         debtOutstanding
       };
     });
+  }
+
+  normalizeStrategyId(strategyId) {
+    if (typeof strategyId === "string" && /^0x[a-fA-F0-9]{64}$/u.test(strategyId)) {
+      return strategyId;
+    }
+    return id(String(strategyId ?? ""));
+  }
+
+  async getStrategyPositions(wallet, strategies = []) {
+    return this.withGatewayError("getStrategyPositions", async () => {
+      const entries = [];
+      for (const strategy of strategies) {
+        const rawShares = await this.accountContract.strategyShares(
+          wallet,
+          this.normalizeStrategyId(strategy.strategyId)
+        );
+        entries.push({
+          strategyId: strategy.strategyId,
+          shares: Number(rawShares)
+        });
+      }
+      return entries;
+    });
+  }
+
+  async getStrategyTelemetry(strategies = []) {
+    if (!this.isEnabled()) {
+      return [];
+    }
+
+    return Promise.all(
+      strategies.map(async (strategy) => {
+        const adapterContract = new Contract(strategy.adapter, STRATEGY_ADAPTER_ABI, this.provider);
+        try {
+          const [rawTotalAssets, rawTotalShares, liveRiskLabel] = await Promise.all([
+            adapterContract.totalAssets(),
+            adapterContract.totalShares().catch(() => undefined),
+            adapterContract.riskLabel().catch(() => strategy.riskLabel ?? "")
+          ]);
+          const totalAssets = Number(rawTotalAssets ?? 0);
+          const totalShares = Number(rawTotalShares ?? 0);
+          const sharePrice = totalShares > 0 ? totalAssets / totalShares : undefined;
+          const performanceBps = Number.isFinite(sharePrice)
+            ? Math.round((sharePrice - 1) * 10_000)
+            : undefined;
+          return {
+            strategyId: strategy.strategyId,
+            adapter: strategy.adapter,
+            totalAssets,
+            totalShares,
+            sharePrice,
+            performanceBps,
+            riskLabel: liveRiskLabel,
+            reported: Number.isFinite(sharePrice)
+          };
+        } catch (error) {
+          return {
+            strategyId: strategy.strategyId,
+            adapter: strategy.adapter,
+            reported: false,
+            error: this.wrapGatewayError("getStrategyTelemetry", error).message
+          };
+        }
+      })
+    );
   }
 
   async getDefaultClaimStakeBps() {
@@ -239,9 +305,27 @@ export class BlockchainGateway {
   async allocateIdleFunds(wallet, strategyId, amount) {
     return this.withGatewayError("allocateIdleFunds", async () => {
       this.requireSigner("allocateIdleFunds");
-      const tx = await this.accountContract.allocateIdleFunds(wallet, id(strategyId), amount);
+      const tx = await this.accountContract.allocateIdleFunds(wallet, this.normalizeStrategyId(strategyId), amount);
       await tx.wait();
       return this.getAccountSummary(wallet);
+    });
+  }
+
+  async deallocateIdleFunds(wallet, strategyId, amount, assetSymbol = "DOT") {
+    return this.withGatewayError("deallocateIdleFunds", async () => {
+      this.requireSigner("deallocateIdleFunds");
+      const asset = this.requireAsset(assetSymbol);
+      const before = await this.getAccountSummary(wallet);
+      const tx = await this.accountContract.deallocateIdleFunds(wallet, this.normalizeStrategyId(strategyId), amount);
+      await tx.wait();
+      const after = await this.getAccountSummary(wallet);
+      return {
+        ...after,
+        returnedAmount: Math.max(
+          Number(after.liquid?.[asset.symbol] ?? 0) - Number(before.liquid?.[asset.symbol] ?? 0),
+          0
+        )
+      };
     });
   }
 
