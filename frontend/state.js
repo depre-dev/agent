@@ -4,6 +4,8 @@ export const state = {
   wallet: "",
   authRoles: [],
   account: undefined,
+  strategies: [],
+  strategyDocs: "",
   reputation: undefined,
   activity: [],
   recommendations: [],

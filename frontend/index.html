@@ -137,23 +137,73 @@
         </a>
       </section>
 
+      <section class="product-map" aria-label="What Averray operates">
+        <article class="panel product-map-panel">
+          <div class="product-map-topline">
+            <div>
+              <p class="panel-label">Product map</p>
+              <h2>Jobs are one lane. The platform also moves capital and control.</h2>
+            </div>
+            <span id="product-map-pill" class="status-pill status-pending">Loading picture</span>
+          </div>
+          <p id="product-map-copy" class="section-note">
+            Use this page to run earning flows, monitor treasury posture, and operate the supply side of the platform from one surface.
+          </p>
+
+          <div class="product-lane-grid">
+            <article class="product-lane-card product-lane-card-strong">
+              <p>Earn</p>
+              <strong id="product-lane-work-title">Run agent work</strong>
+              <span id="product-lane-work-copy">Choose a job, cover claim stake, submit evidence, and settle the run.</span>
+              <div class="product-lane-meta">
+                <b id="product-lane-work-metric">Waiting for wallet</b>
+                <small id="product-lane-work-support">Jobs and sessions will appear after sign-in.</small>
+              </div>
+              <button id="product-lane-work-button" type="button" class="primary-action">Open work mode</button>
+            </article>
+
+            <article class="product-lane-card">
+              <p>Treasury</p>
+              <strong id="product-lane-treasury-title">Move capital through the account layer</strong>
+              <span id="product-lane-treasury-copy">Track liquid balance, capital at work, strategy allocation, and debt posture.</span>
+              <div class="product-lane-meta">
+                <b id="product-lane-treasury-metric">Waiting for balances</b>
+                <small id="product-lane-treasury-support">Observe mode centers treasury, reputation, and runtime state.</small>
+              </div>
+              <button id="product-lane-treasury-button" type="button" class="secondary-action">Open treasury view</button>
+            </article>
+
+            <article class="product-lane-card">
+              <p>Control</p>
+              <strong id="product-lane-control-title">Operate supply and policy</strong>
+              <span id="product-lane-control-copy">Create jobs, fire recurring templates, and inspect maintenance and verifier posture.</span>
+              <div class="product-lane-meta">
+                <b id="product-lane-control-metric">Waiting for roles</b>
+                <small id="product-lane-control-support">Admin mode becomes active when the signed-in wallet carries control-plane claims.</small>
+              </div>
+              <button id="product-lane-control-button" type="button" class="secondary-action">Open control view</button>
+            </article>
+          </div>
+        </article>
+      </section>
+
       <section class="workspace-modebar" aria-label="Operator workspace modes">
         <div class="workspace-mode-copy">
           <p class="panel-label">Control modes</p>
-          <h2>Switch between worker, admin, and observer views.</h2>
+          <h2>Switch between earning, treasury, and control views.</h2>
         </div>
         <div class="workspace-mode-actions" role="tablist" aria-label="Workspace modes">
           <button class="workspace-mode-button is-active" id="workspace-mode-work" type="button" data-workspace-mode="work" role="tab" aria-selected="true">
             <span>Work</span>
-            <small>Sign in, fund, and run jobs</small>
+            <small>Earn through runs and settlement</small>
           </button>
           <button class="workspace-mode-button" id="workspace-mode-admin" type="button" data-workspace-mode="admin" role="tab" aria-selected="false">
             <span>Admin</span>
-            <small>Create jobs and operate templates</small>
+            <small>Shape supply, policy, and recurring flow</small>
           </button>
           <button class="workspace-mode-button" id="workspace-mode-observe" type="button" data-workspace-mode="observe" role="tab" aria-selected="false">
             <span>Observe</span>
-            <small>Watch positions, history, and posture</small>
+            <small>Track treasury, reputation, and runtime motion</small>
           </button>
         </div>
       </section>
@@ -268,9 +318,9 @@
             <div class="section-heading compact">
               <div>
                 <p class="panel-label">Operator console</p>
-                <h2>Operate your signed-in worker workspace.</h2>
+                <h2>Run earning flows from the signed-in workspace.</h2>
               </div>
-              <p class="section-note">Signed identity, funding readiness, and live account state from your own stack.</p>
+              <p class="section-note">Use this mode when the goal is to take work, move it through the run lifecycle, and turn activity into earnings.</p>
             </div>
 
             <div id="auth-panel" class="auth-panel" data-auth="signed-out">
@@ -404,7 +454,7 @@
               <div class="funding-head">
                 <div>
                   <p class="panel-label">Funding</p>
-                  <h3>Make this run claim-ready</h3>
+                  <h3>Fund the agent account for this run</h3>
                 </div>
                 <span id="funding-readiness-pill" class="status-pill status-pending">Sign in first</span>
               </div>
@@ -596,10 +646,10 @@
         <section class="poster-grid">
           <article class="panel poster-panel" id="admin-workspace">
             <div class="section-heading compact">
-              <div>
-                <p class="panel-label">Admin workspace</p>
-                <h2>Operate internal control-plane actions.</h2>
-              </div>
+                <div>
+                  <p class="panel-label">Admin workspace</p>
+                  <h2>Operate supply, policy, and recurring platform actions.</h2>
+                </div>
               <span id="admin-surface-pill" class="status-pill status-pending">Awaiting sign-in</span>
             </div>
             <p id="admin-surface-copy" class="section-note">
@@ -887,10 +937,37 @@ summary</textarea>
               <div class="section-heading compact">
                 <div>
                   <p class="panel-label">Observe</p>
-                  <h2>Track balances, reputation, and runtime posture.</h2>
+                  <h2>Track treasury, reputation, and runtime posture.</h2>
                 </div>
-                <p class="section-note">The same live state, without the work and admin controls competing for attention.</p>
+                <p class="section-note">Use this mode when the goal is to understand capital, credit, activity, and platform health without touching the control plane.</p>
               </div>
+
+              <section class="treasury-overview-shell">
+                <div class="detail-head">
+                  <h3>Agent account overview</h3>
+                  <span id="treasury-overview-pill" class="status-pill status-pending">Waiting for wallet</span>
+                </div>
+                <p id="treasury-overview-copy" class="section-note">
+                  This section treats the agent account like the platform bank account: spendable balance, capital at work, collateral, and debt in one place.
+                </p>
+                <div class="treasury-overview-grid">
+                  <article class="treasury-overview-card treasury-overview-card-strong">
+                    <p>Spendable now</p>
+                    <strong id="treasury-spendable-now">-</strong>
+                    <span id="treasury-spendable-copy">Waiting for the deposited account balance.</span>
+                  </article>
+                  <article class="treasury-overview-card">
+                    <p>Capital at work</p>
+                    <strong id="treasury-capital-at-work">-</strong>
+                    <span id="treasury-capital-copy">Claim stake and yield allocation load after sign-in.</span>
+                  </article>
+                  <article class="treasury-overview-card">
+                    <p>Collateral and debt</p>
+                    <strong id="treasury-credit-posture">-</strong>
+                    <span id="treasury-credit-copy">Borrow posture appears here once the account state is loaded.</span>
+                  </article>
+                </div>
+              </section>
 
               <section class="stats-shell">
                 <div class="detail-head">
@@ -972,6 +1049,19 @@ summary</textarea>
                   </div>
                 </section>
               </div>
+
+              <section class="strategy-shell">
+                <div class="detail-head">
+                  <h3>Money strategies and yield lanes</h3>
+                  <span id="strategy-count" class="section-note">Loading strategy posture</span>
+                </div>
+                <p id="strategy-copy" class="section-note">
+                  Idle DOT can move into strategy adapters instead of sitting fully liquid. This panel shows what the current deployment exposes and how the wallet would use it.
+                </p>
+                <div id="strategy-shelf" class="strategy-shelf">
+                  <p class="empty-state">Strategy lanes will appear here once the deployment reports them.</p>
+                </div>
+              </section>
             </article>
 
             <article class="panel observe-panel">

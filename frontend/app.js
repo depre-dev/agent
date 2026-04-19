@@ -16,6 +16,7 @@ import {
   renderJobDetail,
   renderHistory,
   renderRecommendations,
+  refreshTreasurySurfaces,
   setActionFeedback,
   setFundingFeedback,
   setPosterFeedback,
@@ -35,6 +36,8 @@ const WORKSPACE_MODES = ["work", "admin", "observe"];
 const platformStatus = {
   protocols: [],
   verifierModes: [],
+  strategies: [],
+  strategyDocs: "",
   authMode: "strict",
   catalogCount: 0,
   indexReady: false
@@ -44,6 +47,12 @@ function formatOpsAmount(value, asset = "DOT") {
   const amount = Number(value ?? 0);
   if (!Number.isFinite(amount)) return `- ${asset}`;
   return `${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${asset}`;
+}
+
+function formatCompactCount(value, fallback = "0") {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return fallback;
+  return amount.toLocaleString("en-US");
 }
 
 function inferWorkspaceModeFromHash(hash = window.location.hash) {
@@ -422,6 +431,97 @@ function buildAdminOpsSnapshot(status = {}) {
   };
 }
 
+function renderProductMap(snapshot = getAuthSnapshot()) {
+  const isAdmin = hasRole("admin", snapshot.roles ?? []);
+  const isVerifier = hasRole("verifier", snapshot.roles ?? []);
+  const authenticated = Boolean(snapshot.authenticated && state.wallet);
+  const activeSessionCount = (state.history ?? []).filter((entry) => ["claimed", "submitted", "rejected", "disputed"].includes(entry.status)).length;
+  const recommendationCount = state.recommendations?.length ?? 0;
+  const liquidDot = Number(state.account?.liquid?.DOT ?? 0);
+  const allocatedDot = Number(state.account?.strategyAllocated?.DOT ?? 0);
+  const debtDot = Number(state.account?.debtOutstanding?.DOT ?? 0);
+  const productPill = document.getElementById("product-map-pill");
+
+  let pillLabel = "Loading picture";
+  let pillTone = "status-pending";
+  let mapCopy = "Use this page to run earning flows, monitor treasury posture, and operate the supply side of the platform from one surface.";
+
+  let workTitle = "Run agent work";
+  let workCopy = "Choose a job, cover claim stake, submit evidence, and settle the run.";
+  let workMetric = "Waiting for wallet";
+  let workSupport = "Jobs and sessions will appear after sign-in.";
+
+  let treasuryTitle = "Move capital through the account layer";
+  let treasuryCopy = "Track liquid balance, capital at work, strategy allocation, and debt posture.";
+  let treasuryMetric = "Waiting for balances";
+  let treasurySupport = "Observe mode centers treasury, reputation, and runtime state.";
+
+  let controlTitle = "Operate supply and policy";
+  let controlCopy = "Create jobs, fire recurring templates, and inspect maintenance and verifier posture.";
+  let controlMetric = "Waiting for roles";
+  let controlSupport = "Admin mode becomes active when the signed-in wallet carries control-plane claims.";
+
+  if (authenticated) {
+    pillLabel = isAdmin || isVerifier ? "Full platform view" : "Operator wallet live";
+    pillTone = isAdmin || isVerifier ? "status-ok" : "status-pending";
+    mapCopy = isAdmin || isVerifier
+      ? "This page now spans all three operating lanes: worker earnings, treasury posture, and live control-plane actions."
+      : "This page now spans worker earnings and treasury visibility from the signed-in wallet, with control unlocked by role claims.";
+
+    workTitle = activeSessionCount > 0 ? "Keep active runs moving" : "Open the next earning run";
+    workCopy = activeSessionCount > 0
+      ? "This wallet already has work in flight. Stay in Work mode to submit, settle, or pick the next run."
+      : "Use Work mode to choose a run, lock claim stake, and turn completed work into earnings.";
+    workMetric = activeSessionCount > 0
+      ? `${formatCompactCount(activeSessionCount)} active run${activeSessionCount === 1 ? "" : "s"}`
+      : `${formatCompactCount(recommendationCount)} recommendation${recommendationCount === 1 ? "" : "s"} ready`;
+    workSupport = activeSessionCount > 0
+      ? "Claimed and submitted sessions are already visible in this wallet."
+      : "Recommendations and preflight now define the fastest path into a run.";
+
+    treasuryTitle = "See where account capital is sitting";
+    treasuryCopy = "Observe mode is where liquid balance, claim stake, strategy allocation, and debt become the main picture.";
+    treasuryMetric = `${formatOpsAmount(liquidDot)} liquid · ${formatOpsAmount(allocatedDot)} allocated`;
+    treasurySupport = debtDot > 0
+      ? `${formatOpsAmount(debtDot)} outstanding debt is also visible in treasury view.`
+      : "No debt is currently outstanding for this wallet.";
+
+    if (isAdmin || isVerifier) {
+      controlTitle = isAdmin ? "Operate the market side of the platform" : "Settle and monitor platform flow";
+      controlCopy = isAdmin
+        ? "Admin mode lets this wallet publish supply, fire recurring templates, and inspect policy and maintenance posture."
+        : "Verifier access lets this wallet settle submitted runs and monitor control-plane state.";
+      controlMetric = isAdmin && isVerifier
+        ? "Admin + verifier access"
+        : isAdmin
+          ? "Admin access live"
+          : "Verifier access live";
+      controlSupport = isAdmin
+        ? `${formatCompactCount(platformStatus.catalogCount)} live job${platformStatus.catalogCount === 1 ? "" : "s"} and ${formatCompactCount(platformStatus.verifierModes.length)} verifier mode${platformStatus.verifierModes.length === 1 ? "" : "s"} in view.`
+        : "Settlement and runtime oversight are available even without admin mutation rights.";
+      pillTone = "status-ok";
+    }
+  }
+
+  setText("product-map-copy", mapCopy);
+  setText("product-lane-work-title", workTitle);
+  setText("product-lane-work-copy", workCopy);
+  setText("product-lane-work-metric", workMetric);
+  setText("product-lane-work-support", workSupport);
+  setText("product-lane-treasury-title", treasuryTitle);
+  setText("product-lane-treasury-copy", treasuryCopy);
+  setText("product-lane-treasury-metric", treasuryMetric);
+  setText("product-lane-treasury-support", treasurySupport);
+  setText("product-lane-control-title", controlTitle);
+  setText("product-lane-control-copy", controlCopy);
+  setText("product-lane-control-metric", controlMetric);
+  setText("product-lane-control-support", controlSupport);
+  if (productPill) {
+    productPill.textContent = pillLabel;
+    productPill.className = `status-pill ${pillTone}`;
+  }
+}
+
 function renderStartGuide(snapshot = getAuthSnapshot()) {
   const isAdmin = hasRole("admin", snapshot.roles ?? []);
   const isVerifier = hasRole("verifier", snapshot.roles ?? []);
@@ -436,15 +536,15 @@ function renderStartGuide(snapshot = getAuthSnapshot()) {
 
   let nowTitle = "Connect a wallet first.";
   let nowCopy = "Wallet sign-in is the first step for the in-app worker flow. If you are integrating as an agent, open the onboarding contract instead of the browser flow.";
-  let guideTitle = "This page is the operator surface for work, control, and live runtime visibility.";
-  let guideCopy = "Use the human path to sign in and run jobs, the agent path to integrate through the API, or the control path to watch and operate the platform.";
-  let humanTitle = "Run jobs from this browser";
-  let humanCopy = "Sign in, fund the wallet if needed, choose a job, then claim and submit work.";
+  let guideTitle = "This page is the operator surface for earning, treasury, and control.";
+  let guideCopy = "Use the human path to sign in and run work, the agent path to integrate through the API, or the control path to watch capital and operate the platform.";
+  let humanTitle = "Run earning flows from this browser";
+  let humanCopy = "Sign in, fund the wallet if needed, choose a run, then move it through claim, submission, and settlement.";
   let humanButtonLabel = "Start worker flow";
   let adminTitle = isAdmin || isVerifier ? "Operate or watch the platform" : "Watch platform motion";
   let adminCopy = isAdmin || isVerifier
-    ? "Open the control surface to create jobs, inspect recurring runtime, or settle runs."
-    : "Open the live ops view to see jobs in motion, treasury posture, and recent runtime events.";
+    ? "Open the control surface to create supply, inspect recurring runtime, and watch treasury and policy posture."
+    : "Open the live ops view to see capital, treasury posture, and recent runtime events.";
   let adminButtonLabel = isAdmin || isVerifier ? "Open control workspace" : "Open live ops view";
   let pillLabel = "Orienting";
   let pillTone = "status-pending";
@@ -496,10 +596,10 @@ function renderStartGuide(snapshot = getAuthSnapshot()) {
   }
 
   if (isAdmin || isVerifier) {
-    guideTitle = "This page works as both a live operator room and a control surface.";
-    guideCopy = "You can run jobs from Work mode, operate templates and job creation from Admin mode, or stay in Observe mode to watch the runtime.";
+    guideTitle = "This page works as a live operator room for earnings, treasury, and control.";
+    guideCopy = "You can run earning flows from Work mode, operate supply and policy from Admin mode, or stay in Observe mode to watch capital and runtime motion.";
   } else if (!workReady) {
-    guideTitle = "Start as either a human operator or an agent integration.";
+    guideTitle = "Start as either a human operator, an agent integration, or a treasury observer.";
   }
 
   setText("start-guide-title", guideTitle);
@@ -810,6 +910,7 @@ function renderAuthUi(snapshot = getAuthSnapshot()) {
     walletForm.hidden = authMode !== "permissive" || snapshot.authenticated;
   }
   renderStartGuide(snapshot);
+  renderProductMap(snapshot);
 }
 
 async function runWithBusyButton(button, busyLabel, action) {
@@ -827,6 +928,7 @@ async function restoreSession(sessionId) {
     applyVerificationState(undefined);
     refreshActionPanel();
     renderStartGuide();
+    renderProductMap();
     return;
   }
 
@@ -846,6 +948,7 @@ async function restoreSession(sessionId) {
 
   refreshActionPanel();
   renderStartGuide();
+  renderProductMap();
   renderHistory(state.history);
   renderJobDetail(state.selectedJob, state.jobHistory);
   renderCatalogJobActivity(state.selectedJob, state.catalogJobActivity);
@@ -890,6 +993,7 @@ async function refreshWalletPanels() {
   } else {
     refreshActionPanel();
     renderStartGuide();
+    renderProductMap();
   }
   await refreshOpsDeck();
 }
@@ -1000,6 +1104,7 @@ async function selectJob(jobId) {
   setActionFeedback(`Loaded ${job.id}. Claim it when you are ready.`, "neutral");
   refreshActionPanel();
   renderStartGuide();
+  renderProductMap();
   await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
 
@@ -1044,6 +1149,7 @@ async function loadWallet(wallet) {
     renderCatalogJobActivity(undefined, []);
     setActionFeedback("No action flow available until recommendations appear.", "neutral");
     renderStartGuide();
+    renderProductMap();
   }
 
   restartEventSubscription();
@@ -1080,6 +1186,7 @@ async function loadCatalog() {
   }
   refreshAdminConsole();
   void refreshOpsDeck();
+  renderProductMap();
 }
 
 async function claimSelectedJob() {
@@ -1099,6 +1206,7 @@ async function claimSelectedJob() {
   showToast(`Claimed ${state.selectedJobId}.`, "success");
   refreshActionPanel();
   renderStartGuide();
+  renderProductMap();
   await loadHistoryForCurrentWallet();
   await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
@@ -1120,6 +1228,7 @@ async function submitSelectedWork() {
   showToast("Submission stored.", "success");
   refreshActionPanel();
   renderStartGuide();
+  renderProductMap();
   await loadHistoryForCurrentWallet();
   await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
@@ -1155,6 +1264,7 @@ async function verifySelectedWork() {
   );
   refreshActionPanel();
   renderStartGuide();
+  renderProductMap();
   await loadHistoryForCurrentWallet();
   await Promise.all([loadSelectedJobHistory(), loadSelectedCatalogJobActivity()]);
 }
@@ -1166,6 +1276,7 @@ async function refreshCurrentSession() {
   await restoreSession(state.session.sessionId);
   setActionFeedback(`Refreshed session ${state.session.sessionId}.`, "success");
   renderStartGuide();
+  renderProductMap();
 }
 
 function syncPosterDefaults(force = false) {
@@ -1535,19 +1646,24 @@ function wirePosterControls({
 
 async function loadPlatformStatus() {
   try {
-    const [health, onboarding, index, verifierHandlers] = await Promise.all([
+    const [health, onboarding, index, verifierHandlers, strategyResponse] = await Promise.all([
       readJson("/api/health"),
       readJson("/api/onboarding"),
       readJson("/index/"),
-      readJson("/api/verifier/handlers")
+      readJson("/api/verifier/handlers"),
+      readJson("/api/strategies")
     ]);
 
     platformStatus.protocols = onboarding.protocols ?? [];
     platformStatus.verifierModes = Array.isArray(verifierHandlers?.handlers)
       ? verifierHandlers.handlers.map((entry) => entry.mode).filter(Boolean)
       : [];
+    platformStatus.strategies = Array.isArray(strategyResponse?.strategies) ? strategyResponse.strategies : [];
+    platformStatus.strategyDocs = strategyResponse?.docs ?? "";
     platformStatus.authMode = health?.auth?.mode ?? onboarding?.authMode ?? authMode;
     platformStatus.indexReady = index.status === "ok";
+    state.strategies = platformStatus.strategies;
+    state.strategyDocs = platformStatus.strategyDocs;
 
     authMode = platformStatus.authMode;
     setText("api-status", health.status === "ok" ? "Healthy" : "Unexpected");
@@ -1563,8 +1679,12 @@ async function loadPlatformStatus() {
         : "Strict auth is live. Admin and verifier actions follow JWT role claims."
     );
     setOverallStatus("Online", "status-ok");
+    renderProductMap();
+    refreshTreasurySurfaces();
   } catch (error) {
     debug.error(error);
+    state.strategies = [];
+    state.strategyDocs = "";
     setText("api-status", "Unavailable");
     setText("index-status", "Unavailable");
     setText("protocol-status", "Check routes");
@@ -1573,6 +1693,8 @@ async function loadPlatformStatus() {
     setText("admin-platform-summary", "Check API and indexer");
     setText("admin-auth-mode", "Control-plane status is unavailable until the API responds.");
     setOverallStatus("Attention needed", "status-pending");
+    renderProductMap();
+    refreshTreasurySurfaces();
   }
 }
 
@@ -1612,6 +1734,8 @@ function wireAuthControls() {
     state.activity = [];
     state.jobHistory = [];
     state.catalogJobActivity = [];
+    state.strategies = platformStatus.strategies ?? [];
+    state.strategyDocs = platformStatus.strategyDocs ?? "";
     setAuthFeedback("Signed out. Sign in again to reopen the operator workspace.", "neutral");
     // Clear the wallet-scoped panels so stale data doesn't linger on screen.
     updateAccount({ wallet: "", liquid: {}, reserved: {}, strategyAllocated: {}, collateralLocked: {}, jobStakeLocked: {}, debtOutstanding: {} });
@@ -1625,6 +1749,8 @@ function wireAuthControls() {
     renderJobDetail(undefined, []);
     renderCatalogJobActivity(undefined, []);
     renderOpsDeck(buildLocalOpsSnapshot());
+    renderProductMap({ authenticated: false, wallet: undefined, expiresAt: undefined, roles: [], lastReason: "signed_out" });
+    refreshTreasurySurfaces();
     setText("job-count", "0 recommendations");
     setText("funding-wallet-value", "No wallet signed in");
     setText("auth-wallet-value", "No wallet signed in");
@@ -1671,6 +1797,32 @@ function wireStartGuideControls() {
   });
 
   document.getElementById("start-admin-button")?.addEventListener("click", () => {
+    if (hasRole("admin") || hasRole("verifier")) {
+      jumpToSection("admin-workspace", { mode: "admin" });
+      return;
+    }
+    jumpToSection("ops-details", { mode: "observe" });
+  });
+}
+
+function wireProductMapControls() {
+  document.getElementById("product-lane-work-button")?.addEventListener("click", () => {
+    if (!state.wallet) {
+      jumpToSection("workspace-core", { mode: "work" });
+      return;
+    }
+    if (!state.selectedJobId) {
+      jumpToSection("jobs-workspace", { mode: "work" });
+      return;
+    }
+    jumpToSection("work-execution", { mode: "work" });
+  });
+
+  document.getElementById("product-lane-treasury-button")?.addEventListener("click", () => {
+    jumpToSection("ops-details", { mode: "observe" });
+  });
+
+  document.getElementById("product-lane-control-button")?.addEventListener("click", () => {
     if (hasRole("admin") || hasRole("verifier")) {
       jumpToSection("admin-workspace", { mode: "admin" });
       return;
@@ -1745,6 +1897,7 @@ async function boot() {
 
   wireAuthControls();
   wireStartGuideControls();
+  wireProductMapControls();
   wireAdminConsoleControls();
   wireWalletForm(walletForm, walletInput);
   wireJobSelection(jobList);
@@ -1765,6 +1918,7 @@ async function boot() {
   });
   renderActivityFeed([]);
   renderOpsDeck(buildLocalOpsSnapshot());
+  renderProductMap();
   refreshAdminConsole();
   refreshActionPanel();
 }

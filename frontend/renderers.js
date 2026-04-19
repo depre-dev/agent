@@ -20,6 +20,146 @@ function setStatusPill(id, label, toneClass) {
   pill.className = `status-pill ${toneClass}`;
 }
 
+function formatStrategyKind(kind = "") {
+  return kind ? kind.replaceAll("_", " ") : "strategy";
+}
+
+function renderTreasuryOverview() {
+  const account = state.account ?? {};
+  const liquid = Number(account.liquid?.DOT ?? 0);
+  const reserved = Number(account.reserved?.DOT ?? 0);
+  const allocated = Number(account.strategyAllocated?.DOT ?? 0);
+  const stakeLocked = Number(account.jobStakeLocked?.DOT ?? 0);
+  const collateral = Number(account.collateralLocked?.DOT ?? 0);
+  const debt = Number(account.debtOutstanding?.DOT ?? 0);
+  const capitalAtWork = allocated + stakeLocked;
+
+  if (!state.wallet) {
+    setStatusPill("treasury-overview-pill", "Waiting for wallet", "status-pending");
+    setText("treasury-overview-copy", "This section treats the agent account like the platform bank account: spendable balance, capital at work, collateral, and debt in one place.");
+    setText("treasury-spendable-now", "-");
+    setText("treasury-spendable-copy", "Sign in to load the spendable deposited balance.");
+    setText("treasury-capital-at-work", "-");
+    setText("treasury-capital-copy", "Strategy allocation and claim stake appear after the wallet session loads.");
+    setText("treasury-credit-posture", "-");
+    setText("treasury-credit-copy", "Collateral and debt posture need the wallet account state.");
+    return;
+  }
+
+  setStatusPill("treasury-overview-pill", debt > 0 ? "Credit active" : capitalAtWork > 0 ? "Capital in motion" : "Treasury ready", debt > 0 ? "tier-warn" : "status-ok");
+  setText(
+    "treasury-overview-copy",
+    debt > 0
+      ? "This wallet is using the account layer as both a treasury and a credit surface: liquid balance, capital at work, and outstanding debt all matter together."
+      : capitalAtWork > 0
+        ? "This wallet already has capital in motion across strategy allocation or claim stake. Think of this as the agent bank account, not only a job wallet."
+        : "This wallet has a clean treasury posture right now: spendable balance is liquid and no debt is outstanding."
+  );
+  setText("treasury-spendable-now", `${formatAmount(liquid)} DOT`);
+  setText(
+    "treasury-spendable-copy",
+    reserved > 0
+      ? `${formatAmount(reserved)} DOT is still reserved outside the immediately spendable bucket.`
+      : "This is the deposited DOT the account can deploy next without unwinding anything first."
+  );
+  setText("treasury-capital-at-work", `${formatAmount(capitalAtWork)} DOT`);
+  setText(
+    "treasury-capital-copy",
+    capitalAtWork > 0
+      ? `${formatAmount(allocated)} DOT is allocated to strategies and ${formatAmount(stakeLocked)} DOT is locked as claim stake.`
+      : "No DOT is currently tied up in strategy allocation or active claim stake."
+  );
+  setText("treasury-credit-posture", `${formatAmount(collateral)} DOT / ${formatAmount(debt)} DOT`);
+  setText(
+    "treasury-credit-copy",
+    debt > 0
+      ? `${formatAmount(collateral)} DOT is locked as collateral while ${formatAmount(debt)} DOT is currently borrowed.`
+      : collateral > 0
+        ? `${formatAmount(collateral)} DOT is already acting as collateral, but nothing is borrowed right now.`
+        : "No collateral or debt is active in this account right now."
+  );
+}
+
+function renderStrategyShelf() {
+  const root = document.getElementById("strategy-shelf");
+  if (!root) return;
+
+  const strategies = Array.isArray(state.strategies) ? state.strategies : [];
+  const allocated = Number(state.account?.strategyAllocated?.DOT ?? 0);
+  const countLabel = document.getElementById("strategy-count");
+
+  if (!strategies.length) {
+    if (countLabel) {
+      countLabel.textContent = state.wallet ? "No strategy adapters reported" : "Loading strategy posture";
+    }
+    setText(
+      "strategy-copy",
+      state.wallet
+        ? "This deployment is not reporting any registered strategy adapter right now, so the treasury view stays liquid-first."
+        : "Idle DOT can move into strategy adapters instead of sitting fully liquid. This panel shows what the current deployment exposes and how the wallet would use it."
+    );
+    renderHtml(root, html`<p class="empty-state">No strategy adapters are visible for this deployment yet.</p>`);
+    return;
+  }
+
+  if (countLabel) {
+    countLabel.textContent = `${strategies.length} strategy lane${strategies.length === 1 ? "" : "s"} visible`;
+  }
+  setText(
+    "strategy-copy",
+    allocated > 0
+      ? `${formatAmount(allocated)} DOT is already routed into the strategy bucket. Use this shelf to understand what that capital lane represents.`
+      : "These are the current yield and capital lanes the deployment exposes. Once idle DOT is allocated, it moves from liquid balance into this shelf."
+  );
+
+  renderHtml(
+    root,
+    html`${strategies.map((strategy) => {
+      const isMock = String(strategy.kind ?? "").includes("mock");
+      const riskLabel = strategy.riskLabel ?? (isMock ? "Testnet mock strategy." : "Risk label unavailable.");
+      const title = isMock ? "vDOT yield lane (testnet mock)" : `${formatStrategyKind(strategy.kind)} lane`;
+      const posture = allocated > 0
+        ? `${formatAmount(allocated)} DOT currently sits in the strategyAllocated bucket for this wallet.`
+        : "No DOT from this wallet is currently allocated into the strategy bucket.";
+      return html`
+        <article class="strategy-card">
+          <div class="strategy-card-topline">
+            <div>
+              <p>${strategy.asset ?? "DOT"} strategy</p>
+              <strong>${title}</strong>
+            </div>
+            <span class="status-pill ${isMock ? "tier-warn" : "status-ok"}">
+              ${isMock ? "Testnet mock" : "Registered"}
+            </span>
+          </div>
+          <p class="strategy-risk-copy">${riskLabel}</p>
+          <div class="strategy-meta-grid">
+            <div>
+              <dt>Lane</dt>
+              <dd>${strategy.strategyId ?? "Unknown id"}</dd>
+            </div>
+            <div>
+              <dt>Wallet posture</dt>
+              <dd>${posture}</dd>
+            </div>
+          </div>
+          <p class="strategy-footnote">
+            ${isMock
+              ? "This adapter proves the treasury UX and accounting shape, but it is not real staking yield."
+              : "This adapter is registered on the deployment and can act as the idle-capital destination for the account layer."}
+          </p>
+          ${state.strategyDocs ? html`<a class="secondary-action strategy-doc-link" href="${state.strategyDocs}" target="_blank" rel="noreferrer">Open strategy docs</a>` : ""}
+        </article>
+      `;
+    })}`,
+  );
+}
+
+export function refreshTreasurySurfaces() {
+  renderTreasuryOverview();
+  renderStrategyShelf();
+}
+
 function formatEventTime(timestamp) {
   if (!timestamp) return "Just now";
   const date = new Date(timestamp);
@@ -1039,6 +1179,8 @@ export function updateAccount(account) {
   setText("deposited-balance-dot", `${formatAmount(account.liquid?.DOT)} DOT`);
   setText("active-stake-dot", `${formatAmount(account.jobStakeLocked?.DOT)} DOT`);
   renderFundingReadiness();
+  renderTreasuryOverview();
+  renderStrategyShelf();
 }
 
 export function applySessionState(session = undefined) {
