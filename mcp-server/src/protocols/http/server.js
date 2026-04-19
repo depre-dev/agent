@@ -26,6 +26,7 @@ const {
   eventBus,
   authConfig,
   authMiddleware,
+  authCapabilities,
   rateLimiter,
   rateLimitConfig,
   httpConfig,
@@ -209,17 +210,23 @@ function metricPathLabel(pathname) {
     "/jobs/tiers",
     "/strategies",
     "/admin/jobs",
+    "/admin/jobs/pause",
+    "/admin/jobs/resume",
     "/account",
     "/account/fund",
+    "/auth/session",
     "/payments/send",
     "/reputation",
     "/session",
+    "/session/timeline",
     "/sessions",
+    "/jobs/sub",
     "/events",
     "/auth/nonce",
     "/auth/verify",
     "/verifier/handlers",
     "/verifier/result",
+    "/verifier/replay",
     "/verifier/run",
     "/gas/health",
     "/gas/capabilities",
@@ -292,16 +299,21 @@ const server = createServer(async (request, response) => {
           "/auth/nonce",
           "/auth/verify",
           "/auth/logout",
+          "/auth/session",
           "/events",
           "/account",
           "/account/fund",
           "/payments/send",
           "/reputation",
           "/session",
+          "/session/timeline",
           "/sessions",
           "/jobs",
+          "/jobs/sub",
           "/jobs/tiers",
           "/strategies",
+          "/admin/jobs/pause",
+          "/admin/jobs/resume",
           "/jobs/preflight",
           "/jobs/recommendations",
           "/gas/health",
@@ -309,8 +321,11 @@ const server = createServer(async (request, response) => {
           "/gas/quote",
           "/gas/sponsor",
           "/verifier/handlers",
+          "/verifier/replay",
           "/admin/jobs",
           "/admin/jobs/fire",
+          "/admin/jobs/pause",
+          "/admin/jobs/resume",
           "/admin/status",
           "/badges/:sessionId",
           "/agents/:wallet"
@@ -430,6 +445,16 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && pathname === "/verifier/result") {
       const sessionId = url.searchParams.get("sessionId") ?? "";
       return respond(response, 200, await verifierService.getResult(sessionId) ?? { status: "not_found" });
+    }
+
+    if (request.method === "POST" && pathname === "/verifier/replay") {
+      const auth = await authMiddleware(request, url, { requireRole: "verifier" });
+      await enforceLimit("verifier_run", auth.wallet, rateLimitConfig.verifierRun);
+      const payload = await readJsonBody(request);
+      const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim()
+        ? payload.sessionId.trim()
+        : (url.searchParams.get("sessionId") ?? "");
+      return respond(response, 200, await verifierService.replayVerification(sessionId));
     }
 
     // Public agent profile — the aggregate "LinkedIn for agents" resume.
@@ -599,8 +624,19 @@ const server = createServer(async (request, response) => {
         token,
         wallet: verified.recoveredAddress,
         roles,
+        capabilities: authCapabilities.resolveCapabilities({ roles }),
         expiresAt: new Date(claims.exp * 1000).toISOString(),
         tokenType: "Bearer"
+      });
+    }
+
+    if (request.method === "GET" && pathname === "/auth/session") {
+      const auth = await authMiddleware(request, url);
+      return respond(response, 200, {
+        wallet: auth.wallet,
+        roles: auth.claims?.roles ?? [],
+        capabilities: auth.capabilities ?? [],
+        capabilityMatrix: authCapabilities.capabilityMatrix()
       });
     }
 
@@ -710,6 +746,13 @@ const server = createServer(async (request, response) => {
       }
     }
 
+    if (request.method === "GET" && pathname === "/session/timeline") {
+      const auth = await authMiddleware(request, url);
+      const sessionId = url.searchParams.get("sessionId") ?? "";
+      await ensureSessionOwnership(sessionId, auth.wallet);
+      return respond(response, 200, await service.getSessionTimeline(sessionId));
+    }
+
     if (request.method === "GET" && pathname === "/sessions") {
       const auth = await authMiddleware(request, url);
       const limit = Number(url.searchParams.get("limit") ?? 8);
@@ -739,11 +782,43 @@ const server = createServer(async (request, response) => {
       );
     }
 
+    if (request.method === "GET" && pathname === "/jobs/sub") {
+      const auth = await authMiddleware(request, url);
+      const parentSessionId = url.searchParams.get("parentSessionId") ?? "";
+      await ensureSessionOwnership(parentSessionId, auth.wallet);
+      return respond(response, 200, await service.listSubJobs(parentSessionId));
+    }
+
+    if (request.method === "POST" && pathname === "/jobs/sub") {
+      const auth = await authMiddleware(request, url);
+      const payload = await readJsonBody(request);
+      const parentSessionId = typeof payload?.parentSessionId === "string" && payload.parentSessionId.trim()
+        ? payload.parentSessionId.trim()
+        : (url.searchParams.get("parentSessionId") ?? "");
+      if (!parentSessionId) {
+        throw new ValidationError("parentSessionId is required.");
+      }
+      const created = await service.createSubJob(parentSessionId, auth.wallet, payload);
+      return respond(response, 201, created);
+    }
+
     if (request.method === "POST" && pathname === "/admin/jobs") {
       const auth = await authMiddleware(request, url, { requireRole: "admin" });
       await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
       const payload = await readJsonBody(request);
-      return respond(response, 201, service.createJob(payload));
+      const idempotencyKey = typeof payload?.idempotencyKey === "string" && payload.idempotencyKey.trim()
+        ? payload.idempotencyKey.trim()
+        : undefined;
+      const mutationKey = idempotencyKey ? `${auth.wallet}:${idempotencyKey}` : undefined;
+      const existing = mutationKey ? await stateStore.getMutationReceipt?.("admin_jobs", mutationKey) : undefined;
+      if (existing) {
+        return respond(response, 200, existing);
+      }
+      const created = service.createJob(payload);
+      if (mutationKey) {
+        await stateStore.upsertMutationReceipt?.("admin_jobs", mutationKey, created);
+      }
+      return respond(response, 201, created);
     }
 
     if (request.method === "POST" && pathname === "/admin/jobs/fire") {
@@ -758,16 +833,52 @@ const server = createServer(async (request, response) => {
       if (!templateId) {
         throw new ValidationError("templateId is required.");
       }
+      const idempotencyKey = typeof payload?.idempotencyKey === "string" && payload.idempotencyKey.trim()
+        ? payload.idempotencyKey.trim()
+        : undefined;
+      const mutationKey = idempotencyKey ? `${auth.wallet}:${idempotencyKey}` : undefined;
+      const existing = mutationKey ? await stateStore.getMutationReceipt?.("admin_jobs_fire", mutationKey) : undefined;
+      if (existing) {
+        return respond(response, 200, existing);
+      }
       const firedAt = payload?.firedAt ? new Date(payload.firedAt) : new Date();
       if (Number.isNaN(firedAt.getTime())) {
         throw new ValidationError("firedAt must be ISO-8601 if provided.");
       }
-      return respond(response, 201, service.fireRecurringJob(templateId, { firedAt }));
+      const derivative = service.fireRecurringJob(templateId, { firedAt });
+      if (mutationKey) {
+        await stateStore.upsertMutationReceipt?.("admin_jobs_fire", mutationKey, derivative);
+      }
+      return respond(response, 201, derivative);
+    }
+
+    if (request.method === "POST" && pathname === "/admin/jobs/pause") {
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const payload = await readJsonBody(request);
+      const templateId = typeof payload?.templateId === "string" ? payload.templateId.trim() : "";
+      if (!templateId) {
+        throw new ValidationError("templateId is required.");
+      }
+      await service.pauseRecurringTemplate(templateId);
+      return respond(response, 200, await service.getAdminStatus({ auth }));
+    }
+
+    if (request.method === "POST" && pathname === "/admin/jobs/resume") {
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const payload = await readJsonBody(request);
+      const templateId = typeof payload?.templateId === "string" ? payload.templateId.trim() : "";
+      if (!templateId) {
+        throw new ValidationError("templateId is required.");
+      }
+      await service.resumeRecurringTemplate(templateId);
+      return respond(response, 200, await service.getAdminStatus({ auth }));
     }
 
     if (request.method === "GET" && pathname === "/admin/status") {
-      await authMiddleware(request, url, { requireRole: "admin" });
-      return respond(response, 200, await service.getAdminStatus());
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      return respond(response, 200, await service.getAdminStatus({ auth }));
     }
 
     if (request.method === "POST" && pathname === "/gas/quote") {
@@ -837,17 +948,19 @@ const server = createServer(async (request, response) => {
       const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim()
         ? payload.sessionId.trim()
         : (url.searchParams.get("sessionId") ?? "");
-      const evidence = typeof payload?.evidence === "string"
-        ? payload.evidence
-        : (url.searchParams.get("evidence") ?? "submitted-via-http");
+      const submission = payload && typeof payload === "object" && "submission" in payload
+        ? payload.submission
+        : (typeof payload?.evidence === "string"
+            ? payload.evidence
+            : (url.searchParams.get("evidence") ?? "submitted-via-http"));
       if (!sessionId) {
         throw new ValidationError("sessionId is required.");
       }
-      if (evidence.length > 16 * 1024) {
+      if (typeof submission === "string" && submission.length > 16 * 1024) {
         throw new ValidationError("evidence exceeds 16 KiB. Submit long payloads via evidenceURI once supported.");
       }
       await ensureSessionOwnership(sessionId, auth.wallet);
-      return respond(response, 200, await service.submitWork(sessionId, "http", evidence));
+      return respond(response, 200, await service.submitWork(sessionId, "http", submission));
     }
 
     if (request.method === "POST" && pathname === "/verifier/run") {

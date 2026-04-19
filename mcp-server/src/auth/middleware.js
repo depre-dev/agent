@@ -2,6 +2,7 @@ import { getAddress } from "ethers";
 import { AuthenticationError, AuthorizationError } from "../core/errors.js";
 import { verifyToken } from "./jwt.js";
 import { hasRole, resolveRoles } from "./config.js";
+import { resolveCapabilities } from "./capabilities.js";
 
 /**
  * Create an auth middleware bound to a specific auth configuration.
@@ -48,6 +49,7 @@ export function createAuthMiddleware({ authConfig, stateStore, logger = console 
           return {
             wallet: normalizeWallet(fallbackWallet),
             claims: permissiveClaims,
+            capabilities: resolveCapabilities(permissiveClaims),
             via: "permissive_query"
           };
         }
@@ -79,6 +81,7 @@ export function createAuthMiddleware({ authConfig, stateStore, logger = console 
     return {
       wallet: normalizeWallet(claims.sub),
       claims,
+      capabilities: resolveCapabilities(claims),
       via: headerToken ? "header" : "query_token"
     };
   };

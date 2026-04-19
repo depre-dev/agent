@@ -7,6 +7,7 @@ import { buildEvidenceTemplate, parseTerms } from "./job-utils.js";
 import { apiUrl } from "./config.js";
 import {
   applySessionState,
+  renderOpsDeck,
   applyVerificationState,
   refreshActionPanel,
   renderActivityFeed,
@@ -38,6 +39,12 @@ const platformStatus = {
   catalogCount: 0,
   indexReady: false
 };
+
+function formatOpsAmount(value, asset = "DOT") {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return `- ${asset}`;
+  return `${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${asset}`;
+}
 
 function inferWorkspaceModeFromHash(hash = window.location.hash) {
   if (!hash) return undefined;
@@ -121,6 +128,10 @@ function formatAdminNumber(value) {
   if (!Number.isFinite(number)) return "Unknown";
   if (number === Number.MAX_SAFE_INTEGER || number >= 1e15) return "Unlimited";
   return number.toLocaleString("en-US");
+}
+
+function compactOpsWallet(wallet = "") {
+  return wallet && wallet.length > 12 ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : wallet || "Unknown wallet";
 }
 
 function shortenWallet(wallet) {
@@ -260,6 +271,170 @@ function renderMaintenanceStatus(maintenance = undefined) {
       </div>
     `
   );
+}
+
+function buildLocalOpsSnapshot() {
+  const activeStatuses = new Set(["claimed", "submitted", "disputed", "rejected"]);
+  const recentSessions = (state.history ?? []).slice(0, 6);
+  const activeSessions = recentSessions.filter((entry) => activeStatuses.has(entry.status));
+  const localJobs = [...recentSessions.reduce((accumulator, session) => {
+    const current = accumulator.get(session.jobId) ?? {
+      jobId: session.jobId,
+      activeRuns: 0,
+      totalRuns: 0,
+      latestStatus: session.status,
+      latestAt: session.updatedAt
+    };
+    current.totalRuns += 1;
+    if (activeStatuses.has(session.status)) current.activeRuns += 1;
+    if (String(session.updatedAt ?? "") > String(current.latestAt ?? "")) {
+      current.latestAt = session.updatedAt;
+      current.latestStatus = session.status;
+    }
+    accumulator.set(session.jobId, current);
+    return accumulator;
+  }, new Map()).values()].slice(0, 4);
+
+  if (!state.wallet) {
+    return {
+      headline: "The operator room is waiting for a signed-in wallet.",
+      copy: "Sign in first, then this deck will switch from setup copy to live worker motion, claim stake, and operator pulse.",
+      pill: { label: "Awaiting sign-in", tone: "status-pending" },
+      metrics: {
+        activeRuns: { value: "-", copy: "No wallet session yet" },
+        activeAgents: { value: "-", copy: "Admin snapshot required for platform-wide view" },
+        capitalAtWork: { value: "-", copy: "Claim stake appears after sign-in" },
+        treasury: { value: "Locked", copy: "Admin view reveals treasury posture" }
+      },
+      flowLabel: "Sign in to load job flow",
+      pulseLabel: "Sign in to load event pulse",
+      emptyFlow: "No job flow is visible until a wallet signs in and loads session history.",
+      emptyPulse: "No event pulse is visible until the wallet event stream is active.",
+      topJobs: [],
+      recentSessions: [],
+      pulseItems: []
+    };
+  }
+
+  return {
+    headline: activeSessions.length
+      ? "This operator wallet has live runs in motion."
+      : "The operator wallet is connected and ready for the next run.",
+    copy: activeSessions.length
+      ? "Use the live deck to see which runs are still in flight, how much stake is currently at work, and what the wallet has touched most recently."
+      : "The page is live, but the current picture is still wallet-scoped until an admin session unlocks the global platform snapshot.",
+    pill: {
+      label: activeSessions.length ? "Wallet live" : "Wallet ready",
+      tone: activeSessions.length ? "status-ok" : "status-pending"
+    },
+    metrics: {
+      activeRuns: {
+        value: String(activeSessions.length),
+        copy: activeSessions.length ? "Runs still moving through claim, submit, or dispute." : "No active runs for this wallet."
+      },
+      activeAgents: {
+        value: "1 wallet",
+        copy: "Sign in as admin to see platform-wide agent activity."
+      },
+      capitalAtWork: {
+        value: formatOpsAmount(activeSessions.reduce((sum, entry) => sum + Number(entry.claimStake ?? 0), 0)),
+        copy: "Claim stake currently tied to this wallet's in-flight runs."
+      },
+      treasury: {
+        value: formatOpsAmount(state.account?.liquid?.DOT ?? 0),
+        copy: "Deposited DOT visible from the current operator wallet."
+      }
+    },
+    flowLabel: `${recentSessions.length} wallet session${recentSessions.length === 1 ? "" : "s"} in view`,
+    pulseLabel: `${Math.min(state.activity.length, 6)} recent wallet events`,
+    topJobs: localJobs,
+    recentSessions: recentSessions.map((entry) => ({
+      ...entry,
+      claimStakeLabel: formatOpsAmount(entry.claimStake ?? 0)
+    })),
+    pulseItems: (state.activity ?? []).slice(0, 6)
+  };
+}
+
+function buildAdminOpsSnapshot(status = {}) {
+  const ops = status.ops ?? {};
+  const policy = status.maintenance?.policy ?? {};
+  const treasuryLabel = policy.paused
+    ? "Paused"
+    : policy.enabled
+      ? `${formatAdminNumber(policy.risk?.dailyOutflowCap)} DOT cap`
+      : "Off-chain";
+  const treasuryCopy = policy.paused
+    ? "Treasury policy is paused. Operator intervention is required before capital should move."
+    : policy.enabled
+      ? `Daily outflow cap ${formatAdminNumber(policy.risk?.dailyOutflowCap)} DOT · default claim stake ${formatAdminNumber(policy.risk?.defaultClaimStakeBps)} bps.`
+      : "Treasury policy is not currently enforced on-chain in this environment.";
+  const anomalies = (status.anomalies ?? []).map((entry) => ({
+    kind: "anomaly",
+    title: entry.code === "policy_paused" ? "Treasury policy paused" : "Runtime attention needed",
+    body: entry.message,
+    label: entry.severity ?? "Attention",
+    tone: entry.severity === "high" ? "eligible-no" : "tier-warn"
+  }));
+
+  return {
+    headline: ops.activeSessions
+      ? `${ops.activeSessions} live run${ops.activeSessions === 1 ? "" : "s"} are moving through the platform right now.`
+      : "The platform is live, but no runs are currently in motion.",
+    copy: ops.activeSessions
+      ? `Recent flow shows ${ops.activeWallets} active wallet${ops.activeWallets === 1 ? "" : "s"} and ${formatOpsAmount(
+          ops.totalCapitalAtWork
+        )} currently committed as claim stake.`
+      : "Use this deck as the operating picture for treasury posture, recent claims, and the jobs agents are actually touching.",
+    pill: {
+      label: anomalies.length ? "Attention on deck" : ops.activeSessions ? "Platform moving" : "Platform idle",
+      tone: anomalies.length ? "tier-warn" : ops.activeSessions ? "status-ok" : "status-pending"
+    },
+    metrics: {
+      activeRuns: {
+        value: String(ops.activeSessions ?? 0),
+        copy: `${ops.resolvedRecently ?? 0} recently resolved in the current snapshot window.`
+      },
+      activeAgents: {
+        value: String(ops.activeWallets ?? 0),
+        copy: "Unique wallets seen across the recent admin session window."
+      },
+      capitalAtWork: {
+        value: formatOpsAmount(ops.totalCapitalAtWork ?? 0),
+        copy: "Claim stake currently tied to runs that are still active."
+      },
+      treasury: {
+        value: treasuryLabel,
+        copy: treasuryCopy
+      }
+    },
+    flowLabel: `${(ops.topJobs ?? []).length} hot job lanes · ${(ops.recentSessions ?? []).length} recent runs`,
+    pulseLabel: `${(status.anomalies ?? []).length} anomalies · ${(ops.recentEvents ?? []).length} recent events`,
+    topJobs: ops.topJobs ?? [],
+    recentSessions: (ops.recentSessions ?? []).map((entry) => ({
+      ...entry,
+      wallet: compactOpsWallet(entry.wallet),
+      claimStakeLabel: formatOpsAmount(entry.claimStake ?? 0)
+    })),
+    pulseItems: [...anomalies, ...(ops.recentEvents ?? []).slice(0, 7)],
+    emptyFlow: "No recent platform runs are available yet.",
+    emptyPulse: "No recent platform events are buffered right now."
+  };
+}
+
+async function refreshOpsDeck(snapshot = getAuthSnapshot()) {
+  if (snapshot.authenticated && hasRole("admin", snapshot.roles ?? [])) {
+    try {
+      const status = await readJson("/api/admin/status");
+      renderOpsDeck(buildAdminOpsSnapshot(status));
+      return status;
+    } catch (error) {
+      debug.error(error);
+    }
+  }
+
+  renderOpsDeck(buildLocalOpsSnapshot());
+  return undefined;
 }
 
 function refreshAdminConsole(snapshot = getAuthSnapshot()) {
@@ -457,6 +632,7 @@ async function refreshAdminWorkspace(snapshot = getAuthSnapshot()) {
   if (!snapshot.authenticated || !hasRole("admin", snapshot.roles ?? [])) {
     renderRecurringStatus(undefined);
     renderMaintenanceStatus(undefined);
+    renderOpsDeck(buildLocalOpsSnapshot());
     return;
   }
 
@@ -464,6 +640,7 @@ async function refreshAdminWorkspace(snapshot = getAuthSnapshot()) {
     const status = await readJson("/api/admin/status");
     renderRecurringStatus(status.recurring);
     renderMaintenanceStatus(status.maintenance);
+    renderOpsDeck(buildAdminOpsSnapshot(status));
   } catch (error) {
     debug.error(error);
     renderHtml(
@@ -474,6 +651,7 @@ async function refreshAdminWorkspace(snapshot = getAuthSnapshot()) {
       document.getElementById("admin-maintenance-status"),
       html`<p class="empty-state">Maintenance posture is temporarily unavailable.</p>`
     );
+    renderOpsDeck(buildLocalOpsSnapshot());
   }
 }
 
@@ -613,6 +791,7 @@ async function refreshWalletPanels() {
   } else {
     refreshActionPanel();
   }
+  await refreshOpsDeck();
 }
 
 function scheduleLiveRefresh(event = undefined) {
@@ -634,6 +813,7 @@ function recordActivity(event) {
   if (!event) return;
   state.activity = [event, ...state.activity].slice(0, 24);
   renderActivityFeed(state.activity);
+  void refreshOpsDeck();
 }
 
 function restartEventSubscription() {
@@ -765,6 +945,7 @@ async function loadWallet(wallet) {
   }
 
   restartEventSubscription();
+  await refreshOpsDeck();
 }
 
 async function fundCurrentWallet() {
@@ -796,6 +977,7 @@ async function loadCatalog() {
     void refreshAdminWorkspace();
   }
   refreshAdminConsole();
+  void refreshOpsDeck();
 }
 
 async function claimSelectedJob() {
@@ -1336,6 +1518,7 @@ function wireAuthControls() {
     renderActivityFeed([]);
     renderJobDetail(undefined, []);
     renderCatalogJobActivity(undefined, []);
+    renderOpsDeck(buildLocalOpsSnapshot());
     setText("job-count", "0 recommendations");
     setText("funding-wallet-value", "No wallet signed in");
     setText("auth-wallet-value", "No wallet signed in");
@@ -1448,6 +1631,7 @@ async function boot() {
     useSelectedTemplateButton
   });
   renderActivityFeed([]);
+  renderOpsDeck(buildLocalOpsSnapshot());
   refreshAdminConsole();
   refreshActionPanel();
 }

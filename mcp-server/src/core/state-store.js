@@ -36,10 +36,12 @@ export class MemoryStateStore {
     this.chainJobSessions = new Map();
     this.jobSessionHistory = new Map();
     this.walletSessions = new Map();
+    this.recentSessionIds = [];
     this.verificationResults = new Map();
     this.claimLocks = new Map();
     this.nonces = new Map();
     this.rateLimits = new Map();
+    this.mutationReceipts = new Map();
   }
 
   async getSession(sessionId) {
@@ -70,6 +72,10 @@ export class MemoryStateStore {
       persistedSession.wallet,
       [persistedSession.sessionId, ...existing.filter((sessionId) => sessionId !== persistedSession.sessionId)]
     );
+    this.recentSessionIds = [
+      persistedSession.sessionId,
+      ...this.recentSessionIds.filter((sessionId) => sessionId !== persistedSession.sessionId)
+    ];
 
     return persistedSession;
   }
@@ -105,6 +111,11 @@ export class MemoryStateStore {
 
   async listSessionsByJob(jobId, limit = 10, offset = 0) {
     const sessionIds = (this.jobSessionHistory.get(jobId) ?? []).slice(offset, offset + limit);
+    return sessionIds.map((sessionId) => this.sessions.get(sessionId)).filter(Boolean);
+  }
+
+  async listRecentSessions(limit = 10, offset = 0) {
+    const sessionIds = this.recentSessionIds.slice(offset, offset + limit);
     return sessionIds.map((sessionId) => this.sessions.get(sessionId)).filter(Boolean);
   }
 
@@ -181,6 +192,15 @@ export class MemoryStateStore {
     };
   }
 
+  async getMutationReceipt(bucket, key) {
+    return this.mutationReceipts.get(`${bucket}:${key}`);
+  }
+
+  async upsertMutationReceipt(bucket, key, receipt) {
+    this.mutationReceipts.set(`${bucket}:${key}`, receipt);
+    return receipt;
+  }
+
   async revokeToken(jti, ttlSeconds) {
     if (!this.revokedTokens) {
       this.revokedTokens = new Map();
@@ -246,6 +266,10 @@ export class RedisStateStore {
       score: Date.now(),
       value: persistedSession.sessionId
     });
+    await this.client.zAdd(this.key("sessions", "recent"), {
+      score: Date.now(),
+      value: persistedSession.sessionId
+    });
     return persistedSession;
   }
 
@@ -295,6 +319,17 @@ export class RedisStateStore {
     const start = Math.max(offset, 0);
     const stop = start + Math.max(limit - 1, 0);
     const sessionIds = await this.client.zRange(this.key("job-sessions", jobId), start, stop, {
+      REV: true
+    });
+    const sessions = await Promise.all(sessionIds.map((sessionId) => this.getSession(sessionId)));
+    return sessions.filter(Boolean);
+  }
+
+  async listRecentSessions(limit = 10, offset = 0) {
+    await this.connect();
+    const start = Math.max(offset, 0);
+    const stop = start + Math.max(limit - 1, 0);
+    const sessionIds = await this.client.zRange(this.key("sessions", "recent"), start, stop, {
       REV: true
     });
     const sessions = await Promise.all(sessionIds.map((sessionId) => this.getSession(sessionId)));
@@ -357,6 +392,18 @@ export class RedisStateStore {
       remaining: Math.max(limit - count, 0),
       resetAt
     };
+  }
+
+  async getMutationReceipt(bucket, key) {
+    await this.connect();
+    const raw = await this.client.get(this.key("mutation-receipt", `${bucket}:${key}`));
+    return raw ? JSON.parse(raw) : undefined;
+  }
+
+  async upsertMutationReceipt(bucket, key, receipt) {
+    await this.connect();
+    await this.client.set(this.key("mutation-receipt", `${bucket}:${key}`), JSON.stringify(receipt));
+    return receipt;
   }
 
   async revokeToken(jti, ttlSeconds) {

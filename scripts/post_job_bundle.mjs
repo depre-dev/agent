@@ -106,7 +106,10 @@ if (dryRun) {
 }
 
 for (const payload of toCreate) {
-  const created = await postJson(`${trimTrailingSlash(apiUrl)}/admin/jobs`, payload, token);
+  const created = await postJson(`${trimTrailingSlash(apiUrl)}/admin/jobs`, {
+    ...payload,
+    idempotencyKey: `bundle:${payload.id}`
+  }, token);
   console.log(`Created ${created.id}`);
 }
 

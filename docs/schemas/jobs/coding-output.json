@@ -1,0 +1,16 @@
+{
+  "$id": "schema://jobs/coding-output",
+  "title": "Coding Output",
+  "type": "object",
+  "required": ["summary", "output", "status"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "output": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["complete", "partial", "blocked"] },
+    "filesChanged": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

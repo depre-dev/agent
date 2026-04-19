@@ -1,0 +1,20 @@
+{
+  "$id": "schema://jobs/coding-input",
+  "title": "Coding Input",
+  "type": "object",
+  "required": ["task", "acceptanceCriteria"],
+  "properties": {
+    "task": { "type": "string", "minLength": 1 },
+    "acceptanceCriteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "repo": { "type": "string", "minLength": 1 },
+    "files": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

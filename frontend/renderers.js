@@ -27,6 +27,11 @@ function formatEventTime(timestamp) {
   return date.toLocaleString("en-CH", { dateStyle: "short", timeStyle: "short" });
 }
 
+function compactWallet(wallet) {
+  if (!wallet) return "Unknown wallet";
+  return wallet.length > 12 ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : wallet;
+}
+
 function summarizeEvent(event) {
   const jobId = event.jobId ?? event.data?.jobId ?? "unknown job";
   const sessionId = event.sessionId ?? event.data?.sessionId;
@@ -431,6 +436,118 @@ export function renderActivityFeed(entries = state.activity) {
     `;
   });
   renderHtml(root, html`${cards}`);
+}
+
+export function renderOpsDeck(snapshot = {}) {
+  const topJobsRoot = document.getElementById("ops-job-flow");
+  const pulseRoot = document.getElementById("ops-platform-pulse");
+  if (!topJobsRoot || !pulseRoot) return;
+
+  setText("ops-headline", snapshot.headline ?? "Operator picture unavailable");
+  setText("ops-copy", snapshot.copy ?? "Operator data is not available right now.");
+  setText("ops-active-runs", snapshot.metrics?.activeRuns?.value ?? "-");
+  setText("ops-active-runs-copy", snapshot.metrics?.activeRuns?.copy ?? "Waiting for run data");
+  setText("ops-active-agents", snapshot.metrics?.activeAgents?.value ?? "-");
+  setText("ops-active-agents-copy", snapshot.metrics?.activeAgents?.copy ?? "Waiting for agent data");
+  setText("ops-capital-at-work", snapshot.metrics?.capitalAtWork?.value ?? "-");
+  setText("ops-capital-at-work-copy", snapshot.metrics?.capitalAtWork?.copy ?? "Waiting for treasury movement");
+  setText("ops-treasury-posture", snapshot.metrics?.treasury?.value ?? "-");
+  setText("ops-treasury-copy", snapshot.metrics?.treasury?.copy ?? "Waiting for treasury policy");
+  setText("ops-flow-count", snapshot.flowLabel ?? "Waiting for platform flow");
+  setText("ops-pulse-count", snapshot.pulseLabel ?? "Waiting for event pulse");
+  setStatusPill("ops-pulse-pill", snapshot.pill?.label ?? "Syncing", snapshot.pill?.tone ?? "status-pending");
+
+  if (!snapshot.topJobs?.length && !snapshot.recentSessions?.length) {
+    renderHtml(
+      topJobsRoot,
+      html`<p class="empty-state">${snapshot.emptyFlow ?? "No job flow is visible yet."}</p>`
+    );
+  } else {
+    renderHtml(
+      topJobsRoot,
+      html`
+        ${snapshot.topJobs?.length ? html`
+          <div class="ops-subsection">
+            <p class="panel-label">Most active jobs</p>
+            <div class="ops-list-stack">
+              ${snapshot.topJobs.map((entry) => html`
+                <article class="ops-row-card">
+                  <div>
+                    <p class="job-id">${entry.jobId}</p>
+                    <p class="activity-meta">${entry.activeRuns} active · ${entry.totalRuns} total</p>
+                  </div>
+                  <div class="ops-row-meta">
+                    <span class="status-pill ${entry.activeRuns > 0 ? "status-ok" : "status-pending"}">${entry.latestStatus ?? "idle"}</span>
+                    <span>${formatEventTime(entry.latestAt)}</span>
+                  </div>
+                </article>
+              `)}
+            </div>
+          </div>
+        ` : ""}
+        ${snapshot.recentSessions?.length ? html`
+          <div class="ops-subsection">
+            <p class="panel-label">Recent claims and runs</p>
+            <div class="ops-list-stack">
+              ${snapshot.recentSessions.map((entry) => html`
+                <article class="ops-row-card">
+                  <div>
+                    <p class="job-id">${entry.jobId}</p>
+                    <p class="activity-meta">${compactWallet(entry.wallet)} · ${entry.sessionId}</p>
+                  </div>
+                  <div class="ops-row-meta">
+                    <span class="status-pill ${outcomeTone(entry.outcome ?? entry.status)}">${entry.outcome ?? entry.status}</span>
+                    <span>${entry.claimStakeLabel ?? "-"}</span>
+                    <span>${formatEventTime(entry.updatedAt)}</span>
+                  </div>
+                </article>
+              `)}
+            </div>
+          </div>
+        ` : ""}
+      `
+    );
+  }
+
+  if (!snapshot.pulseItems?.length) {
+    renderHtml(
+      pulseRoot,
+      html`<p class="empty-state">${snapshot.emptyPulse ?? "No platform pulse is available yet."}</p>`
+    );
+    return;
+  }
+
+  const pulseCards = snapshot.pulseItems.map((entry) => {
+    if (entry.kind === "anomaly") {
+      return html`
+        <article class="ops-row-card ops-row-card-alert">
+          <div>
+            <p class="job-id">${entry.title}</p>
+            <p class="activity-copy">${entry.body}</p>
+          </div>
+          <div class="ops-row-meta">
+            <span class="status-pill ${entry.tone ?? "tier-warn"}">${entry.label ?? "Attention"}</span>
+          </div>
+        </article>
+      `;
+    }
+
+    const summary = summarizeEvent(entry.event ?? entry);
+    return html`
+      <article class="ops-row-card">
+        <div>
+          <p class="job-id">${summary.title}</p>
+          <p class="activity-copy">${summary.body}</p>
+        </div>
+        <div class="ops-row-meta">
+          <span class="status-pill ${summary.tone}">${entry.label ?? entry.event?.topic ?? entry.topic ?? "event"}</span>
+          <span>${formatEventTime(entry.at ?? entry.timestamp ?? entry.event?.timestamp)}</span>
+        </div>
+      </article>
+    `;
+  });
+
+  renderHtml(pulseRoot, html`${pulseCards}`);
 }
 
 export function renderSessionDetail() {

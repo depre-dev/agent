@@ -3,6 +3,7 @@ import {
   NotFoundError,
   ValidationError
 } from "./errors.js";
+import { isBuiltinJobSchemaRef } from "./job-schema-registry.js";
 
 const DEFAULT_AGENT_PROFILE = {
   capabilities: ["claim_job", "submit_work", "allocate_idle_funds"],
@@ -89,6 +90,20 @@ export class JobCatalogService {
     return [...this.jobs];
   }
 
+  listJobsByParentSession(parentSessionId) {
+    return this.jobs
+      .filter((job) => job.parentSessionId === parentSessionId)
+      .map((job) => ({ ...job }));
+  }
+
+  getRecurringTemplate(templateId) {
+    const template = this.requireJob(templateId);
+    if (!template.recurring) {
+      throw new ValidationError(`${templateId} is not a recurring template`);
+    }
+    return template;
+  }
+
   createJob(input) {
     const job = this.normalizeJobInput(input);
     if (this.jobs.some((candidate) => candidate.id === job.id)) {
@@ -116,7 +131,10 @@ export class JobCatalogService {
           verifierMode: template.verifierMode,
           schedule: template.schedule,
           derivativeCount: derivatives.length,
-          lastFiredAt: latest?.firedAt,
+          paused: Boolean(template.runtime?.paused),
+          lastFiredAt: template.runtime?.lastFiredAt ?? latest?.firedAt,
+          nextFireAt: template.runtime?.nextFireAt,
+          lastResult: template.runtime?.lastResult,
           lastDerivativeId: latest?.id,
           latestRun: latest
             ? {
@@ -135,6 +153,36 @@ export class JobCatalogService {
       count: entries.length,
       templates: entries
     };
+  }
+
+  updateRecurringTemplateRuntime(templateId, patch = {}) {
+    const template = this.getRecurringTemplate(templateId);
+    const nextRuntime = {
+      ...(template.runtime ?? {}),
+      ...patch
+    };
+    for (const [key, value] of Object.entries(nextRuntime)) {
+      if (value === undefined) {
+        delete nextRuntime[key];
+      }
+    }
+    template.runtime = nextRuntime;
+    return { ...template.runtime };
+  }
+
+  pauseRecurringTemplate(templateId, pausedAt = new Date()) {
+    return this.updateRecurringTemplateRuntime(templateId, {
+      paused: true,
+      pausedAt: pausedAt.toISOString()
+    });
+  }
+
+  resumeRecurringTemplate(templateId, resumedAt = new Date()) {
+    return this.updateRecurringTemplateRuntime(templateId, {
+      paused: false,
+      pausedAt: undefined,
+      resumedAt: resumedAt.toISOString()
+    });
   }
 
   async recommendJobs(wallet) {
@@ -321,6 +369,11 @@ export class JobCatalogService {
       throw new ValidationError("Retry limit must be zero or higher.");
     }
 
+    const inputSchemaRef = String(input?.inputSchemaRef ?? `schema://jobs/${category}-input`).trim();
+    const outputSchemaRef = String(input?.outputSchemaRef ?? `schema://jobs/${category}-output`).trim();
+    this.validateSchemaRef(inputSchemaRef, "inputSchemaRef");
+    this.validateSchemaRef(outputSchemaRef, "outputSchemaRef");
+
     // Optional sub-job lineage. When an agent spawns a sub-job from inside
     // its own session, include `parentSessionId` so the indexer + profile
     // surfaces can reconstruct who hired whom. We validate the shape but
@@ -346,8 +399,8 @@ export class JobCatalogService {
       rewardAmount,
       verifierMode,
       verifierConfig: this.buildVerifierConfig(verifierMode, input),
-      inputSchemaRef: String(input?.inputSchemaRef ?? `schema://jobs/${category}-input`).trim(),
-      outputSchemaRef: String(input?.outputSchemaRef ?? `schema://jobs/${category}-output`).trim(),
+      inputSchemaRef,
+      outputSchemaRef,
       claimTtlSeconds,
       retryLimit,
       requiresSponsoredGas: Boolean(input?.requiresSponsoredGas),
@@ -367,10 +420,7 @@ export class JobCatalogService {
    * source record.
    */
   fireRecurringJob(templateId, { firedAt = new Date() } = {}) {
-    const template = this.requireJob(templateId);
-    if (!template.recurring) {
-      throw new ValidationError(`${templateId} is not a recurring template`);
-    }
+    const template = this.getRecurringTemplate(templateId);
     const stamp = firedAt.toISOString().replace(/[:.]/g, "-").replace("Z", "").slice(0, 19);
     const derivativeId = this.normalizeId(`${templateId}-run-${stamp}`);
     if (this.jobs.some((candidate) => candidate.id === derivativeId)) {
@@ -385,6 +435,14 @@ export class JobCatalogService {
     };
     delete derivative.schedule;
     this.jobs.unshift(derivative);
+    this.updateRecurringTemplateRuntime(templateId, {
+      lastFiredAt: firedAt.toISOString(),
+      lastResult: {
+        status: "fired",
+        at: firedAt.toISOString(),
+        derivativeId
+      }
+    });
     return derivative;
   }
 
@@ -402,6 +460,7 @@ export class JobCatalogService {
         throw new ValidationError("Benchmark minimum matches must be at least 1.");
       }
       return {
+        version: 1,
         handler: "benchmark",
         requiredKeywords: verifierTerms,
         minimumMatches: Math.min(minimumMatches, verifierTerms.length)
@@ -417,6 +476,7 @@ export class JobCatalogService {
         throw new ValidationError(`Invalid deterministic match mode: ${matchMode}`);
       }
       return {
+        version: 1,
         handler: "deterministic",
         expectedOutputs: verifierTerms,
         matchMode
@@ -424,6 +484,7 @@ export class JobCatalogService {
     }
 
     return {
+      version: 1,
       handler: "human_fallback",
       escalationMessage: String(input?.escalationMessage ?? "Escalate to human reviewer.").trim(),
       autoApprove: Boolean(input?.autoApprove)
@@ -436,6 +497,19 @@ export class JobCatalogService {
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "");
+  }
+
+  validateSchemaRef(value, field) {
+    if (!/^schema:\/\/jobs\/[a-z0-9-]+$/u.test(value)) {
+      throw new ValidationError(`${field} must be a schema://jobs/<name> ref.`);
+    }
+    // Built-in schemas are first-class and used for structured submission
+    // validation. Unknown refs are still allowed so custom/off-platform schema
+    // contracts remain usable, but callers won't get structured validation
+    // unless the schema is registered here.
+    if (isBuiltinJobSchemaRef(value)) {
+      return;
+    }
   }
 }
 

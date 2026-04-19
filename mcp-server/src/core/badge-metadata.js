@@ -1,6 +1,7 @@
 import { keccak256, toUtf8Bytes } from "ethers";
 
 import { NotFoundError, ValidationError } from "./errors.js";
+import { extractSubmissionText } from "./submission.js";
 
 /**
  * Sentinel returned in `averray.poster` and `averray.verifier` when the
@@ -381,12 +382,8 @@ export function buildBadgeFromSession({ session, job, verification, context = {}
 }
 
 function deriveEvidenceHash(session) {
-  // Session persistence doesn't currently store the submitted evidence
-  // string (see src/core/job-execution-service.js submitWork()). Deriving
-  // a deterministic 32-byte hash from {sessionId, wallet, updatedAt} keeps
-  // the field schema-valid and lets consumers spot that it's descriptive
-  // rather than claim it's a real on-chain evidence commitment.
-  const input = `averray:badge:${session.sessionId}|${session.wallet}|${session.updatedAt ?? ""}`;
+  const submitted = extractSubmissionText(session.submission);
+  const input = submitted || `averray:badge:${session.sessionId}|${session.wallet}|${session.updatedAt ?? ""}`;
   return keccak256(toUtf8Bytes(input));
 }
 

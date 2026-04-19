@@ -158,6 +158,63 @@
         </div>
       </section>
 
+      <section class="ops-deck" aria-label="Live operator picture">
+        <article class="panel ops-hero-panel">
+          <div class="ops-hero-topline">
+            <div>
+              <p class="panel-label">Live operations room</p>
+              <h2 id="ops-headline">Loading platform motion…</h2>
+            </div>
+            <span id="ops-pulse-pill" class="status-pill status-pending">Syncing</span>
+          </div>
+          <p id="ops-copy" class="section-note">
+            The operator deck is warming up. Once the API and session data respond, this strip will show jobs in motion, capital at work, and platform pulse.
+          </p>
+          <div class="ops-metric-grid">
+            <article class="ops-metric-card ops-metric-card-strong">
+              <p>Runs in motion</p>
+              <strong id="ops-active-runs">-</strong>
+              <span id="ops-active-runs-copy">Waiting for session data</span>
+            </article>
+            <article class="ops-metric-card">
+              <p>Agents active</p>
+              <strong id="ops-active-agents">-</strong>
+              <span id="ops-active-agents-copy">Waiting for session data</span>
+            </article>
+            <article class="ops-metric-card">
+              <p>Capital at work</p>
+              <strong id="ops-capital-at-work">-</strong>
+              <span id="ops-capital-at-work-copy">Waiting for claim stake data</span>
+            </article>
+            <article class="ops-metric-card">
+              <p>Treasury posture</p>
+              <strong id="ops-treasury-posture">-</strong>
+              <span id="ops-treasury-copy">Waiting for treasury policy status</span>
+            </article>
+          </div>
+        </article>
+
+        <article class="panel ops-stream-panel">
+          <div class="detail-head">
+            <h3>Jobs in motion</h3>
+            <span id="ops-flow-count" class="section-note">Waiting for platform flow</span>
+          </div>
+          <div id="ops-job-flow" class="ops-stream-list">
+            <p class="empty-state">Live job routing will appear here once the operator snapshot is loaded.</p>
+          </div>
+        </article>
+
+        <article class="panel ops-stream-panel">
+          <div class="detail-head">
+            <h3>Platform pulse</h3>
+            <span id="ops-pulse-count" class="section-note">Waiting for event pulse</span>
+          </div>
+          <div id="ops-platform-pulse" class="ops-stream-list">
+            <p class="empty-state">Recent events, anomalies, and treasury posture will appear here once the operator snapshot is loaded.</p>
+          </div>
+        </article>
+      </section>
+
       <main>
         <section class="workspace-mode-panel" data-workspace-panel="work">
         <section class="operator-grid">

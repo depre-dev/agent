@@ -9,9 +9,11 @@ import { EventListener } from "../blockchain/event-listener.js";
 import { loadAuthConfig } from "../auth/config.js";
 import { createAuthMiddleware } from "../auth/middleware.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
+import { resolveCapabilities, capabilityMatrix } from "../auth/capabilities.js";
 import { createLogger } from "../core/logger.js";
 import { MetricRegistry } from "../core/metrics.js";
 import { createObservability } from "../core/observability.js";
+import { RecurringSchedulerService } from "./recurring-scheduler.js";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -128,6 +130,14 @@ export async function createPlatformRuntime() {
     gateway.isEnabled() ? new EventListener(gateway, eventBus, stateStore) : undefined
   );
   void eventListener?.start?.();
+  const recurringScheduler = initStep("init-recurring-scheduler", logger, () =>
+    new RecurringSchedulerService(platformService, eventBus, {
+      enabled: parseBooleanEnv(process.env.RECURRING_SCHEDULER_ENABLED),
+      logger
+    })
+  );
+  platformService.recurringScheduler = recurringScheduler;
+  recurringScheduler.start();
 
   const authMiddleware = createAuthMiddleware({ authConfig, stateStore, logger });
   const rateLimiter = createRateLimiter({ stateStore, logger });
@@ -149,8 +159,13 @@ export async function createPlatformRuntime() {
     stateStore,
     eventBus,
     eventListener,
+    recurringScheduler,
     authConfig,
     authMiddleware,
+    authCapabilities: {
+      resolveCapabilities,
+      capabilityMatrix
+    },
     rateLimiter,
     rateLimitConfig,
     httpConfig,

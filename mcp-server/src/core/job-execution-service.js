@@ -3,6 +3,9 @@ import {
   ConflictError,
   NotFoundError
 } from "./errors.js";
+import { transitionSession } from "./session-state-machine.js";
+import { normalizeSubmission } from "./submission.js";
+import { getBuiltinJobSchema, validateStructuredSubmission } from "./job-schema-registry.js";
 
 export class JobExecutionService {
   constructor(
@@ -86,7 +89,7 @@ export class JobExecutionService {
         await this.accountMutationService?.lockJobStake?.(wallet, job.rewardAsset, claimStake, undefined);
       }
 
-      const session = {
+      const baseSession = {
         sessionId,
         wallet,
         jobId,
@@ -94,9 +97,12 @@ export class JobExecutionService {
         claimStake,
         claimStakeBps,
         idempotencyKey,
-        status: "claimed",
         protocolHistory: [protocol]
       };
+      const session = transitionSession(baseSession, "claimed", {
+        reason: "job_claimed",
+        metadata: { protocol, idempotencyKey }
+      });
 
       const persisted = await this.stateStore.upsertSession(session);
       this.publishSessionEvent("session.claimed", persisted);
@@ -106,18 +112,35 @@ export class JobExecutionService {
     }
   }
 
-  async submitWork(sessionId, protocol, evidence = "submitted-via-service") {
+  async submitWork(sessionId, protocol, submissionInput = "submitted-via-service") {
     const session = await this.requireSession(sessionId);
+    const job = this.getJobDefinition(session.jobId);
+    const submission = normalizeSubmission(submissionInput);
+    if (submission.kind === "structured") {
+      validateStructuredSubmission(job.outputSchemaRef, submission.structured, { path: "submission" });
+    }
     if (this.blockchainGateway?.isEnabled()) {
-      await this.blockchainGateway.submitWork(session.chainJobId ?? session.jobId, evidence);
+      await this.blockchainGateway.submitWork(session.chainJobId ?? session.jobId, submission.evidenceText);
     }
     const protocolHistory = [...new Set([...session.protocolHistory, protocol])];
-    const persisted = await this.stateStore.upsertSession({
+    const transitioned = transitionSession({
       ...session,
-      status: "submitted",
-      protocolHistory
+      protocolHistory,
+      submission,
+      outputSchemaBuiltin: Boolean(getBuiltinJobSchema(job.outputSchemaRef))
+    }, "submitted", {
+      reason: "work_submitted",
+      metadata: {
+        protocol,
+        submissionKind: submission.kind,
+        schemaRef: job.outputSchemaRef
+      }
     });
-    this.publishSessionEvent("session.submitted", persisted, { evidence });
+    const persisted = await this.stateStore.upsertSession(transitioned);
+    this.publishSessionEvent("session.submitted", persisted, {
+      submissionKind: submission.kind,
+      schemaRef: job.outputSchemaRef
+    });
     return persisted;
   }
 
@@ -136,6 +159,16 @@ export class JobExecutionService {
       sessions = await this.stateStore.listSessionsByJob?.(jobId, limit) ?? [];
     }
 
+    return Promise.all(
+      sessions.map(async (session) => ({
+        ...session,
+        verification: await this.stateStore.getVerificationResult(session.sessionId) ?? undefined
+      }))
+    );
+  }
+
+  async listRecentSessions(limit = 10) {
+    const sessions = await this.stateStore.listRecentSessions?.(limit) ?? [];
     return Promise.all(
       sessions.map(async (session) => ({
         ...session,

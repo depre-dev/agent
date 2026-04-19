@@ -1,0 +1,15 @@
+{
+  "$id": "schema://jobs/governance-output",
+  "title": "Governance Output",
+  "type": "object",
+  "required": ["summary", "decisionSignal"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "decisionSignal": { "type": "string", "enum": ["approve", "reject", "revise"] },
+    "recommendations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

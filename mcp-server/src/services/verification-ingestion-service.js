@@ -1,11 +1,15 @@
+import { transitionSession } from "../core/session-state-machine.js";
+
 export class VerificationIngestionService {
   constructor(stateStore, eventBus = undefined) {
     this.stateStore = stateStore;
     this.eventBus = eventBus;
   }
 
-  async ingest(verdict) {
-    const session = await this.stateStore.findSessionByJobId(verdict.jobId);
+  async ingest(sessionId, verdict) {
+    const session = sessionId
+      ? await this.stateStore.getSession(sessionId)
+      : await this.stateStore.findSessionByJobId(verdict.jobId);
     if (!session) {
       return undefined;
     }
@@ -16,9 +20,33 @@ export class VerificationIngestionService {
         ? "disputed"
         : "rejected";
 
-    const updatedSession = await this.stateStore.upsertSession({
+    const transitioned = transitionSession({
       ...session,
-      status
+      verificationSummary: {
+        outcome: verdict.outcome,
+        reasonCode: verdict.reasonCode,
+        handler: verdict.handler,
+        handlerVersion: verdict.handlerVersion
+      }
+    }, status, {
+      reason: "verification_resolved",
+      metadata: {
+        outcome: verdict.outcome,
+        reasonCode: verdict.reasonCode,
+        handler: verdict.handler
+      }
+    });
+    const updatedSession = await this.stateStore.upsertSession(transitioned);
+    await this.stateStore.upsertVerificationResult(updatedSession.sessionId, {
+      ...verdict,
+      session: {
+        sessionId: updatedSession.sessionId,
+        jobId: updatedSession.jobId,
+        wallet: updatedSession.wallet,
+        status: updatedSession.status,
+        updatedAt: updatedSession.updatedAt,
+        resolvedAt: updatedSession.resolvedAt
+      }
     });
     this.eventBus?.publish({
       id: `platform-verification-${updatedSession.sessionId}-${Date.now()}`,

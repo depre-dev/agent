@@ -8,11 +8,12 @@ export class VerifierService {
     this.registry = registry;
   }
 
-  async verifySubmission({ sessionId, evidence = "", metadataURI = "ipfs://pending-badge" }) {
+  async verifySubmission({ sessionId, evidence = undefined, metadataURI = "ipfs://pending-badge" }) {
     const session = await this.platformService.resumeSession(sessionId);
     const job = this.platformService.getJobDefinition(session.jobId);
     const chainJobId = session.chainJobId ?? session.jobId;
-    const verdict = this.registry.evaluate(job, evidence);
+    const verificationInput = this.resolveVerificationInput(session, evidence);
+    const verdict = this.registry.evaluate(job, verificationInput);
 
     if (this.blockchainGateway?.isEnabled() && this.blockchainGateway.resolveSinglePayout) {
       await this.blockchainGateway.resolveSinglePayout(
@@ -23,15 +24,33 @@ export class VerifierService {
       );
     }
 
-    const updatedSession = await this.platformService.ingestVerification(verdict);
+    const updatedSession = await this.platformService.ingestVerification(sessionId, verdict);
     const result = {
       ...verdict,
       sessionId,
       metadataURI,
+      verifierConfigVersion: job.verifierConfig?.version ?? 1,
+      verificationInput,
       session: updatedSession ?? session
     };
 
     return this.stateStore.upsertVerificationResult(sessionId, result);
+  }
+
+  async replayVerification(sessionId) {
+    const session = await this.platformService.resumeSession(sessionId);
+    const job = this.platformService.getJobDefinition(session.jobId);
+    const existing = await this.stateStore.getVerificationResult(sessionId);
+    const verificationInput = existing?.verificationInput ?? this.resolveVerificationInput(session);
+    const verdict = this.registry.evaluate(job, verificationInput);
+    return {
+      ...verdict,
+      sessionId,
+      replay: true,
+      originalOutcome: existing?.outcome,
+      verifierConfigVersion: job.verifierConfig?.version ?? 1,
+      verificationInput
+    };
   }
 
   async getResult(sessionId) {
@@ -40,5 +59,17 @@ export class VerifierService {
 
   listHandlers() {
     return this.registry.listHandlers();
+  }
+
+  resolveVerificationInput(session, overrideEvidence = undefined) {
+    if (overrideEvidence !== undefined) {
+      return session?.submission && typeof overrideEvidence === "string" && !overrideEvidence.length
+        ? session.submission
+        : overrideEvidence;
+    }
+    if (session?.submission) {
+      return session.submission;
+    }
+    return "";
   }
 }

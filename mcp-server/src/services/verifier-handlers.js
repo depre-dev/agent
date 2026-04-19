@@ -1,5 +1,9 @@
-function normalizeEvidence(evidence) {
-  return evidence.trim().toLowerCase();
+import { extractSubmissionText } from "../core/submission.js";
+
+const HANDLER_VERSION = 1;
+
+function normalizeEvidence(input) {
+  return extractSubmissionText(input).trim().toLowerCase();
 }
 
 function createBenchmarkHandler() {
@@ -13,6 +17,7 @@ function createBenchmarkHandler() {
       return {
         jobId: job.id,
         handler: "benchmark",
+        handlerVersion: HANDLER_VERSION,
         outcome: approved ? "approved" : "rejected",
         score: Math.round((matched.length / Math.max(job.verifierConfig.requiredKeywords.length, 1)) * 100),
         reasonCode: approved ? "BENCHMARK_THRESHOLD_MET" : "BENCHMARK_THRESHOLD_MISSED",
@@ -35,6 +40,7 @@ function createDeterministicHandler() {
       return {
         jobId: job.id,
         handler: "deterministic",
+        handlerVersion: HANDLER_VERSION,
         outcome: approved ? "approved" : "rejected",
         score: approved ? 100 : 0,
         reasonCode: approved ? "DETERMINISTIC_MATCH" : "DETERMINISTIC_MISMATCH",
@@ -53,6 +59,7 @@ function createHumanFallbackHandler() {
       return {
         jobId: job.id,
         handler: "human_fallback",
+        handlerVersion: HANDLER_VERSION,
         outcome: job.verifierConfig.autoApprove ? "approved" : "disputed",
         score: job.verifierConfig.autoApprove ? 100 : 0,
         reasonCode: job.verifierConfig.autoApprove ? "HUMAN_FALLBACK_AUTO_APPROVE" : "HUMAN_REVIEW_REQUIRED",
@@ -84,4 +91,3 @@ export class VerifierRegistry {
     return handler.evaluate(job, evidence);
   }
 }
-

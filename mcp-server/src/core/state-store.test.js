@@ -53,3 +53,32 @@ test("MemoryStateStore rate limit returns allowed=false past the limit", async (
   assert.equal(third.count, 3);
   assert.equal(third.remaining, 0);
 });
+
+test("MemoryStateStore mutation receipts round-trip", async () => {
+  const store = new MemoryStateStore();
+  const receipt = { id: "job-123", status: "created" };
+  await store.upsertMutationReceipt("admin_jobs", "wallet:key-1", receipt);
+  const loaded = await store.getMutationReceipt("admin_jobs", "wallet:key-1");
+  assert.deepEqual(loaded, receipt);
+});
+
+test("MemoryStateStore lists recent sessions in latest-first order", async () => {
+  const store = new MemoryStateStore();
+  await store.upsertSession({
+    sessionId: "session-1",
+    idempotencyKey: "claim-1",
+    wallet: "0xaaa",
+    jobId: "job-1",
+    status: "claimed"
+  });
+  await store.upsertSession({
+    sessionId: "session-2",
+    idempotencyKey: "claim-2",
+    wallet: "0xbbb",
+    jobId: "job-2",
+    status: "submitted"
+  });
+
+  const sessions = await store.listRecentSessions(2);
+  assert.deepEqual(sessions.map((entry) => entry.sessionId), ["session-2", "session-1"]);
+});

@@ -1,0 +1,29 @@
+{
+  "$id": "schema://jobs/docs-drift-audit-output",
+  "title": "Docs Drift Audit Output",
+  "type": "object",
+  "required": ["source_surface", "drift_findings", "missing_updates", "severity", "fix_recommendation"],
+  "properties": {
+    "source_surface": { "type": "string", "minLength": 1 },
+    "drift_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["surface_a", "surface_b", "mismatch"],
+        "properties": {
+          "surface_a": { "type": "string", "minLength": 1 },
+          "surface_b": { "type": "string", "minLength": 1 },
+          "mismatch": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "missing_updates": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "severity": { "type": "string", "enum": ["low", "medium", "high"] },
+    "fix_recommendation": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

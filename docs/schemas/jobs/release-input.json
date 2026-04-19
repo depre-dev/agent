@@ -1,0 +1,19 @@
+{
+  "$id": "schema://jobs/release-input",
+  "title": "Release Input",
+  "type": "object",
+  "required": ["release_id", "checklist"],
+  "properties": {
+    "release_id": { "type": "string", "minLength": 1 },
+    "checklist": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "context": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}
