@@ -235,30 +235,15 @@ function renderTreasuryOverview() {
 
 function renderStrategyShelf() {
   const root = document.getElementById("strategy-shelf");
-  const attentionRoot = document.getElementById("strategy-attention-list");
-  const deployedCount = document.getElementById("strategy-deployed-count");
-  const deployedShare = document.getElementById("strategy-deployed-share");
-  const unrealizedYield = document.getElementById("strategy-unrealized-yield");
-  const realizedYield = document.getElementById("strategy-realized-yield");
-  const attentionCount = document.getElementById("strategy-attention-count");
   if (!root) return;
 
   const strategies = Array.isArray(state.strategies) ? state.strategies : [];
   const positions = Array.isArray(state.strategyPositions) ? state.strategyPositions : [];
   const countLabel = document.getElementById("strategy-count");
-  const summary = state.strategySummary ?? {};
 
   if (!strategies.length) {
     if (countLabel) {
       countLabel.textContent = state.wallet ? "No strategy adapters reported" : "Loading strategy posture";
-    }
-    setText("strategy-deployed-count", "-");
-    setText("strategy-deployed-share", "-");
-    setText("strategy-unrealized-yield", "-");
-    setText("strategy-realized-yield", "-");
-    setText("strategy-attention-count", "-");
-    if (attentionRoot) {
-      renderHtml(attentionRoot, html`<p class="empty-state">No treasury lane queue yet.</p>`);
     }
     renderHtml(root, html`<p class="empty-state">No strategy adapters are visible for this deployment yet.</p>`);
     return;
@@ -269,44 +254,7 @@ function renderStrategyShelf() {
   const liveFeeds = positions.filter((entry) => entry?.yieldReported).length;
 
   if (countLabel) {
-    countLabel.textContent = `${activePositions.length}/${strategies.length} lane${strategies.length === 1 ? "" : "s"} routed · ${liveFeeds} live adapter feed${liveFeeds === 1 ? "" : "s"} · ${attentionItems.length} needing attention`;
-  }
-  if (deployedCount) {
-    deployedCount.textContent = `${summary.deployedLanes ?? activePositions.length}`;
-  }
-  if (deployedShare) {
-    deployedShare.textContent = `${formatAmount(summary.allocated ?? state.account?.strategyAllocated?.DOT ?? 0)} DOT`;
-  }
-  if (unrealizedYield) {
-    unrealizedYield.textContent = `${formatSignedAmount(summary.unrealizedYield ?? 0)}`;
-  }
-  if (realizedYield) {
-    realizedYield.textContent = `${formatSignedAmount(summary.realizedYield ?? 0)}`;
-  }
-  if (attentionCount) {
-    attentionCount.textContent = `${summary.attentionCount ?? attentionItems.length}`;
-  }
-
-  if (attentionRoot) {
-    if (!attentionItems.length) {
-      renderHtml(attentionRoot, html`<p class="empty-state">No treasury lane needs action right now.</p>`);
-    } else {
-      renderHtml(
-        attentionRoot,
-        html`${attentionItems.map((entry) => html`
-          <article class="ops-row-card ${entry.attention?.tone === "tier-warn" ? "ops-row-card-alert" : ""}">
-            <div>
-              <p class="job-id">${entry.strategyId}</p>
-              <p class="activity-copy">${entry.attention?.message}</p>
-            </div>
-            <div class="ops-row-meta">
-              <span class="status-pill ${entry.attention?.tone ?? "status-pending"}">${entry.attention?.code?.replaceAll("_", " ") ?? "attention"}</span>
-              <span>${formatAmount(entry.routedAmount ?? entry.shares)} DOT</span>
-            </div>
-          </article>
-        `)}`
-      );
-    }
+    countLabel.textContent = `${activePositions.length}/${strategies.length} lane${strategies.length === 1 ? "" : "s"} live · ${liveFeeds} live feed${liveFeeds === 1 ? "" : "s"} · ${attentionItems.length} needing attention`;
   }
 
   renderHtml(
@@ -318,83 +266,50 @@ function renderStrategyShelf() {
       const position = positions.find((entry) => entry.strategyId === strategy.strategyId) ?? {};
       const shares = Number(position.routedAmount ?? position.shares ?? 0);
       const statusTone = position.attention?.tone ?? (shares > 0 ? "status-ok" : "status-pending");
+      const attentionLabel = position.attention?.code?.replaceAll("_", " ") ?? (shares > 0 ? "active" : "idle");
       return html`
-        <article class="strategy-card">
-          <div class="strategy-card-topline">
+        <article class="strategy-position-row ${position.attention ? "strategy-position-row-alert" : ""}">
+          <div class="strategy-position-main">
             <div>
-              <p>${position.assetSymbol ?? "DOT"} strategy</p>
-              <strong>${title}</strong>
-            </div>
-            <span class="status-pill ${statusTone}">
-              ${position.statusLabel ?? (isMock ? "Testnet mock" : "Registered")}
-            </span>
-          </div>
-          <div class="strategy-meta-grid">
-            <div>
-              <dt>Routed now</dt>
-              <dd>${formatAmount(shares)} DOT</dd>
-            </div>
-            <div>
-              <dt>Lane</dt>
-              <dd>${strategy.strategyId ?? "Unknown id"}</dd>
-            </div>
-            <div>
-              <dt>Share of deployed</dt>
-              <dd>${formatPercentFromBps(position.deploymentShareBps)}</dd>
-            </div>
-            <div>
-              <dt>Share of treasury</dt>
-              <dd>${formatPercentFromBps(position.treasuryShareBps)}</dd>
-            </div>
-            <div>
-              <dt>Yield signal</dt>
-              <dd>${position.yieldLabel ?? (isMock ? "Simulated yield adapter" : "Yield feed unavailable")}</dd>
-            </div>
-            <div>
-              <dt>Entry value</dt>
-              <dd>${formatAmount(position.principalValue ?? 0)} DOT</dd>
-            </div>
-            <div>
-              <dt>Open yield</dt>
-              <dd>${formatSignedAmount(position.unrealizedYield ?? 0)}</dd>
-            </div>
-            <div>
-              <dt>Realized yield</dt>
-              <dd>${formatSignedAmount(position.realizedYield ?? 0)}</dd>
-            </div>
-            <div>
-              <dt>Adapter share price</dt>
-              <dd>${formatSharePrice(position.sharePrice)}</dd>
-            </div>
-            <div>
-              <dt>Adapter drift</dt>
-              <dd>${formatSignedBps(position.performanceBps)}</dd>
-            </div>
-            <div>
-              <dt>Last move</dt>
-              <dd>${formatStrategyMovement(position)}</dd>
-            </div>
-            <div>
-              <dt>Risk</dt>
-              <dd>${position.riskLabel || riskLabel}</dd>
-            </div>
-            <div>
-              <dt>Attention</dt>
-              <dd>${position.attention?.message ?? "No lane-specific issue detected."}</dd>
+              <p class="job-id">${strategy.strategyId ?? "Unknown lane"}</p>
+              <p class="strategy-position-copy">${title}</p>
             </div>
           </div>
-          <p class="strategy-footnote">
-            ${shares > 0
-              ? `${formatAmount(shares)} DOT is actively routed here. The card now combines live adapter performance with wallet-scoped routed capital.`
-              : isMock
-                ? "This adapter is available but idle. It proves the treasury/yield lane UX with a real adapter-side exchange rate, but not real market yield."
-                : "This lane is registered and ready, and the card now shows the adapter's own performance view even before this wallet routes capital into it."}
-          </p>
-          <div class="strategy-actions">
-            <button class="secondary-action" type="button" data-strategy-select="${strategy.strategyId}">
-              Load lane in console
-            </button>
-            ${state.strategyDocs ? html`<a class="secondary-action strategy-doc-link" href="${state.strategyDocs}" target="_blank" rel="noreferrer">Open strategy docs</a>` : ""}
+          <div class="strategy-position-metrics">
+            <div>
+              <span>Routed</span>
+              <strong>${formatAmount(shares)} DOT</strong>
+            </div>
+            <div>
+              <span>Open yield</span>
+              <strong>${formatSignedAmount(position.unrealizedYield ?? 0)}</strong>
+            </div>
+            <div>
+              <span>Realized</span>
+              <strong>${formatSignedAmount(position.realizedYield ?? 0)}</strong>
+            </div>
+            <div>
+              <span>Health</span>
+              <strong>${position.statusLabel ?? (isMock ? "Testnet mock" : "Registered")}</strong>
+            </div>
+            <div>
+              <span>Last move</span>
+              <strong>${formatStrategyMovement(position)}</strong>
+            </div>
+            <div>
+              <span>Yield feed</span>
+              <strong>${position.yieldReported ? `${formatSharePrice(position.sharePrice)} · ${formatSignedBps(position.performanceBps)}` : (position.yieldLabel ?? "Unavailable")}</strong>
+            </div>
+          </div>
+          <div class="strategy-position-side">
+            <span class="status-pill ${statusTone}">${attentionLabel}</span>
+            <p class="strategy-position-note">${position.attention?.message ?? position.riskLabel || riskLabel}</p>
+            <div class="strategy-position-actions">
+              <button class="secondary-action" type="button" data-strategy-select="${strategy.strategyId}">
+                Open lane
+              </button>
+              ${state.strategyDocs ? html`<a class="secondary-action strategy-doc-link" href="${state.strategyDocs}" target="_blank" rel="noreferrer">Docs</a>` : ""}
+            </div>
           </div>
         </article>
       `;
@@ -1075,25 +990,27 @@ export function renderRecommendations(recommendations) {
     const tierLabel = job.tier ? `${job.tier.toUpperCase()} tier` : "Starter tier";
     const tierUnlock = describeTierUnlock(job.tierGate);
     return html`
-      <article class="job-card ${isSelected ? "job-selected" : ""}">
-        <div class="job-topline">
-          <p class="job-id">${job.jobId}</p>
-          <span class="eligibility-pill ${job.eligible ? "eligible-yes" : "eligible-no"}">
-            ${job.eligible ? "Eligible" : "Blocked"}
-          </span>
+      <article class="job-row-card ${isSelected ? "job-selected" : ""}">
+        <div class="job-row-main">
+          <div class="job-topline">
+            <p class="job-id">${job.jobId}</p>
+            <span class="eligibility-pill ${job.eligible ? "eligible-yes" : "eligible-no"}">
+              ${job.eligible ? "Eligible" : "Blocked"}
+            </span>
+          </div>
+          <div class="job-metrics">
+            <span>${tierLabel}</span>
+            <span>Fit ${job.fitScore}</span>
+            <span>${formatAmount(job.netReward)} DOT</span>
+          </div>
+          <p class="job-row-copy">${job.explanation}</p>
+          ${tierUnlock ? html`<p class="job-row-subcopy">${tierUnlock}</p>` : ""}
         </div>
-        <div class="job-metrics">
-          <span>${tierLabel}</span>
-          <span>Fit score ${job.fitScore}</span>
-          <span>Net reward ${formatAmount(job.netReward)} DOT</span>
+        <div class="job-row-action">
+          <button class="job-select-button" type="button" data-job-id="${job.jobId}">
+            ${isSelected ? "Loaded" : "Load run"}
+          </button>
         </div>
-        <div class="job-copy">
-          <p>${job.explanation}</p>
-          ${tierUnlock ? html`<p class="catalog-meta"><strong>Unlock:</strong> ${tierUnlock}</p>` : ""}
-        </div>
-        <button class="job-select-button" type="button" data-job-id="${job.jobId}">
-          ${isSelected ? "Selected" : "Select job"}
-        </button>
       </article>
     `;
   });
@@ -1207,6 +1124,58 @@ export function renderHistory(entries) {
     `;
   });
   renderHtml(root, html`${cards}`);
+}
+
+export function renderRunInbox(entries = state.history) {
+  const root = document.getElementById("run-inbox-list");
+  const count = document.getElementById("run-inbox-count");
+  if (!root || !count) return;
+
+  const activeStatuses = ["claimed", "submitted", "verifying", "rejected", "disputed"];
+  const visible = (entries ?? [])
+    .filter((entry) => activeStatuses.includes(entry.status) || entry.sessionId === state.session?.sessionId)
+    .slice(0, 5);
+
+  count.textContent = visible.length
+    ? `${visible.length} run${visible.length === 1 ? "" : "s"} in view`
+    : "No run in motion";
+
+  if (!visible.length) {
+    root.innerHTML = state.wallet
+      ? '<p class="empty-state">No active run right now. Load a recommended run below to start one.</p>'
+      : '<p class="empty-state">Sign in to load the worker run queue.</p>';
+    return;
+  }
+
+  renderHtml(
+    root,
+    html`${visible.map((entry) => {
+      const isCurrent = entry.sessionId === state.session?.sessionId;
+      const updated = entry.updatedAt
+        ? new Date(entry.updatedAt).toLocaleString("en-CH", { dateStyle: "short", timeStyle: "short" })
+        : "-";
+      return html`
+        <article class="run-queue-row ${isCurrent ? "job-selected" : ""}">
+          <div class="run-queue-main">
+            <div class="job-topline">
+              <p class="job-id">${entry.jobId}</p>
+              <span class="eligibility-pill ${outcomeTone(entry.verification?.outcome ?? entry.status)}">${entry.status}</span>
+            </div>
+            <div class="catalog-meta">
+              <span>${entry.sessionId}</span>
+              <span>${entry.verification?.outcome ?? "pending"}</span>
+              <span>${updated}</span>
+            </div>
+          </div>
+          <div class="run-queue-action">
+            <button class="job-select-button" type="button" data-session-id="${entry.sessionId}">
+              ${isCurrent ? "Current run" : "Open run"}
+            </button>
+          </div>
+        </article>
+      `;
+    })}`
+  );
 }
 
 export function renderJobDetail(job, jobHistory) {

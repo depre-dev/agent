@@ -15,6 +15,7 @@ import {
   renderCatalogJobActivity,
   renderJobDetail,
   renderHistory,
+  renderRunInbox,
   renderRecommendations,
   refreshTreasurySurfaces,
   setActionFeedback,
@@ -587,6 +588,110 @@ function renderProductMap(snapshot = getAuthSnapshot()) {
   }
 }
 
+function renderOverviewAttention(snapshot = getAuthSnapshot()) {
+  const root = document.getElementById("overview-attention-list");
+  const count = document.getElementById("overview-attention-count");
+  if (!root || !count) return;
+
+  const items = [];
+  const strategyAttention = (state.strategyPositions ?? [])
+    .filter((entry) => entry?.attention)
+    .slice(0, 2)
+    .map((entry) => ({
+      title: entry.strategyId,
+      body: entry.attention.message,
+      tone: entry.attention.tone ?? "status-pending",
+      action: "Open treasury",
+      target: "observe-treasury-console",
+      mode: "observe"
+    }));
+
+  if (!snapshot.authenticated || !state.wallet) {
+    items.push({
+      title: "Sign in with wallet",
+      body: "Wallet sign-in is still the first step before runs, treasury, and control unlock.",
+      tone: "status-pending",
+      action: "Open runs",
+      target: "workspace-core",
+      mode: "work"
+    });
+  } else if (!state.selectedJobId) {
+    items.push({
+      title: "Pick the next run",
+      body: "A wallet is live, but no run is loaded yet.",
+      tone: "status-ok",
+      action: "Open runs",
+      target: "jobs-workspace",
+      mode: "work"
+    });
+  } else if (!state.session?.sessionId) {
+    items.push({
+      title: "Claim selected run",
+      body: "The run is loaded and waiting to be claimed.",
+      tone: "status-ok",
+      action: "Open current run",
+      target: "work-execution",
+      mode: "work"
+    });
+  } else if (state.session?.status === "claimed") {
+    items.push({
+      title: "Submit the work",
+      body: "The run is claimed and waiting for evidence.",
+      tone: "status-ok",
+      action: "Open current run",
+      target: "work-execution",
+      mode: "work"
+    });
+  } else if (state.session?.status === "submitted") {
+    items.push({
+      title: hasRole("verifier", snapshot.roles ?? []) ? "Settle submitted run" : "Verifier needed",
+      body: hasRole("verifier", snapshot.roles ?? [])
+        ? "A submitted run is ready for verification."
+        : "The current run is waiting for a verifier-scoped wallet.",
+      tone: hasRole("verifier", snapshot.roles ?? []) ? "status-ok" : "tier-warn",
+      action: hasRole("verifier", snapshot.roles ?? []) ? "Open control" : "Open runs",
+      target: hasRole("verifier", snapshot.roles ?? []) ? "admin-workspace" : "work-execution",
+      mode: hasRole("verifier", snapshot.roles ?? []) ? "admin" : "work"
+    });
+  }
+
+  if (Number(state.account?.debtOutstanding?.DOT ?? 0) > 0) {
+    items.push({
+      title: "Debt is open",
+      body: "Treasury has an active debt balance. Review headroom and repay when ready.",
+      tone: "tier-warn",
+      action: "Open treasury",
+      target: "observe-treasury-console",
+      mode: "observe"
+    });
+  }
+
+  items.push(...strategyAttention);
+
+  if (!items.length) {
+    count.textContent = "No urgent actions";
+    renderHtml(root, html`<p class="empty-state">No urgent operator action right now. Overview is clear.</p>`);
+    return;
+  }
+
+  count.textContent = `${items.length} item${items.length === 1 ? "" : "s"} in queue`;
+  renderHtml(
+    root,
+    html`${items.slice(0, 4).map((entry) => html`
+      <article class="ops-row-card ${entry.tone === "tier-warn" ? "ops-row-card-alert" : ""}">
+        <div>
+          <p class="job-id">${entry.title}</p>
+          <p class="activity-copy">${entry.body}</p>
+        </div>
+        <div class="ops-row-meta">
+          <span class="status-pill ${entry.tone}">${entry.action}</span>
+          <button type="button" class="overview-inline-button" data-overview-target="${entry.target}" data-overview-mode="${entry.mode}">Open</button>
+        </div>
+      </article>
+    `)}`
+  );
+}
+
 function renderStartGuide(snapshot = getAuthSnapshot()) {
   const isAdmin = hasRole("admin", snapshot.roles ?? []);
   const isVerifier = hasRole("verifier", snapshot.roles ?? []);
@@ -675,6 +780,7 @@ function renderStartGuide(snapshot = getAuthSnapshot()) {
     guidePill.textContent = pillLabel;
     guidePill.className = `status-pill ${pillTone}`;
   }
+  renderOverviewAttention(snapshot);
 }
 
 async function refreshOpsDeck(snapshot = getAuthSnapshot()) {
@@ -1052,6 +1158,7 @@ async function refreshWalletPanels() {
   updateAccount(account);
   updateReputation(reputation);
   renderRecommendations(recommendations);
+  renderRunInbox(history);
   renderHistory(history);
   setText("job-count", `${recommendations.length} recommendations`);
 
@@ -1209,6 +1316,7 @@ async function loadWallet(wallet) {
   updateAccount(account);
   updateReputation(reputation);
   renderRecommendations(recommendations);
+  renderRunInbox(history);
   renderHistory(history);
   setText("job-count", `${recommendations.length} recommendations`);
   setWalletFeedback(`Loaded live data for ${wallet}.`, "success");
@@ -1616,7 +1724,7 @@ function wireCatalogSelection(catalogList) {
 }
 
 function wireHistorySelection(historyList) {
-  historyList?.addEventListener("click", async (event) => {
+  const handler = async (event) => {
     const button = event.target.closest("[data-session-id]");
     if (!button) return;
 
@@ -1635,7 +1743,10 @@ function wireHistorySelection(historyList) {
       setActionFeedback(error.message ?? "Failed to load session history.", "error");
       showToast(error.message ?? "Failed to load session history.", "error");
     }
-  });
+  };
+
+  historyList?.addEventListener("click", handler);
+  document.getElementById("run-inbox-list")?.addEventListener("click", handler);
 }
 
 function wireHistoryFilter(historyFilter) {
@@ -1919,6 +2030,7 @@ function wireAuthControls() {
     applySessionState(undefined);
     applyVerificationState(undefined);
     renderRecommendations([]);
+    renderRunInbox([]);
     renderHistory([]);
     renderActivityFeed([]);
     renderJobDetail(undefined, []);
@@ -1954,34 +2066,8 @@ function wireAdminConsoleControls() {
   });
 }
 
-function wireStartGuideControls() {
-  document.getElementById("start-human-button")?.addEventListener("click", () => {
-    if (!state.wallet) {
-      jumpToSection("workspace-core", { mode: "work" });
-      return;
-    }
-    if (!state.selectedJobId) {
-      jumpToSection("jobs-workspace", { mode: "work" });
-      return;
-    }
-    if (!state.session?.sessionId) {
-      jumpToSection("work-execution", { mode: "work" });
-      return;
-    }
-    jumpToSection("work-execution", { mode: "work" });
-  });
-
-  document.getElementById("start-admin-button")?.addEventListener("click", () => {
-    if (hasRole("admin") || hasRole("verifier")) {
-      jumpToSection("admin-workspace", { mode: "admin" });
-      return;
-    }
-    jumpToSection("ops-details", { mode: "observe" });
-  });
-}
-
-function wireProductMapControls() {
-  document.getElementById("product-lane-work-button")?.addEventListener("click", () => {
+function wireOverviewControls() {
+  document.getElementById("overview-runs-button")?.addEventListener("click", () => {
     if (!state.wallet) {
       jumpToSection("workspace-core", { mode: "work" });
       return;
@@ -1993,16 +2079,24 @@ function wireProductMapControls() {
     jumpToSection("work-execution", { mode: "work" });
   });
 
-  document.getElementById("product-lane-treasury-button")?.addEventListener("click", () => {
-    jumpToSection("ops-details", { mode: "observe" });
+  document.getElementById("overview-treasury-button")?.addEventListener("click", () => {
+    jumpToSection("observe-treasury-console", { mode: "observe" });
   });
 
-  document.getElementById("product-lane-control-button")?.addEventListener("click", () => {
+  document.getElementById("overview-control-button")?.addEventListener("click", () => {
     if (hasRole("admin") || hasRole("verifier")) {
       jumpToSection("admin-workspace", { mode: "admin" });
       return;
     }
     jumpToSection("ops-details", { mode: "observe" });
+  });
+
+  document.getElementById("overview-attention-list")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-overview-target]");
+    if (!button) return;
+    jumpToSection(button.getAttribute("data-overview-target") ?? "overview-hub", {
+      mode: button.getAttribute("data-overview-mode") ?? undefined
+    });
   });
 }
 
@@ -2145,8 +2239,7 @@ async function boot() {
 
   wireAuthControls();
   wireOperatorRail();
-  wireStartGuideControls();
-  wireProductMapControls();
+  wireOverviewControls();
   wireObserveQuickNav();
   wireTreasuryConsole();
   wireAdminConsoleControls();

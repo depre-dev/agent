@@ -183,7 +183,7 @@
         <article class="panel mission-panel">
           <div class="mission-topline">
             <div>
-              <p class="panel-label">Mission board</p>
+              <p class="panel-label">Overview</p>
               <h2 id="start-guide-title">Current mission</h2>
             </div>
             <span id="product-map-pill" class="status-pill status-pending">Loading picture</span>
@@ -195,45 +195,45 @@
             <p id="start-now-copy">No active operator session yet.</p>
           </div>
 
-          <div class="product-lane-grid">
-            <article class="product-lane-card product-lane-card-strong">
-              <p>Earn</p>
-              <strong id="product-lane-work-title">Run agent work</strong>
-              <div class="product-lane-meta">
-                <b id="product-lane-work-metric">Waiting for wallet</b>
-                <small id="product-lane-work-support">Run lane offline</small>
+          <div class="mission-board-grid">
+            <section class="mission-attention-shell">
+              <div class="detail-head">
+                <h3>Needs action now</h3>
+                <span id="overview-attention-count" class="section-note">Checking</span>
               </div>
-              <button id="product-lane-work-button" type="button" class="primary-action">Open work</button>
-            </article>
-
-            <article class="product-lane-card">
-              <p>Treasury</p>
-              <strong id="product-lane-treasury-title">Move capital through strategy lanes</strong>
-              <div class="product-lane-meta">
-                <b id="product-lane-treasury-metric">Waiting for balances</b>
-                <small id="product-lane-treasury-support">Treasury lane offline</small>
+              <div id="overview-attention-list" class="ops-stream-list">
+                <p class="empty-state">The operator queue will appear here once the wallet and runtime state are loaded.</p>
               </div>
-              <button id="product-lane-treasury-button" type="button" class="secondary-action">Open treasury</button>
-            </article>
+            </section>
 
-            <article class="product-lane-card">
-              <p>Control</p>
-              <strong id="product-lane-control-title">Operate supply and policy</strong>
-              <div class="product-lane-meta">
-                <b id="product-lane-control-metric">Waiting for roles</b>
-                <small id="product-lane-control-support">Control lane locked</small>
+            <section class="mission-link-shell">
+              <div class="detail-head">
+                <h3>Open a lane</h3>
+                <span class="section-note">Jump straight into the part that matters.</span>
               </div>
-              <button id="product-lane-control-button" type="button" class="secondary-action">Open control</button>
-            </article>
-          </div>
+              <div class="overview-link-list">
+                <button id="overview-runs-button" type="button" class="overview-link-card overview-link-card-strong">
+                  <p>Runs</p>
+                  <strong id="product-lane-work-title">Run agent work</strong>
+                  <small id="product-lane-work-support">Run lane offline</small>
+                  <b id="product-lane-work-metric">Waiting for wallet</b>
+                </button>
 
-          <div class="mission-actions">
-            <button id="start-human-button" type="button" class="primary-action">Start worker flow</button>
-            <button id="start-admin-button" type="button" class="secondary-action">Open live ops view</button>
-            <a id="start-agent-link" class="secondary-action" href="/api/onboarding" target="_blank" rel="noreferrer">API onboarding</a>
-            <a class="secondary-action" href="https://averray.com/.well-known/agent-tools.json" target="_blank" rel="noreferrer">Discovery</a>
-            <a class="secondary-action" href="https://averray.com/trust/" target="_blank" rel="noreferrer">Trust</a>
-            <a class="secondary-action" href="https://averray.com/builders/" target="_blank" rel="noreferrer">Builders</a>
+                <button id="overview-treasury-button" type="button" class="overview-link-card">
+                  <p>Treasury</p>
+                  <strong id="product-lane-treasury-title">Move capital through strategy lanes</strong>
+                  <small id="product-lane-treasury-support">Treasury lane offline</small>
+                  <b id="product-lane-treasury-metric">Waiting for balances</b>
+                </button>
+
+                <button id="overview-control-button" type="button" class="overview-link-card">
+                  <p>Control</p>
+                  <strong id="product-lane-control-title">Operate supply and policy</strong>
+                  <small id="product-lane-control-support">Control lane locked</small>
+                  <b id="product-lane-control-metric">Waiting for roles</b>
+                </button>
+              </div>
+            </section>
           </div>
         </article>
       </section>
@@ -482,14 +482,30 @@
             <div class="section-heading compact">
               <div>
                 <p class="panel-label">4. Pick work</p>
-                <h2>Recommended runs</h2>
+                <h2>Runs queue</h2>
               </div>
               <span id="job-count" class="section-note">Waiting for recommendations</span>
             </div>
 
+            <section class="run-queue-shell">
+              <div class="detail-head">
+                <h3>Active runs</h3>
+                <span id="run-inbox-count" class="section-note">Waiting for session data</span>
+              </div>
+              <div id="run-inbox-list" class="run-queue-list">
+                <p class="empty-state">Active and recent runs will appear here once the worker wallet is loaded.</p>
+              </div>
+            </section>
+
+            <section class="run-queue-shell">
+              <div class="detail-head">
+                <h3>Next runs</h3>
+                <span class="section-note">Best-fit jobs for the active wallet.</span>
+              </div>
             <div id="job-list" class="job-list">
               <p class="empty-state">Recommendations will load here once the worker wallet and preflight data are ready.</p>
             </div>
+            </section>
 
             <section class="action-shell" id="work-execution">
               <div class="detail-head">
@@ -955,7 +971,7 @@ summary</textarea>
 
               <section class="treasury-console-shell" id="observe-treasury-console">
                 <div class="detail-head">
-                  <h3>Treasury console</h3>
+                  <h3>Selected lane and actions</h3>
                   <span id="treasury-console-pill" class="status-pill status-pending">Waiting for wallet</span>
                 </div>
                 <div class="treasury-console-grid">
@@ -1106,41 +1122,11 @@ summary</textarea>
 
               <section class="strategy-shell" id="observe-strategy-lanes">
                 <div class="detail-head">
-                  <h3>Money strategies and yield lanes</h3>
+                  <h3>Open positions</h3>
                   <span id="strategy-count" class="section-note">Loading strategy posture</span>
                 </div>
-                <div class="strategy-summary-grid">
-                  <article class="strategy-summary-card">
-                    <p>Deployed lanes</p>
-                    <strong id="strategy-deployed-count">-</strong>
-                    <span>Lanes with live routed balance from this wallet.</span>
-                  </article>
-                  <article class="strategy-summary-card">
-                    <p>Capital deployed</p>
-                    <strong id="strategy-deployed-share">-</strong>
-                    <span>Deposited DOT currently sitting inside strategy lanes.</span>
-                  </article>
-                  <article class="strategy-summary-card">
-                    <p>Open yield</p>
-                    <strong id="strategy-unrealized-yield">-</strong>
-                    <span>Current lane value above or below tracked deployed principal.</span>
-                  </article>
-                  <article class="strategy-summary-card">
-                    <p>Realized yield</p>
-                    <strong id="strategy-realized-yield">-</strong>
-                    <span>Yield already crystallized back into the account.</span>
-                  </article>
-                  <article class="strategy-summary-card strategy-summary-card-strong">
-                    <p>Attention queue</p>
-                    <strong id="strategy-attention-count">-</strong>
-                    <span>Lanes with a noteworthy posture or constraint.</span>
-                  </article>
-                </div>
-                <div id="strategy-attention-list" class="ops-stream-list strategy-attention-list">
-                  <p class="empty-state">Lane attention will appear here once wallet-scoped strategy telemetry is loaded.</p>
-                </div>
-                <div id="strategy-shelf" class="strategy-shelf">
-                  <p class="empty-state">Strategy lanes will appear here once the deployment reports them.</p>
+                <div id="strategy-shelf" class="strategy-position-list">
+                  <p class="empty-state">Treasury lanes will appear here once the deployment reports them.</p>
                 </div>
                 <div class="detail-head strategy-timeline-head">
                   <h3>Treasury movement</h3>
