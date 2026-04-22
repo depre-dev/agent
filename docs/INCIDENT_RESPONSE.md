@@ -126,6 +126,7 @@ relay that accepts JSON POSTs.
 | `api.averray.com/health` failing | P2 | Check backend logs, roll back if recent deploy | Primary on-call |
 | `index.averray.com/ready` failing | P2 | Check indexer logs/status, roll back or widen readiness window | Primary on-call |
 | Public site/app shell failing | P2 | Check Caddy + static mounts | Primary on-call |
+| Async XCM requests stuck in `pending` | P2 | Check watcher status, inspect `/xcm/request`, and rehearse manual finalize if needed | Primary on-call |
 | Redis restore drill fails | P1 | Treat as backup failure; stop risky deploys | Primary on-call |
 | Smoke check drift only | P3 | Fix docs/config/runtime mismatch | Repo owner |
 
@@ -150,6 +151,29 @@ cd /srv/agent-stack/app
 ```
 
 The script already performs health/readiness-gated rollback.
+
+### Async XCM lane
+
+If async strategy requests stop progressing:
+
+```bash
+curl -sS https://api.averray.com/admin/status \
+  -H "authorization: Bearer $ADMIN_JWT"
+
+curl -sS "https://api.averray.com/xcm/request?requestId=$REQUEST_ID" \
+  -H "authorization: Bearer $ADMIN_JWT"
+```
+
+If the watcher is healthy but the request still needs manual operator
+intervention, use the current-lane rehearsal helper from
+[ASYNC_XCM_STAGING.md](./ASYNC_XCM_STAGING.md):
+
+```bash
+API_URL=https://api.averray.com \
+ADMIN_JWT="$ADMIN_JWT" \
+REQUEST_ID="$REQUEST_ID" \
+node scripts/ops/exercise-async-xcm-request.mjs --mode finalize --status succeeded
+```
 
 ### Static surfaces
 

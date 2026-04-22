@@ -4,6 +4,8 @@ This is the operator-facing gate for promoting Averray from a healthy
 testnet deployment into something we can treat like a real production
 service. It complements:
 
+- [ASYNC_XCM_STAGING.md](./ASYNC_XCM_STAGING.md) for the current async
+  treasury rehearsal flow
 - [VPS_RUNBOOK.md](../VPS_RUNBOOK.md) for day-to-day hosting operations
 - [MULTISIG_SETUP.md](./MULTISIG_SETUP.md) for owner/pauser control-plane setup
 - [AUDIT_PACKAGE.md](./AUDIT_PACKAGE.md) for external review scope and sign-off
@@ -137,7 +139,30 @@ irreversible real-funds infrastructure.
 
 ---
 
-## 9. XCM observer validation
+## 9. Internal async XCM staging proof
+
+- [ ] One async deposit request has been queued and settled on the hosted stack.
+- [ ] One async withdraw request has been queued and settled on the hosted stack.
+- [ ] One failure-path async request has been rehearsed honestly.
+- [ ] `xcmSettlementWatcher.pendingCount` returns to `0` after the exercise.
+- [ ] A report from the current deploy has been captured.
+
+Run:
+
+```bash
+API_URL=https://api.averray.com \
+ADMIN_JWT='<admin-jwt>' \
+REQUEST_ID='<existing-request-id>' \
+XCM_CAPTURE_PATH=artifacts/xcm/internal-async-xcm-report.json \
+npm run exercise:async-xcm -- --mode observe --status succeeded --settled-assets 5 --settled-shares 5
+```
+
+The manual flow for creating the request itself lives in
+[ASYNC_XCM_STAGING.md](./ASYNC_XCM_STAGING.md).
+
+---
+
+## 10. Optional external observer validation
 
 - [ ] A staging Subscan key has been exercised against the current
   `subscan_xcm` source adapter.

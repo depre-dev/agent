@@ -285,6 +285,12 @@ That async lane is now exposed through the hosted backend too:
 - the repo now ships `scripts/ops/validate-subscan-xcm-source.mjs` for that
   staging validation pass, including direct transport checks, sample capture,
   and optional confirmation that the indexer published feed is actually live
+- until we pay for a third-party observer or build the native Polkadot /
+  Bifrost observer, the active execution lane is the hosted internal one:
+  queue a request, inspect `/xcm/request`, observe a result through the admin
+  path, and let the watcher settle it. That rehearsal flow now lives in
+  `docs/ASYNC_XCM_STAGING.md` and
+  `scripts/ops/exercise-async-xcm-request.mjs`.
 
 What is still missing is the network-specific observer feed itself: the
 repo now supports `observer feed -> durable cursor -> observe outcome ->

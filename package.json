@@ -17,6 +17,7 @@
     "dev:indexer": "npm --workspace indexer run dev",
     "start:indexer": "npm --workspace indexer run start",
     "typecheck:indexer": "npm --workspace indexer run typecheck",
-    "validate:subscan-xcm": "node scripts/ops/validate-subscan-xcm-source.mjs"
+    "validate:subscan-xcm": "node scripts/ops/validate-subscan-xcm-source.mjs",
+    "exercise:async-xcm": "node scripts/ops/exercise-async-xcm-request.mjs"
   }
 }

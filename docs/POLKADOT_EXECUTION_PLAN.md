@@ -427,6 +427,13 @@ Current status:
     `scripts/ops/validate-subscan-xcm-source.mjs` so staging can check the
     direct Subscan transport, capture sanitized sample payloads, and verify
     that `/xcm/outcomes` is serving the published external feed
+- the current execution priority is now:
+  - current lane: prove the async request -> observe -> settle lifecycle
+    using our internal hosted stack and operator tooling
+  - next major lane: replace optional paid observer shortcuts with a native
+    Polkadot/Bifrost observer source
+- the repo now includes `scripts/ops/exercise-async-xcm-request.mjs` and
+  `docs/ASYNC_XCM_STAGING.md` as the current-lane rehearsal package
 
 Ship gate:
 
