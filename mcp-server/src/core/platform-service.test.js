@@ -94,9 +94,15 @@ test("getSessionTimeline includes transitions and verification state", async () 
   });
 
   const timeline = await service.getSessionTimeline(submitted.sessionId);
+  assert.equal(timeline.timelineVersion, "v2");
   assert.equal(timeline.session.status, "resolved");
+  assert.equal(timeline.lifecycle.currentPhase, "terminal");
+  assert.equal(timeline.stateMachine.timelineVersion, "v2");
+  assert.ok(Array.isArray(timeline.stateMachine.statuses));
+  assert.ok(Array.isArray(timeline.lineage.childJobIds));
   assert.ok(timeline.timeline.some((entry) => entry.type === "session_transition"));
   assert.ok(timeline.timeline.some((entry) => entry.type === "verification"));
+  assert.ok(timeline.timeline.every((entry) => entry.correlationId === submitted.sessionId));
 });
 
 test("getAdminStatus surfaces recurring scheduler anomalies", async () => {

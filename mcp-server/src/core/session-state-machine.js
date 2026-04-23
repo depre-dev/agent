@@ -12,6 +12,63 @@ const ALLOWED_TRANSITIONS = new Map([
   ["timed_out", new Set()]
 ]);
 
+const STATUS_METADATA = {
+  "__new__": {
+    label: "New",
+    phase: "claim",
+    terminal: false,
+    outcome: "not_started"
+  },
+  claimed: {
+    label: "Claimed",
+    phase: "work",
+    terminal: false,
+    outcome: "in_progress"
+  },
+  submitted: {
+    label: "Submitted",
+    phase: "verification",
+    terminal: false,
+    outcome: "awaiting_verification"
+  },
+  disputed: {
+    label: "Disputed",
+    phase: "verification",
+    terminal: false,
+    outcome: "operator_attention"
+  },
+  resolved: {
+    label: "Resolved",
+    phase: "terminal",
+    terminal: true,
+    outcome: "approved"
+  },
+  rejected: {
+    label: "Rejected",
+    phase: "terminal",
+    terminal: true,
+    outcome: "rejected"
+  },
+  closed: {
+    label: "Closed",
+    phase: "terminal",
+    terminal: true,
+    outcome: "closed"
+  },
+  expired: {
+    label: "Expired",
+    phase: "terminal",
+    terminal: true,
+    outcome: "expired"
+  },
+  timed_out: {
+    label: "Timed out",
+    phase: "terminal",
+    terminal: true,
+    outcome: "timed_out"
+  }
+};
+
 export function transitionSession(session, nextStatus, { reason, timestamp = new Date().toISOString(), metadata = undefined } = {}) {
   const currentStatus = session?.status ?? "__new__";
   if (currentStatus === nextStatus) {
@@ -48,6 +105,62 @@ export function transitionSession(session, nextStatus, { reason, timestamp = new
     expiredAt: nextStatus === "expired" ? timestamp : session?.expiredAt,
     timedOutAt: nextStatus === "timed_out" ? timestamp : session?.timedOutAt
   });
+}
+
+export function getAllowedSessionTransitions(status = "__new__") {
+  return [...(ALLOWED_TRANSITIONS.get(status) ?? new Set())];
+}
+
+export function describeSessionStatus(status = "__new__") {
+  const key = STATUS_METADATA[status] ? status : "__new__";
+  const metadata = STATUS_METADATA[key];
+  return {
+    status: key,
+    label: metadata.label,
+    phase: metadata.phase,
+    terminal: metadata.terminal,
+    outcome: metadata.outcome,
+    allowedTransitions: getAllowedSessionTransitions(key)
+  };
+}
+
+export function buildSessionLifecycle(session = {}, verification = undefined) {
+  const status = describeSessionStatus(session?.status ?? "__new__");
+  const verificationOutcome = verification?.outcome;
+  const finalOutcome = verificationOutcome
+    ? verificationOutcome
+    : status.terminal
+      ? status.outcome
+      : undefined;
+  return {
+    currentStatus: status.status,
+    currentLabel: status.label,
+    currentPhase: status.phase,
+    terminal: status.terminal,
+    allowedTransitions: status.allowedTransitions,
+    verificationOutcome,
+    finalOutcome,
+    canSubmit: status.status === "claimed",
+    awaitingVerification: status.status === "submitted" || status.status === "disputed",
+    needsOperatorAttention: status.status === "disputed",
+    timestamps: compact({
+      claimedAt: session?.claimedAt,
+      submittedAt: session?.submittedAt,
+      resolvedAt: session?.resolvedAt,
+      rejectedAt: session?.rejectedAt,
+      disputedAt: session?.disputedAt,
+      closedAt: session?.closedAt,
+      expiredAt: session?.expiredAt,
+      timedOutAt: session?.timedOutAt,
+      updatedAt: session?.updatedAt
+    })
+  };
+}
+
+export function getSessionStateMachineDefinition() {
+  return Object.keys(STATUS_METADATA)
+    .filter((status) => status !== "__new__")
+    .map((status) => describeSessionStatus(status));
 }
 
 function compact(value) {

@@ -226,6 +226,7 @@ function metricPathLabel(pathname) {
     "/jobs/claim",
     "/jobs/submit",
     "/jobs/tiers",
+    "/session/state-machine",
     "/strategies",
     "/admin/jobs",
     "/admin/jobs/pause",
@@ -583,6 +584,15 @@ const server = createServer(async (request, response) => {
         {
           tiers: Object.entries(TIER_REQUIREMENTS).map(([tier, requires]) => ({ tier, requires }))
         },
+        { "cache-control": "public, max-age=300" }
+      );
+    }
+
+    if (request.method === "GET" && pathname === "/session/state-machine") {
+      return respond(
+        response,
+        200,
+        service.getSessionStateMachine(),
         { "cache-control": "public, max-age=300" }
       );
     }

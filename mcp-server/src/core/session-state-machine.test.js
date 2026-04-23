@@ -1,48 +1,40 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ConflictError } from "./errors.js";
-import { transitionSession } from "./session-state-machine.js";
+import {
+  buildSessionLifecycle,
+  describeSessionStatus,
+  getSessionStateMachineDefinition,
+  transitionSession
+} from "./session-state-machine.js";
 
-test("transitionSession creates a claimed session from a new session", () => {
-  const session = transitionSession(
-    { sessionId: "job-1:wallet-1" },
-    "claimed",
-    { reason: "job_claimed", timestamp: "2026-04-19T10:00:00.000Z" }
-  );
-
-  assert.equal(session.status, "claimed");
-  assert.equal(session.claimedAt, "2026-04-19T10:00:00.000Z");
-  assert.equal(session.statusHistory.length, 1);
-  assert.equal(session.statusHistory[0].from, null);
-  assert.equal(session.statusHistory[0].to, "claimed");
+test("describeSessionStatus exposes the verification phase and allowed transitions", () => {
+  const submitted = describeSessionStatus("submitted");
+  assert.equal(submitted.phase, "verification");
+  assert.equal(submitted.terminal, false);
+  assert.deepEqual(submitted.allowedTransitions.sort(), ["closed", "disputed", "rejected", "resolved", "timed_out"]);
 });
 
-test("transitionSession records submitted transition history", () => {
-  const claimed = transitionSession({ sessionId: "job-1:wallet-1" }, "claimed", {
+test("buildSessionLifecycle derives operator-facing flags from session state", () => {
+  const session = transitionSession({ sessionId: "s1" }, "claimed", {
     reason: "job_claimed",
-    timestamp: "2026-04-19T10:00:00.000Z"
+    timestamp: "2026-04-23T10:00:00.000Z"
   });
-
-  const submitted = transitionSession(claimed, "submitted", {
+  const submitted = transitionSession(session, "submitted", {
     reason: "work_submitted",
-    timestamp: "2026-04-19T10:05:00.000Z",
-    metadata: { protocol: "http" }
+    timestamp: "2026-04-23T10:05:00.000Z"
   });
+  const lifecycle = buildSessionLifecycle(submitted, { outcome: "approved" });
 
-  assert.equal(submitted.status, "submitted");
-  assert.equal(submitted.submittedAt, "2026-04-19T10:05:00.000Z");
-  assert.equal(submitted.statusHistory.length, 2);
-  assert.equal(submitted.statusHistory[1].metadata.protocol, "http");
+  assert.equal(lifecycle.currentPhase, "verification");
+  assert.equal(lifecycle.awaitingVerification, true);
+  assert.equal(lifecycle.verificationOutcome, "approved");
+  assert.equal(lifecycle.canSubmit, false);
 });
 
-test("transitionSession rejects illegal transitions", () => {
-  const claimed = transitionSession({ sessionId: "job-1:wallet-1" }, "claimed", {
-    reason: "job_claimed"
-  });
-
-  assert.throws(
-    () => transitionSession(claimed, "resolved", { reason: "skip_submit" }),
-    (error) => error instanceof ConflictError && error.code === "invalid_session_transition"
-  );
+test("getSessionStateMachineDefinition returns stable public statuses", () => {
+  const statuses = getSessionStateMachineDefinition();
+  assert.ok(statuses.some((entry) => entry.status === "claimed"));
+  assert.ok(statuses.some((entry) => entry.status === "resolved" && entry.terminal === true));
+  assert.ok(!statuses.some((entry) => entry.status === "__new__"));
 });

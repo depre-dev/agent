@@ -3,7 +3,7 @@ import {
   ConflictError,
   NotFoundError
 } from "./errors.js";
-import { transitionSession } from "./session-state-machine.js";
+import { buildSessionLifecycle, describeSessionStatus, transitionSession } from "./session-state-machine.js";
 import { normalizeSubmission } from "./submission.js";
 import { getBuiltinJobSchema, validateStructuredSubmission } from "./job-schema-registry.js";
 
@@ -249,11 +249,14 @@ export class JobExecutionService {
       jobId: session.jobId,
       sessionId: session.sessionId,
       timestamp: new Date().toISOString(),
+      correlationId: session.sessionId,
       data: {
         sessionId: session.sessionId,
         wallet: session.wallet,
         jobId: session.jobId,
         status: session.status,
+        lifecycle: buildSessionLifecycle(session),
+        phase: describeSessionStatus(session.status).phase,
         protocolHistory: session.protocolHistory,
         ...data
       }

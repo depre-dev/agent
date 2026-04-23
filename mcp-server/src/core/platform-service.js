@@ -5,6 +5,11 @@ import { JobExecutionService } from "./job-execution-service.js";
 import { VerificationIngestionService } from "../services/verification-ingestion-service.js";
 import { ValidationError } from "./errors.js";
 import { buildPlatformCapabilities } from "./discovery-manifest.js";
+import {
+  buildSessionLifecycle,
+  describeSessionStatus,
+  getSessionStateMachineDefinition
+} from "./session-state-machine.js";
 
 const STARTER_REPUTATION = {
   skill: 0,
@@ -60,6 +65,13 @@ export class PlatformService {
 
   getPlatformCapabilities() {
     return buildPlatformCapabilities();
+  }
+
+  getSessionStateMachine() {
+    return {
+      timelineVersion: "v2",
+      statuses: getSessionStateMachineDefinition()
+    };
   }
 
   listJobs() {
@@ -272,11 +284,14 @@ export class PlatformService {
         sessions: await this.jobExecutionService.listSessionHistory({ jobId: job.id, limit: 10 })
       }))
     );
+    const lifecycle = buildSessionLifecycle(session, verification);
 
     const transitions = (session.statusHistory ?? []).map((entry, index) => ({
       id: `${sessionId}:transition:${index}`,
       type: "session_transition",
       at: entry.at,
+      correlationId: sessionId,
+      phase: describeSessionStatus(entry.to).phase,
       data: entry
     }));
     const verificationEvents = verification
@@ -284,6 +299,8 @@ export class PlatformService {
           id: `${sessionId}:verification`,
           type: "verification",
           at: verification.session?.updatedAt ?? verification.session?.resolvedAt ?? new Date().toISOString(),
+          correlationId: sessionId,
+          phase: "verification",
           data: {
             outcome: verification.outcome,
             reasonCode: verification.reasonCode,
@@ -298,6 +315,8 @@ export class PlatformService {
         id: `${job.id}:child-job`,
         type: "child_job",
         at: job.firedAt ?? sessions[0]?.updatedAt ?? session.updatedAt,
+        correlationId: sessionId,
+        phase: "child_job",
         data: {
           jobId: job.id,
           templateId: job.templateId,
@@ -308,6 +327,8 @@ export class PlatformService {
         id: `${childSession.sessionId}:child-session`,
         type: "child_session",
         at: childSession.updatedAt,
+        correlationId: sessionId,
+        phase: describeSessionStatus(childSession.status).phase,
         data: {
           sessionId: childSession.sessionId,
           jobId: childSession.jobId,
@@ -321,9 +342,17 @@ export class PlatformService {
       .sort((left, right) => String(left.at ?? "").localeCompare(String(right.at ?? "")));
 
     return {
+      timelineVersion: "v2",
       session,
+      lifecycle,
       verification,
       childJobs,
+      lineage: {
+        parentSessionId: session.parentSessionId,
+        childJobIds: childJobs.map((job) => job.id),
+        childSessionIds: childRuns.flatMap(({ sessions }) => sessions.map((childSession) => childSession.sessionId))
+      },
+      stateMachine: this.getSessionStateMachine(),
       timeline
     };
   }

@@ -34,7 +34,9 @@ test("buildDiscoveryManifest returns the full public discovery shape", () => {
   assert.equal(manifest.schemas.jobSchemasIndex, "https://api.example.com/schemas/jobs");
   assert.equal(manifest.schemas.jobSchemaPathTemplate, "https://api.example.com/schemas/jobs/<name>.json");
   assert.ok(manifest.publicEndpoints.some((entry) => entry.path === "/schemas/jobs"));
+  assert.ok(manifest.publicEndpoints.some((entry) => entry.path === "/session/state-machine"));
   assert.ok(manifest.tools.some((tool) => tool.name === "listJobSchemas"));
+  assert.ok(manifest.tools.some((tool) => tool.name === "getSessionStateMachine"));
 });
 
 test("buildPlatformCapabilities stays aligned with the discovery tool list", () => {
