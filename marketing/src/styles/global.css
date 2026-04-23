@@ -306,10 +306,12 @@ h1 {
 
 .proof-dock span,
 .step-card,
+.feature-card,
 .audience-card,
 .proof-link,
 .final-cta,
 .story-section,
+.feature-section,
 .run-section,
 .proof-section,
 .boundary-section {
@@ -328,6 +330,15 @@ h1 {
 }
 
 .story-section,
+.feature-section,
+.run-section,
+.proof-section,
+.boundary-section {
+  scroll-margin-top: 5.5rem;
+}
+
+.story-section,
+.feature-section,
 .run-section,
 .proof-section,
 .boundary-section,
@@ -415,10 +426,40 @@ h3 {
 }
 
 .step-grid,
+.feature-grid,
 .audience-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
+}
+
+.feature-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.feature-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.feature-card {
+  display: grid;
+  gap: 0.55rem;
+  min-height: 12rem;
+  padding: 1rem;
+  background: #fff;
+}
+
+.feature-card span {
+  color: var(--green);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.feature-card p {
+  color: var(--muted);
+  line-height: 1.65;
 }
 
 .step-card {
@@ -548,6 +589,7 @@ h3 {
 
   .proof-dock,
   .story-section,
+  .feature-grid,
   .proof-section,
   .boundary-section,
   .step-grid,
