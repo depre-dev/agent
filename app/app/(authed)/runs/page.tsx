@@ -443,11 +443,22 @@ export default function RunsPage() {
   };
 
   return (
-    <div className="flex w-full max-w-[1100px] flex-col gap-3.5">
+    <div className="flex w-full max-w-[1440px] flex-col gap-3.5">
       <RunsTopbar />
       <QueueBar filters={filters.length ? filters : FILTERS} active={activeFilter} onChange={setActiveFilter} />
 
-      <div className="grid grid-cols-1 items-start gap-3.5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      {/*
+       * Email-client layout: queue on the left (compact, scannable) + loaded-
+       * run panel on the right, sticky so the details stay visible as the
+       * queue scrolls. Recommendation rail + lifecycle sit below the split
+       * pane so they don't steal horizontal room from the two primary panes.
+       *
+       * At xl: 45fr / 55fr split — the panel is wider because it hosts the
+       * two inner columns (stake + job context on the left, verifier +
+       * settlement on the right) and needs the headroom.
+       * Below xl: single column, panel stacks under the queue.
+       */}
+      <div className="grid grid-cols-1 items-start gap-3.5 xl:grid-cols-[minmax(480px,0.85fr)_minmax(0,1.15fr)]">
         <RunQueueTable
           rows={visibleRows}
           selectedId={selectedId}
@@ -458,18 +469,74 @@ export default function RunsPage() {
           assignedToMe={assignedToMe}
           liveStatus={liveStatus}
         />
-        <RecommendationRail
-          workerTier="live"
-          workerScore={recommendations.error ? 0 : recommendationCards.length}
-          jobs={recommendationCards}
-          totalMatches={recommendationCards.length}
-        />
+        <div className="xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto">
+          <LoadedRunPanelWrapper
+            loadedRow={loadedRow}
+            selectedJob={selectedJob}
+            loadedGitHub={loadedGitHub}
+            handleSubmit={handleSubmit}
+            submitting={submitting}
+            submitError={submitError}
+          />
+        </div>
       </div>
 
-      <LoadedRunPanel
+      <LifecycleRail
+        runId="run-2742"
+        contextNote={
+          <>
+            Window closes in{" "}
+            <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
+            {" · "}verification{" "}
+            <b className="font-semibold text-[var(--avy-ink)]">github_pr</b>
+            {" · "}PR{" "}
+            <b className="font-semibold text-[var(--avy-ink)]">#4931</b> opened
+          </>
+        }
+        stages={LIFECYCLE}
+        next={{
+          label: "Next",
+          value: "Maintainer review → Pay",
+          sub: "auto-pays on PR merge + CI green",
+        }}
+      />
+
+      <RecommendationRail
+        layout="horizontal"
+        workerTier="live"
+        workerScore={recommendations.error ? 0 : recommendationCards.length}
+        jobs={recommendationCards}
+        totalMatches={recommendationCards.length}
+      />
+    </div>
+  );
+}
+
+/**
+ * Thin wrapper around LoadedRunPanel so the gnarly fixture-shaped props
+ * (evidence stub, verifier fixture, settle fixture, submission handler)
+ * don't clutter the main page component. All live values continue to come
+ * from live data / the loaded row; the non-GitHub fixture verifier lines
+ * stay in place as a demo fallback while the backend isn't yet streaming
+ * real verifier output.
+ */
+interface LoadedPanelProps {
+  loadedRow: RunRow;
+  selectedJob: Record<string, unknown> | undefined;
+  loadedGitHub: ReturnType<typeof buildGitHubContext>;
+  handleSubmit: (evidence: string) => Promise<void>;
+  submitting: boolean;
+  submitError: string | null;
+}
+
+function LoadedRunPanelWrapper(props: LoadedPanelProps) {
+  const { loadedRow, selectedJob, loadedGitHub, handleSubmit, submitting, submitError } = props;
+  return (
+    <LoadedRunPanel
         kicker="Loaded run"
         title={loadedRow.title}
         meta={loadedRow.jobMeta}
+        state={loadedRow.state}
         github={loadedGitHub}
         stake={{
           amount: loadedRow.stake,
@@ -598,27 +665,6 @@ export default function RunsPage() {
           note: "pays worker & verifier once the maintainer approves the PR",
         }}
       />
-
-      <LifecycleRail
-        runId="run-2742"
-        contextNote={
-          <>
-            Window closes in{" "}
-            <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-            {" · "}verification{" "}
-            <b className="font-semibold text-[var(--avy-ink)]">github_pr</b>
-            {" · "}PR{" "}
-            <b className="font-semibold text-[var(--avy-ink)]">#4931</b> opened
-          </>
-        }
-        stages={LIFECYCLE}
-        next={{
-          label: "Next",
-          value: "Maintainer review → Pay",
-          sub: "auto-pays on PR merge + CI green",
-        }}
-      />
-    </div>
   );
 }
 

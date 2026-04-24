@@ -2,8 +2,60 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils/cn";
-import { SourceBadge } from "./StatePill";
+import { SourceBadge, type RunState } from "./StatePill";
+import { IssueMarkdown } from "./IssueMarkdown";
 import type { GitHubJobContext } from "./types";
+
+/**
+ * Map the run's lifecycle state to the stake-block pill + copy. Keeps
+ * the "LOCKED in AgentAccountCore" language out of stages where the stake
+ * isn't actually locked (e.g. a ready run has escrow funded but no worker
+ * stake yet; a settled run has already released).
+ */
+type StakeDisplay = {
+  label: string;
+  pillTone: "locked" | "funded" | "held" | "released";
+  auxNote: string;
+};
+
+const STAKE_BY_STATE: Record<RunState, StakeDisplay> = {
+  ready: {
+    label: "Escrow funded · awaiting claim",
+    pillTone: "funded",
+    auxNote: "funded in AgentAccountCore",
+  },
+  claimed: {
+    label: "Locked · stake posted",
+    pillTone: "locked",
+    auxNote: "locked in AgentAccountCore",
+  },
+  submitted: {
+    label: "Locked · under verification",
+    pillTone: "locked",
+    auxNote: "locked in AgentAccountCore",
+  },
+  disputed: {
+    label: "Held · dispute open",
+    pillTone: "held",
+    auxNote: "held pending dispute resolution",
+  },
+  settled: {
+    label: "Released",
+    pillTone: "released",
+    auxNote: "released from AgentAccountCore",
+  },
+};
+
+const STAKE_PILL_TONE_CLASS: Record<StakeDisplay["pillTone"], string> = {
+  locked:
+    "bg-[var(--avy-accent-soft)] text-[var(--avy-accent)]",
+  funded:
+    "bg-[#e6ecf7] text-[#254e9a]",
+  held:
+    "bg-[#f4ddd5] text-[#a03a1a]",
+  released:
+    "bg-[color:rgba(17,19,21,0.06)] text-[var(--avy-ink)]",
+};
 
 export interface StakeBreakdown {
   worker: string;
@@ -70,6 +122,13 @@ export interface LoadedRunPanelProps {
    * evidence layout.
    */
   github?: GitHubJobContext;
+  /**
+   * Lifecycle state of the loaded run. Drives the stake block's pill +
+   * aux copy so the panel doesn't shout "LOCKED" on a run that hasn't
+   * been claimed yet (or a settled run whose stake is already released).
+   * Defaults to `"claimed"` to preserve the previous behaviour.
+   */
+  state?: RunState;
 }
 
 export function LoadedRunPanel(props: LoadedRunPanelProps) {
@@ -82,10 +141,17 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
     setEvidenceValue(props.evidence.sample);
   }, [props.evidence.sample]);
 
+  const stakeDisplay = STAKE_BY_STATE[props.state ?? "claimed"];
+
   return (
     <section
       aria-label="Loaded run"
-      className="overflow-hidden rounded-[12px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] shadow-[var(--shadow-dense)]"
+      // `@container` establishes an inline-size container so the inner
+      // 2-col grid is driven by panel width, not viewport. That way the
+      // panel stacks cleanly when it's hosted in a narrow split-pane
+      // column and only goes side-by-side when there's real room (≥ ~1024px
+      // of panel width).
+      className="@container overflow-hidden rounded-[12px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] shadow-[var(--shadow-dense)]"
     >
       <header className="flex items-center justify-between gap-3.5 border-b border-[var(--avy-line-soft)] bg-gradient-to-b from-[#faf8f1] to-[#fffdf7] px-4.5 py-3.5">
         <div className="flex flex-wrap items-baseline gap-3">
@@ -107,25 +173,22 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
             {props.meta}
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <SmallGhostBtn>⌕ Receipt preview</SmallGhostBtn>
-          <SmallGhostBtn>Open in new tab ↗</SmallGhostBtn>
-          <button
-            type="button"
-            title="Close"
-            className="grid h-7 w-7 cursor-pointer place-items-center rounded-[6px] border border-[var(--avy-line)] bg-transparent text-sm text-[var(--avy-muted)] hover:border-[var(--avy-ink)] hover:text-[var(--avy-ink)]"
-          >
-            ×
-          </button>
-        </div>
+        {/*
+         * Panel-header action slots intentionally left empty until the
+         * backend exposes a "preview receipt" and a deep-link endpoint.
+         * The old placeholder buttons (Receipt preview / Open in new tab
+         * / Close) are removed because in the split-pane layout a panel
+         * is always the right half of the page — there's nothing to
+         * close, and the placeholders read as bugs.
+         */}
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2">
+      <div className="grid grid-cols-1 @4xl:grid-cols-2">
         {/* LEFT */}
-        <div className="flex flex-col gap-3.5 border-r-0 border-b border-[var(--avy-line-soft)] bg-[#fffdf7] p-4 lg:border-b-0 lg:border-r">
+        <div className="flex flex-col gap-3.5 border-r-0 border-b border-[var(--avy-line-soft)] bg-[#fffdf7] p-4 @4xl:border-b-0 @4xl:border-r">
           {/* Stake */}
           <div>
-            <BlockLabel right={<>▪ locked in AgentAccountCore</>}>Stake</BlockLabel>
+            <BlockLabel right={<>▪ {stakeDisplay.auxNote}</>}>Stake</BlockLabel>
             <div className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2.5 rounded-[8px] border border-[color:rgba(30,102,66,0.22)] bg-[color:rgba(30,102,66,0.04)] px-3.5 py-3">
               <div>
                 <div className="font-[family-name:var(--font-display)] text-[26px] font-bold leading-none text-[var(--avy-ink)]">
@@ -145,10 +208,13 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
                 </p>
               </div>
               <span
-                className="inline-flex items-center gap-1.5 rounded-full bg-[var(--avy-accent-soft)] px-2.5 py-1 font-[family-name:var(--font-display)] text-[10px] font-extrabold uppercase text-[var(--avy-accent)]"
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-[family-name:var(--font-display)] text-[10px] font-extrabold uppercase whitespace-nowrap",
+                  STAKE_PILL_TONE_CLASS[stakeDisplay.pillTone]
+                )}
                 style={{ letterSpacing: "0.12em" }}
               >
-                ● Locked
+                ● {stakeDisplay.label}
               </span>
               <div
                 className="col-span-full grid grid-cols-3 gap-2 border-t border-[color:rgba(30,102,66,0.14)] pt-2.5 font-[family-name:var(--font-mono)] text-[11px] text-[var(--avy-muted)]"
@@ -529,12 +595,21 @@ function IssueTab({ ctx }: { ctx: GitHubJobContext }) {
         </div>
       ) : null}
 
-      <p
-        className="mt-3 max-h-[220px] overflow-y-auto whitespace-pre-wrap font-[family-name:var(--font-body)] text-[12.5px] leading-[1.5] text-[var(--avy-ink)]"
-        style={{ letterSpacing: 0 }}
-      >
-        {ctx.body}
-      </p>
+      {ctx.body ? (
+        <div
+          className="mt-3 max-h-[320px] overflow-y-auto font-[family-name:var(--font-body)] text-[12.5px] leading-[1.55] text-[var(--avy-ink)]"
+          style={{ letterSpacing: 0 }}
+        >
+          <IssueMarkdown>{ctx.body}</IssueMarkdown>
+        </div>
+      ) : (
+        <p
+          className="mt-3 font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--avy-muted)]"
+          style={{ letterSpacing: 0 }}
+        >
+          No description on the upstream issue.
+        </p>
+      )}
 
       <div className="mt-3 flex justify-end">
         <a
