@@ -9,7 +9,8 @@
     "test": "node --test src/**/*.test.js",
     "demo:e2e": "node src/demo/e2e-local.js",
     "demo:e2e:remote": "node src/demo/e2e-remote.js",
-    "check:redis": "node src/demo/redis-persistence-check.js"
+    "check:redis": "node src/demo/redis-persistence-check.js",
+    "ingest:github-issues": "node src/jobs/ingest-github-issues.js"
   },
   "dependencies": {
     "ethers": "^6.16.0",
