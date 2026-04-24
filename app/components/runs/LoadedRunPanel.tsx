@@ -129,6 +129,19 @@ export interface LoadedRunPanelProps {
    * Defaults to `"claimed"` to preserve the previous behaviour.
    */
   state?: RunState;
+  /**
+   * Click handler for the "Receipt preview" action in the header. When
+   * provided, the button is rendered; when absent, the button is hidden
+   * so we don't ship a dead affordance.
+   */
+  onReceiptPreview?: () => void;
+  /**
+   * Full URL that opens the loaded run in a new tab. When provided, the
+   * header renders an "Open in new tab" anchor. Use the same origin +
+   * `/runs/?run=<id>` so the link is shareable / bookmarkable without
+   * requiring a bespoke fullscreen route.
+   */
+  standaloneUrl?: string;
 }
 
 export function LoadedRunPanel(props: LoadedRunPanelProps) {
@@ -173,14 +186,34 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
             {props.meta}
           </span>
         </div>
-        {/*
-         * Panel-header action slots intentionally left empty until the
-         * backend exposes a "preview receipt" and a deep-link endpoint.
-         * The old placeholder buttons (Receipt preview / Open in new tab
-         * / Close) are removed because in the split-pane layout a panel
-         * is always the right half of the page — there's nothing to
-         * close, and the placeholders read as bugs.
-         */}
+        {/* Header actions. Each is conditional on its handler/URL so we
+            don't render a button that does nothing — avoids the "why is
+            this disabled" confusion a blanket placeholder causes. */}
+        {props.onReceiptPreview || props.standaloneUrl ? (
+          <div className="flex items-center gap-1.5">
+            {props.onReceiptPreview ? (
+              <button
+                type="button"
+                onClick={props.onReceiptPreview}
+                className="inline-flex h-7 items-center gap-1.5 rounded-[8px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] px-3 font-[family-name:var(--font-display)] text-[11px] font-bold uppercase text-[var(--avy-ink)] transition-transform hover:-translate-y-px hover:border-[color:rgba(30,102,66,0.24)] hover:text-[var(--avy-accent)]"
+                style={{ letterSpacing: "0.04em" }}
+              >
+                ⌕ Receipt preview
+              </button>
+            ) : null}
+            {props.standaloneUrl ? (
+              <a
+                href={props.standaloneUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex h-7 items-center gap-1.5 rounded-[8px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] px-3 font-[family-name:var(--font-display)] text-[11px] font-bold uppercase text-[var(--avy-ink)] transition-transform hover:-translate-y-px hover:border-[color:rgba(30,102,66,0.24)] hover:text-[var(--avy-accent)]"
+                style={{ letterSpacing: "0.04em" }}
+              >
+                Open in new tab ↗
+              </a>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       <div className="grid grid-cols-1 @4xl:grid-cols-2">

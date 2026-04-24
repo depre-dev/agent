@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { mutate } from "swr";
 import { RunsTopbar } from "@/components/runs/RunsTopbar";
 import {
@@ -19,6 +20,10 @@ import {
   LifecycleRail,
   type LifecycleStage,
 } from "@/components/runs/LifecycleRail";
+import {
+  ReceiptPreviewDrawer,
+  type ReceiptPreviewDraft,
+} from "@/components/runs/ReceiptPreviewDrawer";
 import { useJobDefinition, useJobs, useRecommendations } from "@/lib/api/hooks";
 import { swrFetcher } from "@/lib/api/client";
 import {
@@ -366,13 +371,34 @@ const LIFECYCLE: LifecycleStage[] = [
   { index: 5, label: "Paid", meta: "—", state: "pending" },
 ];
 
+// `useSearchParams` requires a Suspense boundary under the App Router
+// static-export mode used on the VPS. Wrap the inner page component so
+// deep-links like `/runs/?run=run-2742` hydrate correctly without
+// breaking the static build.
 export default function RunsPage() {
+  return (
+    <Suspense fallback={null}>
+      <RunsPageInner />
+    </Suspense>
+  );
+}
+
+function RunsPageInner() {
+  const searchParams = useSearchParams();
+  const runParam = searchParams?.get("run") ?? null;
   const [activeFilter, setActiveFilter] = useState<QueueFilter>("all");
-  const [selectedId, setSelectedId] = useState<string>("run-2742");
+  const [selectedId, setSelectedId] = useState<string>(runParam ?? "run-2742");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const jobs = useJobs();
   const recommendations = useRecommendations();
+
+  // When someone opens the page with a ?run=<id> deep link, honour it on
+  // first hydration so the corresponding row is pre-selected.
+  useEffect(() => {
+    if (runParam) setSelectedId(runParam);
+  }, [runParam]);
 
   const liveRows = useMemo(() => buildRunRows(jobs.data), [jobs.data]);
   const rows = liveRows.length ? liveRows : ROWS;
@@ -477,9 +503,17 @@ export default function RunsPage() {
             handleSubmit={handleSubmit}
             submitting={submitting}
             submitError={submitError}
+            onReceiptPreview={() => setReceiptOpen(true)}
+            standaloneUrl={`/runs/?run=${encodeURIComponent(loadedRow.id)}`}
           />
         </div>
       </div>
+
+      <ReceiptPreviewDrawer
+        open={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        draft={buildReceiptDraft(loadedRow, loadedGitHub)}
+      />
 
       <LifecycleRail
         runId="run-2742"
@@ -527,10 +561,12 @@ interface LoadedPanelProps {
   handleSubmit: (evidence: string) => Promise<void>;
   submitting: boolean;
   submitError: string | null;
+  onReceiptPreview?: () => void;
+  standaloneUrl?: string;
 }
 
 function LoadedRunPanelWrapper(props: LoadedPanelProps) {
-  const { loadedRow, selectedJob, loadedGitHub, handleSubmit, submitting, submitError } = props;
+  const { loadedRow, selectedJob, loadedGitHub, handleSubmit, submitting, submitError, onReceiptPreview, standaloneUrl } = props;
   return (
     <LoadedRunPanel
         kicker="Loaded run"
@@ -538,6 +574,8 @@ function LoadedRunPanelWrapper(props: LoadedPanelProps) {
         meta={loadedRow.jobMeta}
         state={loadedRow.state}
         github={loadedGitHub}
+        onReceiptPreview={onReceiptPreview}
+        standaloneUrl={standaloneUrl}
         stake={{
           amount: loadedRow.stake,
           aux: selectedJob
@@ -672,4 +710,56 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/**
+ * Assemble the unsigned receipt that the operator would commit if they
+ * clicked "Mark verified & pay" right now. Everything here is derived
+ * from data already on the Loaded-run panel; nothing is fetched. That's
+ * the whole point — the preview is a "before you sign" view, not a new
+ * round trip.
+ */
+function buildReceiptDraft(
+  row: RunRow,
+  github: ReturnType<typeof buildGitHubContext>
+): ReceiptPreviewDraft {
+  const workerSignerLabel = row.worker.isSelf
+    ? `Worker · ${row.worker.label} (you)`
+    : `Worker · ${row.worker.label}`;
+
+  return {
+    receiptRef: "r_4e133",
+    runId: row.id,
+    jobMeta: row.jobMeta,
+    state: row.state,
+    stake: {
+      amount: row.stake,
+      currency: "DOT",
+      breakdown: [
+        { label: "Worker payout", value: `${row.stake} DOT` },
+        { label: "Verifier fee", value: "0 DOT" },
+        { label: "Treasury reserve", value: "0 DOT" },
+      ],
+    },
+    verdict: {
+      status: github
+        ? "Awaiting maintainer review"
+        : "Verified (pending cosign)",
+      score: github ? "2 / 3" : "4 / 5",
+      confidence: github ? "0.86 confidence" : "0.92 confidence",
+    },
+    evidenceHash: github ? "sha256 0x9c…41" : "sha256 0x9c…41",
+    ...(github ? { github } : {}),
+    prUrl: github ? `https://github.com/${github.repo}/pull/4931` : undefined,
+    signers: [
+      { label: workerSignerLabel, status: "pending" },
+      {
+        label: github
+          ? "Maintainer · awaiting review"
+          : "Cosigner · 0x9A13…0cb2",
+        status: "pending",
+      },
+      { label: "Verifier · verifier-2", status: "signed" },
+    ],
+  };
 }
