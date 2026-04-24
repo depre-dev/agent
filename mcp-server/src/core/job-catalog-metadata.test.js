@@ -71,6 +71,22 @@ test("jobs default to worker work when role fields are omitted", () => {
   assert.equal(job.requiredRole, "worker");
 });
 
+test("createJob accepts github_pr verifier configuration", () => {
+  const service = makeService();
+  const job = service.createJob({
+    ...BASE_JOB,
+    id: "github-pr-evidence-001",
+    verifierMode: "github_pr",
+    verifierTerms: undefined,
+    outputSchemaRef: "schema://jobs/github-pr-evidence-output",
+    verifierMinimumScore: 70
+  });
+
+  assert.equal(job.verifierMode, "github_pr");
+  assert.equal(job.verifierConfig.handler, "github_pr");
+  assert.equal(job.verifierConfig.minimumScore, 70);
+});
+
 test("reviewer role gate blocks low-score agents", async () => {
   const service = makeService({ skill: 60, reliability: 0, economic: 0, tier: "starter" });
   service.createJob({

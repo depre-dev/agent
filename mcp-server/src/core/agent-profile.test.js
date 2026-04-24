@@ -159,6 +159,58 @@ test("buildAgentProfile ignores sessions that are pending verification", () => {
   assert.equal(profile.stats.lastActive, "2026-04-15T10:00:00.000Z");
 });
 
+test("buildAgentProfile aggregates GitHub reputation signals", () => {
+  const profile = buildAgentProfile({
+    wallet: WALLET,
+    reputation: { skill: 100, reliability: 100, economic: 100, tier: "pro" },
+    sessions: [
+      {
+        sessionId: "github-1",
+        wallet: WALLET,
+        jobId: "starter-coding-001",
+        status: "resolved",
+        updatedAt: "2026-04-10T10:00:00Z",
+        verification: {
+          outcome: "approved",
+          reputationSignals: {
+            attempted: 1,
+            prOpened: 1,
+            checksPassed: 1,
+            maintainerApproved: 0,
+            merged: 0
+          }
+        }
+      },
+      {
+        sessionId: "github-2",
+        wallet: WALLET,
+        jobId: "starter-coding-001",
+        status: "resolved",
+        updatedAt: "2026-04-11T10:00:00Z",
+        verification: {
+          outcome: "approved",
+          reputationSignals: {
+            attempted: 1,
+            prOpened: 1,
+            checksPassed: 1,
+            maintainerApproved: 1,
+            merged: 1
+          }
+        }
+      }
+    ],
+    getJobDefinition: makeGetJob()
+  });
+
+  assert.deepEqual(profile.stats.githubSignals, {
+    attempted: 2,
+    prOpened: 2,
+    checksPassed: 2,
+    maintainerApproved: 1,
+    merged: 1
+  });
+});
+
 test("buildAgentProfile omits badgeUrl when publicBaseUrl is not provided", () => {
   const profile = buildAgentProfile({
     wallet: WALLET,

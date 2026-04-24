@@ -36,7 +36,7 @@ export const BADGE_SCHEMA_VERSION = "v1";
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/u;
 const BYTES32_RE = /^0x[a-fA-F0-9]{64}$/u;
 const UINT_STRING_RE = /^[0-9]+$/u;
-const VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallback"]);
+const VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallback", "github_pr"]);
 const LEVEL_MIN = 1;
 const LEVEL_MAX = 255;
 const NAME_MAX = 140;
@@ -56,7 +56,7 @@ const DESCRIPTION_MAX = 1024;
  * @param {string} input.sessionId            Per-claim session id
  * @param {string} input.category             Skill category
  * @param {number} input.level                Completion level (1+)
- * @param {string} input.verifierMode         "benchmark" | "deterministic" | "human_fallback"
+ * @param {string} input.verifierMode         "benchmark" | "deterministic" | "human_fallback" | "github_pr"
  * @param {object} input.reward               { asset, amount, decimals }
  * @param {object} input.claimStake           { asset, amount, decimals }
  * @param {string} input.evidenceHash         bytes32 keccak256 of evidence

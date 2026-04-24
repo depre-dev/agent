@@ -156,11 +156,12 @@ export function toPlatformJob(issue, score = scoreIssue(issue)) {
     tier: "starter",
     rewardAsset: "DOT",
     rewardAmount: 1,
-    verifierMode: "benchmark",
-    verifierTerms: ["github", repo, `#${issueNumber}`, verificationMethod, issueUrl],
-    verifierMinimumMatches: 3,
+    verifierMode: "github_pr",
+    verifierMinimumScore: 60,
+    requireIssueReference: true,
+    requireTestEvidence: true,
     inputSchemaRef: "schema://jobs/coding-input",
-    outputSchemaRef: "schema://jobs/coding-output",
+    outputSchemaRef: "schema://jobs/github-pr-evidence-output",
     claimTtlSeconds: 7200,
     retryLimit: 1,
     requiresSponsoredGas: true,
@@ -181,12 +182,13 @@ export function toPlatformJob(issue, score = scoreIssue(issue)) {
       `Read ${issueUrl} before changing code.`,
       "Keep the patch minimal and focused on the issue.",
       "Run the relevant tests or docs build before submitting.",
-      "Submit a structured summary, changed files, tests run, and any PR URL."
+      "Submit structured evidence with prUrl, summary, tests, and notes when work is ready."
     ],
     verification: {
       method: "github_pr",
       suggestedCheck: verificationMethod,
-      signals: ["patch_submitted", "tests_passed", "pr_opened", "ci_passed", "merged"]
+      signals: ["attempted", "pr_opened", "issue_referenced", "tests_submitted", "ci_passed", "maintainer_approved", "merged"],
+      evidenceSchemaRef: "schema://jobs/github-pr-evidence-output"
     }
   };
 }

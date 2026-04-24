@@ -2349,7 +2349,7 @@ const server = createServer(async (request, response) => {
       const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim()
         ? payload.sessionId.trim()
         : (url.searchParams.get("sessionId") ?? "");
-      const evidence = typeof payload?.evidence === "string"
+      const evidence = payload && typeof payload === "object" && "evidence" in payload
         ? payload.evidence
         : (url.searchParams.get("evidence") ?? "");
       const metadataURI = typeof payload?.metadataURI === "string" && payload.metadataURI.trim()

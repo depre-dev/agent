@@ -37,6 +37,22 @@ test("validateStructuredSubmission accepts a schema-compliant PR review payload"
   });
 });
 
+test("validateStructuredSubmission accepts GitHub PR evidence payload", () => {
+  const payload = {
+    prUrl: "https://github.com/example/project/pull/77",
+    summary: "Added parser validation regression coverage.",
+    tests: "npm test passed",
+    issueNumber: 42,
+    referencesIssue: true,
+    checksPassing: true,
+    ciStatus: "passing"
+  };
+
+  assert.doesNotThrow(() => {
+    validateStructuredSubmission("schema://jobs/github-pr-evidence-output", payload);
+  });
+});
+
 test("validateStructuredSubmission rejects missing required fields", () => {
   assert.throws(
     () => validateStructuredSubmission("schema://jobs/pr-review-findings-output", {

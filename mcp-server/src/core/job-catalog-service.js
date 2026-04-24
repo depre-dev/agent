@@ -10,13 +10,13 @@ const DEFAULT_AGENT_PROFILE = {
   supportedProtocols: ["mcp", "http"],
   preferredCategories: ["coding"],
   preferredRiskLevel: "low",
-  verifierCompatibility: ["benchmark", "deterministic", "human_fallback"],
+  verifierCompatibility: ["benchmark", "deterministic", "human_fallback", "github_pr"],
   minLiquidReserve: 0,
   autoUnwindStrategies: false
 };
 
 const VALID_TIERS = new Set(["starter", "pro", "elite"]);
-const VALID_VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallback"]);
+const VALID_VERIFIER_MODES = new Set(["benchmark", "deterministic", "human_fallback", "github_pr"]);
 const VALID_JOB_TYPES = new Set(["work", "curation", "review", "publish", "verification"]);
 const VALID_AGENT_ROLES = new Set(["worker", "curator", "reviewer", "publisher", "verifier", "arbitrator"]);
 
@@ -564,6 +564,21 @@ export class JobCatalogService {
         handler: "deterministic",
         expectedOutputs: verifierTerms,
         matchMode
+      };
+    }
+
+    if (verifierMode === "github_pr") {
+      const minimumScore = Number(input?.verifierMinimumScore ?? input?.minimumScore ?? 60);
+      if (!Number.isInteger(minimumScore) || minimumScore < 1 || minimumScore > 100) {
+        throw new ValidationError("GitHub PR verifier minimum score must be an integer from 1 to 100.");
+      }
+      return {
+        version: 1,
+        handler: "github_pr",
+        minimumScore,
+        requireIssueReference: input?.requireIssueReference !== false,
+        requireTestEvidence: input?.requireTestEvidence !== false,
+        acceptMergedAsApproved: input?.acceptMergedAsApproved !== false
       };
     }
 

@@ -96,6 +96,8 @@ export function buildAgentProfile({ wallet, reputation, sessions, getJobDefiniti
     });
   }
 
+  const githubSignals = aggregateGithubSignals(safeSessions);
+
   const preferredCategories = Array.from(categoryCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([category, count]) => ({ category, count }));
@@ -120,6 +122,7 @@ export function buildAgentProfile({ wallet, reputation, sessions, getJobDefiniti
         amount: totalRewardBase.toString(),
         decimals
       },
+      githubSignals,
       activeSince: activeSinceMs ? new Date(activeSinceMs).toISOString() : null,
       lastActive: lastActiveMs ? new Date(lastActiveMs).toISOString() : null,
       preferredCategories
@@ -127,6 +130,26 @@ export function buildAgentProfile({ wallet, reputation, sessions, getJobDefiniti
     categoryLevels,
     badges
   };
+}
+
+function aggregateGithubSignals(sessions) {
+  const totals = {
+    attempted: 0,
+    prOpened: 0,
+    checksPassed: 0,
+    maintainerApproved: 0,
+    merged: 0
+  };
+  for (const session of sessions) {
+    const signals = session?.verification?.reputationSignals;
+    if (!signals || typeof signals !== "object") {
+      continue;
+    }
+    for (const key of Object.keys(totals)) {
+      totals[key] += Number.isInteger(signals[key]) ? signals[key] : 0;
+    }
+  }
+  return totals;
 }
 
 function normaliseReputation(raw) {

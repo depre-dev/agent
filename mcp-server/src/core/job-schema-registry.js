@@ -23,6 +23,27 @@ const BUILTIN_JOB_SCHEMAS = new Map([
       filesChanged: arrayOfStrings()
     }
   })],
+  ["schema://jobs/github-pr-evidence-output", objectSchema({
+    $id: "schema://jobs/github-pr-evidence-output",
+    description: "GitHub pull request evidence for open-source issue jobs.",
+    required: ["prUrl", "summary", "tests"],
+    properties: {
+      prUrl: stringSchema({ minLength: 1 }),
+      summary: stringSchema({ minLength: 1 }),
+      tests: stringSchema({ minLength: 1 }),
+      notes: stringSchema(),
+      issueNumber: integerSchema({ minimum: 1 }),
+      issueUrl: stringSchema(),
+      commitUrl: stringSchema(),
+      branchUrl: stringSchema(),
+      filesChanged: arrayOfStrings(),
+      referencesIssue: booleanSchema(),
+      checksPassing: booleanSchema(),
+      ciStatus: enumString(["unknown", "pending", "passing", "failing"]),
+      reviewApproved: booleanSchema(),
+      merged: booleanSchema()
+    }
+  })],
   ["schema://jobs/governance-input", objectSchema({
     $id: "schema://jobs/governance-input",
     description: "Generic governance job input.",
@@ -323,12 +344,18 @@ export function validateAgainstSchema(value, schema, path = "value") {
     if (!Number.isFinite(value)) {
       throw new ValidationError(`${path} must be a number`);
     }
+    if (Number.isFinite(schema.minimum) && value < schema.minimum) {
+      throw new ValidationError(`${path} must be at least ${schema.minimum}`);
+    }
     return;
   }
 
   if (expected === "integer") {
     if (!Number.isInteger(value)) {
       throw new ValidationError(`${path} must be an integer`);
+    }
+    if (Number.isFinite(schema.minimum) && value < schema.minimum) {
+      throw new ValidationError(`${path} must be at least ${schema.minimum}`);
     }
     return;
   }
@@ -345,6 +372,19 @@ function stringSchema(options = {}) {
   return {
     type: "string",
     ...options
+  };
+}
+
+function integerSchema(options = {}) {
+  return {
+    type: "integer",
+    ...options
+  };
+}
+
+function booleanSchema() {
+  return {
+    type: "boolean"
   };
 }
 

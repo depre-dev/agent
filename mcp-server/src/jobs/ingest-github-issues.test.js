@@ -55,7 +55,17 @@ test("toPlatformJob preserves GitHub issue context as job metadata", () => {
   assert.equal(job.source.score, 92);
   assert.ok(job.acceptanceCriteria.some((entry) => entry.includes("issue #42")));
   assert.ok(job.agentInstructions.some((entry) => entry.includes(GOOD_ISSUE.html_url)));
-  assert.deepEqual(job.verification.signals, ["patch_submitted", "tests_passed", "pr_opened", "ci_passed", "merged"]);
+  assert.equal(job.verifierMode, "github_pr");
+  assert.equal(job.outputSchemaRef, "schema://jobs/github-pr-evidence-output");
+  assert.deepEqual(job.verification.signals, [
+    "attempted",
+    "pr_opened",
+    "issue_referenced",
+    "tests_submitted",
+    "ci_passed",
+    "maintainer_approved",
+    "merged"
+  ]);
 });
 
 test("ingestGithubIssues returns dry-run shaped jobs and filters pull requests", async () => {

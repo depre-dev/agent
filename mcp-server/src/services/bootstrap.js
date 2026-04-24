@@ -73,7 +73,7 @@ const profiles = new Map([
     supportedProtocols: ["mcp", "http"],
     preferredCategories: ["coding", "governance"],
     preferredRiskLevel: "low",
-    verifierCompatibility: ["benchmark", "deterministic", "human_fallback"],
+    verifierCompatibility: ["benchmark", "deterministic", "human_fallback", "github_pr"],
     minLiquidReserve: 10,
     autoUnwindStrategies: false
   }]

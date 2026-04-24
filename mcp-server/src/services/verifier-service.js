@@ -13,7 +13,7 @@ export class VerifierService {
     const job = this.platformService.getJobDefinition(session.jobId);
     const chainJobId = session.chainJobId ?? session.jobId;
     const verificationInput = this.resolveVerificationInput(session, evidence);
-    const verdict = this.registry.evaluate(job, verificationInput);
+    const verdict = await this.registry.evaluate(job, verificationInput);
 
     if (this.blockchainGateway?.isEnabled() && this.blockchainGateway.resolveSinglePayout) {
       await this.blockchainGateway.resolveSinglePayout(
@@ -42,7 +42,7 @@ export class VerifierService {
     const job = this.platformService.getJobDefinition(session.jobId);
     const existing = await this.stateStore.getVerificationResult(sessionId);
     const verificationInput = existing?.verificationInput ?? this.resolveVerificationInput(session);
-    const verdict = this.registry.evaluate(job, verificationInput);
+    const verdict = await this.registry.evaluate(job, verificationInput);
     return {
       ...verdict,
       sessionId,
