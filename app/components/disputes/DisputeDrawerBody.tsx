@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { mutate } from "swr";
 import { DrawerSection } from "@/components/shell/DetailDrawer";
+import { decisionToVerdict } from "@/lib/api/dispute-adapters";
+import { swrFetcher } from "@/lib/api/client";
 import { DisputeStatePill, OriginPill } from "./pills";
 import { PartyChip } from "./PartyChip";
 import { WindowCountdown } from "./WindowCountdown";
@@ -11,7 +14,13 @@ import { DecisionPanel } from "./DecisionPanel";
 import { DisputeTimeline } from "./DisputeTimeline";
 import type { DecisionKind, Dispute, ReleaseDestination } from "./types";
 
-export function DisputeDrawerBody({ dispute }: { dispute: Dispute }) {
+export function DisputeDrawerBody({
+  dispute,
+  live = false,
+}: {
+  dispute: Dispute;
+  live?: boolean;
+}) {
   const resolved = dispute.state === "resolved";
   const [decision, setDecision] = useState<DecisionKind | null>(
     dispute.resolution?.decision ?? null
@@ -24,6 +33,8 @@ export function DisputeDrawerBody({ dispute }: { dispute: Dispute }) {
   const [committed, setCommitted] = useState<DecisionKind | null>(
     resolved ? dispute.resolution?.decision ?? null : null
   );
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Reset drawer state when navigating between disputes.
   useEffect(() => {
@@ -34,6 +45,8 @@ export function DisputeDrawerBody({ dispute }: { dispute: Dispute }) {
     setCommitted(
       dispute.state === "resolved" ? dispute.resolution?.decision ?? null : null
     );
+    setSubmitting(false);
+    setSubmitError(null);
   }, [dispute.id, dispute.resolution, dispute.state]);
 
   // If the decision changes, reset the destination to stay consistent
@@ -49,6 +62,63 @@ export function DisputeDrawerBody({ dispute }: { dispute: Dispute }) {
       if (d === "reject" && destination !== "return-to-depositor") {
         setDestination("return-to-depositor");
       }
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!decision) return;
+    if (!live) {
+      setCommitted(decision);
+      return;
+    }
+
+    const detailKey = `/disputes/${encodeURIComponent(dispute.id)}`;
+    let verdictCommitted = false;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await swrFetcher([
+        `${detailKey}/verdict`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            verdict: decisionToVerdict(decision),
+            rationale: rationale.trim(),
+          }),
+        },
+      ]);
+      verdictCommitted = true;
+
+      if (destination && decision !== "request-more") {
+        await swrFetcher([
+          `${detailKey}/release`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: destination,
+              destination,
+              amount: dispute.stakeFrozen,
+            }),
+          },
+        ]);
+      }
+
+      setCommitted(decision);
+      mutate("/disputes");
+      mutate(detailKey);
+    } catch {
+      if (verdictCommitted) {
+        setCommitted(decision);
+        mutate("/disputes");
+        mutate(detailKey);
+        setSubmitError("Verdict signed. Stake release still needs admin approval.");
+      } else {
+        setSubmitError("Could not sign this verdict. Check your role and try again.");
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -202,7 +272,9 @@ export function DisputeDrawerBody({ dispute }: { dispute: Dispute }) {
             roleConfirmed={roleConfirmed}
             onRoleToggle={() => setRoleConfirmed((v) => !v)}
             destination={destination}
-            onCommit={() => setCommitted(decision)}
+            onCommit={handleCommit}
+            busy={submitting}
+            error={submitError}
           />
         </DrawerSection>
       )}

@@ -11,8 +11,10 @@ export interface DecisionPanelProps {
   roleConfirmed: boolean;
   onRoleToggle: () => void;
   destination: ReleaseDestination | null;
-  onCommit: () => void;
+  onCommit: () => void | Promise<void>;
   disabled?: boolean;
+  busy?: boolean;
+  error?: string | null;
 }
 
 const DECISIONS: {
@@ -55,12 +57,14 @@ export function DecisionPanel({
   destination,
   onCommit,
   disabled,
+  busy,
+  error,
 }: DecisionPanelProps) {
   const rationaleOk = rationale.trim().length >= 20;
   const destinationOk =
     decision === "request-more" || destination !== null;
   const committable =
-    !disabled && decision !== null && rationaleOk && roleConfirmed && destinationOk;
+    !disabled && !busy && decision !== null && rationaleOk && roleConfirmed && destinationOk;
 
   return (
     <div className="flex flex-col gap-3">
@@ -163,8 +167,16 @@ export function DecisionPanel({
                   : "Confirm you hold the dispute-resolver role"
         }
       >
-        Sign &amp; commit verdict
+        {busy ? "Signing..." : "Sign & commit verdict"}
       </button>
+      {error ? (
+        <p
+          className="m-0 font-[family-name:var(--font-mono)] text-[11.5px] text-[#8c2a17]"
+          style={{ letterSpacing: 0 }}
+        >
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

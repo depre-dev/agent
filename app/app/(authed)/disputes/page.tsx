@@ -13,6 +13,8 @@ import { DisputesLegend } from "@/components/disputes/DisputesLegend";
 import { DisputeDrawerBody } from "@/components/disputes/DisputeDrawerBody";
 import { DisputeStatePill, OriginPill } from "@/components/disputes/pills";
 import { DISPUTES } from "@/components/disputes/data";
+import { extractDispute, extractDisputeList } from "@/lib/api/dispute-adapters";
+import { useDispute, useDisputes } from "@/lib/api/hooks";
 
 // TODO(data): wire to useApi("/disputes") once the backend emits the list.
 // Drill-in swaps to useApi(`/disputes/${id}`) for the drawer. Fixture for
@@ -20,6 +22,7 @@ import { DISPUTES } from "@/components/disputes/data";
 // exercised against realistic shapes.
 
 export default function DisputesPage() {
+  const disputesRequest = useDisputes();
   const [filter, setFilter] = useState<DisputesFilter>({
     state: "all",
     severity: "all",
@@ -28,10 +31,22 @@ export default function DisputesPage() {
   });
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const liveDisputes = useMemo(
+    () => extractDisputeList(disputesRequest.data),
+    [disputesRequest.data]
+  );
+  const disputes = liveDisputes.length ? liveDisputes : DISPUTES;
+  const isLive = liveDisputes.length > 0;
+  const pickedFromList = pickedId
+    ? disputes.find((d) => d.id === pickedId) ?? null
+    : null;
+  const detailRequest = useDispute(drawerOpen && pickedFromList ? pickedFromList.id : null);
+  const pickedDetail = extractDispute(detailRequest.data);
+  const picked = pickedDetail ?? pickedFromList;
 
   const filtered = useMemo(() => {
     const q = filter.q.trim().toLowerCase();
-    return DISPUTES.filter((d) => {
+    return disputes.filter((d) => {
       if (filter.state !== "all" && d.state !== filter.state) return false;
       if (filter.severity !== "all" && d.severity !== filter.severity) return false;
       if (filter.origin !== "all" && d.origin !== filter.origin) return false;
@@ -52,9 +67,7 @@ export default function DisputesPage() {
       }
       return true;
     });
-  }, [filter]);
-
-  const picked = pickedId ? DISPUTES.find((d) => d.id === pickedId) ?? null : null;
+  }, [disputes, filter]);
 
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
@@ -76,11 +89,11 @@ export default function DisputesPage() {
         </p>
       </header>
 
-      <DisputesAggregateStrip disputes={DISPUTES} />
+      <DisputesAggregateStrip disputes={disputes} />
       <DisputesFilterRail filter={filter} onChange={setFilter} />
       <DisputesTable
         rows={filtered}
-        totalCount={DISPUTES.length}
+        totalCount={disputes.length}
         selectedId={pickedId}
         onSelect={(d) => {
           setPickedId(d.id);
@@ -128,7 +141,7 @@ export default function DisputesPage() {
           ) : null
         }
       >
-        {picked ? <DisputeDrawerBody dispute={picked} /> : null}
+        {picked ? <DisputeDrawerBody dispute={picked} live={isLive} /> : null}
       </DetailDrawer>
     </div>
   );

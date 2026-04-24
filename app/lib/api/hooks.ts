@@ -40,6 +40,8 @@ export const usePolicies = () => useApi("/policies");
 export const usePolicy = (tag: string | null) =>
   useApi(tag ? `/policies/${encodeURIComponent(tag)}` : null);
 export const useDisputes = () => useApi("/disputes");
+export const useDispute = (id: string | null) =>
+  useApi(id ? `/disputes/${encodeURIComponent(id)}` : null);
 export const useStrategies = () => useApi("/strategies");
 export const useHealth = () => useApi("/health");
 export const useOnboarding = () => useApi("/onboarding");
