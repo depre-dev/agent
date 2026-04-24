@@ -9,6 +9,8 @@ import {
 } from "@/components/audit/AuditFilterRail";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { AUDIT_EVENTS } from "@/components/audit/data";
+import type { AuditActor, AuditCategory, AuditEvent, AuditSource } from "@/components/audit/types";
+import { useAudit } from "@/lib/api/hooks";
 
 // TODO(data): wire to useApi("/audit") once backend emits an event
 // stream. The SSE channel in lib/events/stream.ts already carries most
@@ -22,17 +24,20 @@ const DAY_BUCKETS: Record<AuditFilter["day"], (d: string) => boolean> = {
 };
 
 export default function AuditLogPage() {
+  const auditRequest = useAudit();
   const [filter, setFilter] = useState<AuditFilter>({
     source: "all",
     category: "all",
     day: "all",
     q: "",
   });
+  const liveEvents = useMemo(() => extractAuditEvents(auditRequest.data), [auditRequest.data]);
+  const events = liveEvents.length ? liveEvents : AUDIT_EVENTS;
 
   const filtered = useMemo(() => {
     const q = filter.q.trim().toLowerCase();
     const dayMatch = DAY_BUCKETS[filter.day];
-    return AUDIT_EVENTS.filter((e) => {
+    return events.filter((e) => {
       if (filter.source !== "all" && e.source !== filter.source) return false;
       if (filter.category !== "all" && e.category !== filter.category) return false;
       if (!dayMatch(e.day)) return false;
@@ -52,7 +57,7 @@ export default function AuditLogPage() {
       }
       return true;
     });
-  }, [filter]);
+  }, [events, filter]);
 
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
@@ -75,7 +80,7 @@ export default function AuditLogPage() {
         </p>
       </header>
 
-      <AuditAggregateStrip events={AUDIT_EVENTS} />
+      <AuditAggregateStrip events={events} />
       <AuditFilterRail filter={filter} onChange={setFilter} />
       <AuditTimeline events={filtered} />
 
@@ -84,11 +89,106 @@ export default function AuditLogPage() {
         style={{ letterSpacing: 0 }}
       >
         Showing <b className="font-semibold text-[var(--avy-ink)]">{filtered.length}</b> of{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">{AUDIT_EVENTS.length}</b> events.
+        <b className="font-semibold text-[var(--avy-ink)]">{events.length}</b> events.
         The full history lives at <span className="text-[var(--avy-accent)]">/audit/export</span>{" "}
         — signed manifest includes hashes, actor wallets, and block references for
         every row.
       </p>
     </div>
   );
+}
+
+function extractAuditEvents(data: unknown): AuditEvent[] {
+  if (!Array.isArray(data)) return [];
+  return data.reduce<AuditEvent[]>((events, item) => {
+    if (!item || typeof item !== "object") return events;
+    const record = item as Record<string, unknown>;
+    const id = text(record.id, "");
+    const action = text(record.action, "");
+    if (!id || !action) return events;
+    const event: AuditEvent = {
+      id,
+      at: text(record.at, "00:00:00"),
+      day: text(record.day, "today"),
+      source: source(record.source),
+      category: category(record.category),
+      action,
+      actor: actor(record.actor),
+      summary: text(record.summary, action),
+    };
+    const target = text(record.target, "");
+    const hash = text(record.hash, "");
+    const tone = auditTone(record.tone);
+    const link = linkTarget(record.link);
+    if (target) event.target = target;
+    if (hash) event.hash = hash;
+    if (tone) event.tone = tone;
+    if (link) event.link = link;
+    events.push(event);
+    return events;
+  }, []);
+}
+
+function source(value: unknown): AuditSource {
+  if (value === "operator" || value === "system" || value === "contract") return value;
+  if (value === "on-chain") return "contract";
+  return "system";
+}
+
+function category(value: unknown): AuditCategory {
+  if (
+    value === "policy" ||
+    value === "runs" ||
+    value === "treasury" ||
+    value === "xcm" ||
+    value === "badge" ||
+    value === "dispute" ||
+    value === "auth" ||
+    value === "verifier"
+  ) {
+    return value;
+  }
+  if (value === "session") return "runs";
+  if (value === "escrow" || value === "reputation" || value === "admin") return "treasury";
+  return "runs";
+}
+
+function actor(value: unknown): AuditActor {
+  if (!value || typeof value !== "object") {
+    return { handle: "system", address: "averray.platform", initials: "--", tone: "muted" };
+  }
+  const record = value as Record<string, unknown>;
+  const handle = text(record.handle, "system");
+  return {
+    handle,
+    address: text(record.address, "averray.platform"),
+    initials: text(record.initials, handle.slice(0, 2).toUpperCase()),
+    tone: actorTone(record.tone),
+  };
+}
+
+function actorTone(value: unknown): AuditActor["tone"] {
+  if (value === "sage" || value === "ink" || value === "clay" || value === "blue" || value === "muted") {
+    return value;
+  }
+  return "muted";
+}
+
+function auditTone(value: unknown): AuditEvent["tone"] | undefined {
+  if (value === "neutral" || value === "accent" || value === "warn" || value === "bad") {
+    return value;
+  }
+  return undefined;
+}
+
+function linkTarget(value: unknown): AuditEvent["link"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const label = text(record.label, "");
+  const href = text(record.href, "");
+  return label && href ? { label, href } : undefined;
+}
+
+function text(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
 }
