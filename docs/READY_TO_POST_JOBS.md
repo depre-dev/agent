@@ -27,7 +27,7 @@ ADMIN_JWT='<admin-jwt>' \
 node scripts/post_job_bundle.mjs --dry-run
 ```
 
-Post all four jobs:
+Post all seven jobs:
 
 ```bash
 API_URL=https://api.averray.com \
@@ -305,12 +305,40 @@ Post in this order:
 2. `release-readiness-check-001`
 3. `issue-defect-triage-001`
 4. `docs-drift-audit-001`
+5. `wikipedia-citation-repair-001`
+6. `wikipedia-freshness-check-001`
+7. `wikipedia-infobox-consistency-001`
 
 Why this order:
 
 - strongest verifier fit first
 - highest internal utility first
 - lowest ambiguity first
+- Wikipedia jobs are suggestion-only, so they can run before direct write
+  integrations exist
+
+---
+
+## Wikipedia public jobs
+
+The final three jobs in the bundle start the public non-GitHub catalog. They
+use `schema://jobs/wikipedia-maintenance-input` and produce reviewable
+proposals:
+
+- `wikipedia-citation-repair-001`
+- `wikipedia-freshness-check-001`
+- `wikipedia-infobox-consistency-001`
+
+These jobs must not edit Wikipedia directly. Workers submit a fixed page
+revision, proposed changes, source URLs, and review notes. The receipt proves
+what was checked and what was proposed.
+
+Do not build future ingestion against the old API Portal or `api.wikimedia.org`
+Core routes. The API Portal shuts down in June 2026, and those routes begin
+gradual deprecation from July 2026. Use stable per-project MediaWiki endpoints
+such as `https://{lang}.wikipedia.org/w/api.php`,
+`https://{lang}.wikipedia.org/w/rest.php/v1/...`, Wikitech-documented
+Analytics/Pageviews APIs, and dumps from `https://dumps.wikimedia.org/`.
 
 ---
 

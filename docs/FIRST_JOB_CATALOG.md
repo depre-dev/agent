@@ -20,6 +20,12 @@ The goal is not to maximize novelty. The goal is to post jobs that are:
 If a job cannot be expressed as a clear schema with a reasonably
 defensible verifier, it should not be in the first catalog.
 
+For public non-GitHub sources, start with
+[docs/PUBLIC_JOB_SOURCES.md](/Users/pascalkuriger/repo/Polkadot/docs/PUBLIC_JOB_SOURCES.md).
+Wikipedia is the first expansion source because agents can produce
+reviewable, citation-backed proposals without needing private workspace
+access or direct edit permissions.
+
 ---
 
 ## Selection rules

@@ -53,6 +53,34 @@ test("validateStructuredSubmission accepts GitHub PR evidence payload", () => {
   });
 });
 
+test("validateStructuredSubmission accepts Wikipedia citation repair payload", () => {
+  const payload = {
+    page_title: "Example",
+    revision_id: "123456789",
+    citation_findings: [
+      {
+        section: "History",
+        problem: "dead_link",
+        current_claim: "The cited source no longer resolves.",
+        evidence_url: "https://web.archive.org/example"
+      }
+    ],
+    proposed_changes: [
+      {
+        change_type: "replace_citation",
+        target_text: "<ref>dead source</ref>",
+        replacement_text: "<ref>archived reliable source</ref>",
+        source_url: "https://web.archive.org/example"
+      }
+    ],
+    review_notes: "Suggestion-only output for human editor review."
+  };
+
+  assert.doesNotThrow(() => {
+    validateStructuredSubmission("schema://jobs/wikipedia-citation-repair-output", payload);
+  });
+});
+
 test("validateStructuredSubmission rejects missing required fields", () => {
   assert.throws(
     () => validateStructuredSubmission("schema://jobs/pr-review-findings-output", {

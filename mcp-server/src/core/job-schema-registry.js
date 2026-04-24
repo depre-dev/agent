@@ -175,6 +175,118 @@ const BUILTIN_JOB_SCHEMAS = new Map([
       severity: enumString(["low", "medium", "high"]),
       fix_recommendation: stringSchema({ minLength: 1 })
     }
+  })],
+  ["schema://jobs/wikipedia-maintenance-input", objectSchema({
+    $id: "schema://jobs/wikipedia-maintenance-input",
+    description: "Wikipedia public article maintenance job input.",
+    required: ["project", "pageTitle", "pageUrl", "revisionId", "taskType", "instructions"],
+    properties: {
+      project: enumString(["wikipedia"]),
+      language: stringSchema(),
+      pageTitle: stringSchema({ minLength: 1 }),
+      pageUrl: stringSchema({ minLength: 1 }),
+      revisionId: stringSchema({ minLength: 1 }),
+      taskType: enumString(["citation_repair", "freshness_check", "infobox_consistency"]),
+      sourceUrls: arrayOfStrings(),
+      instructions: arrayOfStrings({ minItems: 1 })
+    }
+  })],
+  ["schema://jobs/wikipedia-citation-repair-output", objectSchema({
+    $id: "schema://jobs/wikipedia-citation-repair-output",
+    description: "Reviewable citation repair proposal for Wikipedia articles.",
+    required: ["page_title", "revision_id", "citation_findings", "proposed_changes", "review_notes"],
+    properties: {
+      page_title: stringSchema({ minLength: 1 }),
+      revision_id: stringSchema({ minLength: 1 }),
+      citation_findings: {
+        type: "array",
+        minItems: 1,
+        items: objectSchema({
+          required: ["section", "problem", "current_claim", "evidence_url"],
+          properties: {
+            section: stringSchema({ minLength: 1 }),
+            problem: enumString(["dead_link", "missing_citation", "weak_source", "outdated_source", "claim_mismatch"]),
+            current_claim: stringSchema({ minLength: 1 }),
+            evidence_url: stringSchema({ minLength: 1 })
+          }
+        })
+      },
+      proposed_changes: {
+        type: "array",
+        minItems: 1,
+        items: objectSchema({
+          required: ["change_type", "target_text", "replacement_text", "source_url"],
+          properties: {
+            change_type: enumString(["replace_citation", "add_citation", "flag_for_editor_review"]),
+            target_text: stringSchema({ minLength: 1 }),
+            replacement_text: stringSchema({ minLength: 1 }),
+            source_url: stringSchema({ minLength: 1 })
+          }
+        })
+      },
+      review_notes: stringSchema({ minLength: 1 })
+    }
+  })],
+  ["schema://jobs/wikipedia-freshness-check-output", objectSchema({
+    $id: "schema://jobs/wikipedia-freshness-check-output",
+    description: "Freshness and factual drift check for a public Wikipedia article.",
+    required: ["page_title", "revision_id", "freshness_findings", "recommended_editor_actions", "risk_level"],
+    properties: {
+      page_title: stringSchema({ minLength: 1 }),
+      revision_id: stringSchema({ minLength: 1 }),
+      freshness_findings: {
+        type: "array",
+        minItems: 1,
+        items: objectSchema({
+          required: ["claim", "status", "evidence_url", "note"],
+          properties: {
+            claim: stringSchema({ minLength: 1 }),
+            status: enumString(["current", "outdated", "unclear", "needs_editor_review"]),
+            evidence_url: stringSchema({ minLength: 1 }),
+            note: stringSchema({ minLength: 1 })
+          }
+        })
+      },
+      recommended_editor_actions: arrayOfStrings({ minItems: 1 }),
+      risk_level: enumString(["low", "medium", "high"])
+    }
+  })],
+  ["schema://jobs/wikipedia-infobox-consistency-output", objectSchema({
+    $id: "schema://jobs/wikipedia-infobox-consistency-output",
+    description: "Reviewable proposal for reconciling a Wikipedia infobox with cited article evidence.",
+    required: ["page_title", "revision_id", "checked_fields", "proposed_changes", "review_notes"],
+    properties: {
+      page_title: stringSchema({ minLength: 1 }),
+      revision_id: stringSchema({ minLength: 1 }),
+      checked_fields: {
+        type: "array",
+        minItems: 1,
+        items: objectSchema({
+          required: ["field", "current_value", "evidence_url", "status", "note"],
+          properties: {
+            field: stringSchema({ minLength: 1 }),
+            current_value: stringSchema({ minLength: 1 }),
+            evidence_url: stringSchema({ minLength: 1 }),
+            status: enumString(["consistent", "inconsistent", "missing_source", "needs_editor_review"]),
+            note: stringSchema({ minLength: 1 })
+          }
+        })
+      },
+      proposed_changes: {
+        type: "array",
+        minItems: 1,
+        items: objectSchema({
+          required: ["field", "target_text", "replacement_text", "source_url"],
+          properties: {
+            field: stringSchema({ minLength: 1 }),
+            target_text: stringSchema({ minLength: 1 }),
+            replacement_text: stringSchema({ minLength: 1 }),
+            source_url: stringSchema({ minLength: 1 })
+          }
+        })
+      },
+      review_notes: stringSchema({ minLength: 1 })
+    }
   })]
 ]);
 

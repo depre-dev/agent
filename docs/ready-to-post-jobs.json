@@ -83,5 +83,146 @@
     "claimTtlSeconds": 3600,
     "retryLimit": 1,
     "requiresSponsoredGas": true
+  },
+  {
+    "id": "wikipedia-citation-repair-001",
+    "title": "Wikipedia citation repair proposal",
+    "description": "Review a public Wikipedia article revision and propose citation repairs without editing the live page directly.",
+    "category": "wikipedia",
+    "tier": "starter",
+    "rewardAsset": "DOT",
+    "rewardAmount": 4,
+    "verifierMode": "benchmark",
+    "verifierTerms": [
+      "page_title",
+      "revision_id",
+      "citation_findings",
+      "proposed_changes",
+      "review_notes"
+    ],
+    "verifierMinimumMatches": 4,
+    "inputSchemaRef": "schema://jobs/wikipedia-maintenance-input",
+    "outputSchemaRef": "schema://jobs/wikipedia-citation-repair-output",
+    "claimTtlSeconds": 3600,
+    "retryLimit": 1,
+    "requiresSponsoredGas": true,
+    "source": {
+      "type": "wikipedia_article",
+      "project": "wikipedia",
+      "taskType": "citation_repair",
+      "writePolicy": "suggestion_only",
+      "notes": "Output must be a reviewable proposal with source URLs and revision id, not a direct edit."
+    },
+    "acceptanceCriteria": [
+      "Names the page title and exact revision id reviewed.",
+      "Identifies at least one citation problem or explicitly flags the page for editor review.",
+      "Provides source URLs for every proposed citation change.",
+      "Does not claim that the live Wikipedia page was edited."
+    ],
+    "agentInstructions": [
+      "Use public Wikipedia articles, page history, and cited source URLs only.",
+      "Produce a reviewable patch proposal; do not edit Wikipedia directly.",
+      "Prefer reliable primary or institutional sources.",
+      "Include enough context for a human editor to verify the proposal."
+    ],
+    "verification": {
+      "method": "reviewable_wikipedia_proposal",
+      "evidenceSchemaRef": "schema://jobs/wikipedia-citation-repair-output",
+      "signals": ["page_revision_cited", "source_urls_present", "proposal_only", "human_review_ready"]
+    }
+  },
+  {
+    "id": "wikipedia-freshness-check-001",
+    "title": "Wikipedia freshness check",
+    "description": "Check a public page revision for stale or uncertain claims and return editor-ready review notes with evidence URLs.",
+    "category": "wikipedia",
+    "tier": "starter",
+    "rewardAsset": "DOT",
+    "rewardAmount": 4,
+    "verifierMode": "benchmark",
+    "verifierTerms": [
+      "page_title",
+      "revision_id",
+      "freshness_findings",
+      "recommended_editor_actions",
+      "risk_level"
+    ],
+    "verifierMinimumMatches": 4,
+    "inputSchemaRef": "schema://jobs/wikipedia-maintenance-input",
+    "outputSchemaRef": "schema://jobs/wikipedia-freshness-check-output",
+    "claimTtlSeconds": 3600,
+    "retryLimit": 1,
+    "requiresSponsoredGas": true,
+    "source": {
+      "type": "wikipedia_article",
+      "project": "wikipedia",
+      "taskType": "freshness_check",
+      "writePolicy": "suggestion_only",
+      "notes": "Use pageviews or manual selection to prioritize public pages; output is for human editor review."
+    },
+    "acceptanceCriteria": [
+      "Names the page title and exact revision id reviewed.",
+      "Checks claims against external evidence URLs.",
+      "Labels each finding as current, outdated, unclear, or needing editor review.",
+      "Returns recommended editor actions without editing the live page."
+    ],
+    "agentInstructions": [
+      "Review a fixed revision, not the mutable live page.",
+      "Do not invent sources; every stale/outdated claim needs an evidence URL.",
+      "If evidence is ambiguous, mark needs_editor_review.",
+      "Keep recommendations concise and editor-ready."
+    ],
+    "verification": {
+      "method": "reviewable_wikipedia_proposal",
+      "evidenceSchemaRef": "schema://jobs/wikipedia-freshness-check-output",
+      "signals": ["page_revision_cited", "evidence_urls_present", "risk_level_set", "human_review_ready"]
+    }
+  },
+  {
+    "id": "wikipedia-infobox-consistency-001",
+    "title": "Wikipedia infobox consistency proposal",
+    "description": "Review a Wikipedia article infobox against the fixed article revision and cited sources, then propose editor-ready fixes.",
+    "category": "wikipedia",
+    "tier": "starter",
+    "rewardAsset": "DOT",
+    "rewardAmount": 5,
+    "verifierMode": "benchmark",
+    "verifierTerms": [
+      "page_title",
+      "revision_id",
+      "checked_fields",
+      "proposed_changes",
+      "review_notes"
+    ],
+    "verifierMinimumMatches": 4,
+    "inputSchemaRef": "schema://jobs/wikipedia-maintenance-input",
+    "outputSchemaRef": "schema://jobs/wikipedia-infobox-consistency-output",
+    "claimTtlSeconds": 3600,
+    "retryLimit": 1,
+    "requiresSponsoredGas": true,
+    "source": {
+      "type": "wikipedia_article",
+      "project": "wikipedia",
+      "taskType": "infobox_consistency",
+      "writePolicy": "suggestion_only",
+      "notes": "Structured infobox proposal for human editor review."
+    },
+    "acceptanceCriteria": [
+      "Names the page title and exact revision id reviewed.",
+      "Lists every infobox field checked.",
+      "Every proposed field change includes source evidence.",
+      "Separates inconsistent fields from fields that require editor review."
+    ],
+    "agentInstructions": [
+      "Review a fixed Wikipedia article revision, not the mutable live page.",
+      "Check infobox claims against article citations and reliable external sources.",
+      "Do not edit Wikipedia directly.",
+      "Return concise notes that a human editor can verify."
+    ],
+    "verification": {
+      "method": "reviewable_wikipedia_proposal",
+      "evidenceSchemaRef": "schema://jobs/wikipedia-infobox-consistency-output",
+      "signals": ["page_revision_cited", "checked_fields_present", "source_urls_present", "human_review_ready"]
+    }
   }
 ]
