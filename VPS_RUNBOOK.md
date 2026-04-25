@@ -211,6 +211,34 @@ these repository secrets for `.github/workflows/deploy-production.yml`:
 Keep branch protection enabled for `main`: require PRs, require CI, and use
 merge queue or auto-merge so multiple agents are serialized before deployment.
 
+### Local main sync after production deploys
+
+GitHub Actions cannot directly update a developer laptop after deployment. To
+keep a local macOS checkout's `main` branch current in the background, install
+the per-user launchd watcher from the repo root:
+
+```bash
+./scripts/ops/install-macos-production-sync-launchd.sh
+```
+
+The watcher polls the `Deploy Production` workflow on `main` and runs
+`./scripts/ops/sync-local-main.sh` after a new successful deploy. It does not
+switch away from active task branches.
+
+Useful commands:
+
+```bash
+# One-shot manual sync check
+./scripts/ops/watch-production-sync.sh --once
+
+# Watcher logs
+tail -f .codex/logs/production-sync.out.log
+tail -f .codex/logs/production-sync.err.log
+
+# Stop/remove the login watcher
+./scripts/ops/uninstall-macos-production-sync-launchd.sh
+```
+
 ### Frontend-only changes
 
 Use the scripted frontend deploy. The operator app is a static Next export
