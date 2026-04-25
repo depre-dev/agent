@@ -25,6 +25,10 @@ reviewable changes and keep production deploys serialized.
 - To sync local `main` without changing task branches, run
   `./scripts/ops/sync-local-main.sh`. GitHub cannot update local Macs after a
   deployment, so this helper is the local follow-up step.
+- On macOS, developers can install a login/background watcher with
+  `./scripts/ops/install-macos-production-sync-launchd.sh`. It polls the
+  production deploy workflow and runs `sync-local-main.sh` after successful
+  deploys, without touching active task branches.
 
 ## Generated Files
 
