@@ -56,7 +56,4 @@ jobs:
           ssh -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
             "set -e && \
              cd /srv/agent-stack/app && \
-             git fetch origin main && \
-             (git stash push -u -m 'github-actions bootstrap autostash' >/dev/null || true) && \
-             git pull --ff-only origin main && \
              ${remote_env} ./scripts/ops/deploy-production.sh"
