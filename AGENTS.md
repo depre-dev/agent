@@ -6,17 +6,25 @@ reviewable changes and keep production deploys serialized.
 ## Branching
 
 - Do not push directly to `main`.
-- Start each task from an up-to-date local `main` by running
-  `./scripts/ops/start-agent-branch.sh codex/<task-name>` from the repository
-  root. The helper fetches `origin/main`, fast-forwards local `main`, and then
-  creates the task branch.
+- Start each task in its own worktree from fresh `origin/main` by running
+  `./scripts/ops/start-agent-worktree.sh codex/<task-name>` or
+  `./scripts/ops/start-agent-worktree.sh claude/<task-name>` from the repository
+  root. The helper fetches `origin/main`, creates the task branch, and prints
+  the worktree path to use.
 - Create one branch per task, for example `codex/github-pr-verifier` or
   `codex/runs-ui-polish`.
+- Keep the primary checkout on `main` for repo sync and branch creation. Agents
+  should do implementation work in task worktrees, not in the primary checkout.
 - Keep PRs narrow. Split unrelated backend, frontend, contract, and docs work.
 - Rebase or merge `origin/main` before marking a PR ready if other agents landed
   nearby changes.
-- After your PR merges, switch back to `main` and run
-  `git pull --ff-only origin main` before starting anything else.
+- After your PR merges, run
+  `./scripts/ops/finish-agent-worktree.sh <branch>` from the repository root to
+  remove the merged task worktree, delete the merged branch, and sync local
+  `main`.
+- To sync local `main` without changing task branches, run
+  `./scripts/ops/sync-local-main.sh`. GitHub cannot update local Macs after a
+  deployment, so this helper is the local follow-up step.
 
 ## Generated Files
 
