@@ -106,6 +106,9 @@ export class XcmOutcomePublisherService {
   }
 
   async init() {
+    if (!this.enabled) {
+      return this;
+    }
     if (!this.initPromise) {
       this.initPromise = this.ensureTables();
     }
@@ -130,6 +133,25 @@ export class XcmOutcomePublisherService {
   }
 
   async getStatus() {
+    if (!this.enabled) {
+      return {
+        enabled: this.enabled,
+        running: this.running,
+        syncing: this.syncing,
+        source: {
+          type: this.sourceType,
+          url: this.sourceUrl
+        },
+        batchSize: this.batchSize,
+        pollIntervalMs: this.pollIntervalMs,
+        cursor: undefined,
+        lastObservedCount: 0,
+        lastSyncedAt: undefined,
+        lastError: undefined,
+        publishedCount: 0
+      };
+    }
+
     await this.init();
     const state = await this.getState();
     const count = await this.getPublishedOutcomeCount();
@@ -152,11 +174,21 @@ export class XcmOutcomePublisherService {
   }
 
   async hasPublishedOutcomes() {
+    if (!this.enabled) {
+      return false;
+    }
     await this.init();
     return (await this.getPublishedOutcomeCount()) > 0;
   }
 
   async listPublishedOutcomes({ cursor, limit }: { cursor?: { mode: "external"; observedAt: string; requestId: string } | { mode: "indexed"; blockNumber: bigint; requestId: string }; limit: number }) {
+    if (!this.enabled) {
+      return {
+        items: [],
+        nextCursor: undefined
+      };
+    }
+
     await this.init();
     const where = cursor?.mode === "external"
       ? sql`

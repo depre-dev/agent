@@ -8,7 +8,7 @@ import { XcmOutcomePublisherService } from "./xcm-outcome-publisher";
 
 const app = new Hono();
 const xcmExternalSourceType = process.env.XCM_EXTERNAL_SOURCE_TYPE?.trim() || "feed";
-const xcmOutcomePublisher = await new XcmOutcomePublisherService({
+const xcmOutcomePublisher = new XcmOutcomePublisherService({
   enabled: process.env.XCM_OUTCOME_PUBLISHER_ENABLED === undefined
     ? inferPublisherEnabled(xcmExternalSourceType)
     : ["1", "true", "yes", "on"].includes(String(process.env.XCM_OUTCOME_PUBLISHER_ENABLED).trim().toLowerCase()),
@@ -23,7 +23,7 @@ const xcmOutcomePublisher = await new XcmOutcomePublisherService({
   nativeConfirmations: parseOptionalNonNegativeInt(process.env.XCM_NATIVE_CONFIRMATIONS),
   pollIntervalMs: parsePositiveInt(process.env.XCM_OUTCOME_PUBLISHER_POLL_MS, 30_000),
   batchSize: parsePositiveInt(process.env.XCM_OUTCOME_PUBLISHER_BATCH_SIZE, 25)
-}).init();
+});
 xcmOutcomePublisher.start();
 
 app.get("/", (c) =>
