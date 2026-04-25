@@ -100,7 +100,7 @@ export class PlatformService {
   }
 
   async getAdminStatus({ auth = undefined } = {}) {
-    const [policy, recurring, scheduler, githubIngestion, recentSessions] = await Promise.all([
+    const [policy, recurring, scheduler, githubIngestion, wikipediaIngestion, recentSessions] = await Promise.all([
       this.blockchainGateway?.getTreasuryPolicyStatus?.() ?? {
         enabled: false,
         policyAddress: undefined,
@@ -117,6 +117,18 @@ export class PlatformService {
         dryRun: true,
         intervalMs: 0,
         queryCount: 0,
+        minScore: 0,
+        maxJobsPerRun: 0,
+        maxOpenJobs: 0,
+        lastRun: undefined
+      },
+      this.wikipediaMaintenanceIngestionScheduler?.getStatus?.() ?? {
+        enabled: false,
+        running: false,
+        dryRun: true,
+        intervalMs: 0,
+        language: "en",
+        categoryCount: 0,
         minScore: 0,
         maxJobsPerRun: 0,
         maxOpenJobs: 0,
@@ -212,6 +224,7 @@ export class PlatformService {
       recurring: recurring,
       scheduler,
       githubIngestion: githubIngestion,
+      wikipediaIngestion: wikipediaIngestion,
       xcmSettlementWatcher: await this.xcmSettlementWatcher?.getStatus?.() ?? {
         enabled: false,
         running: false,

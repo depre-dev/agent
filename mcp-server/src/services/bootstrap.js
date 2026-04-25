@@ -18,6 +18,10 @@ import {
   GithubIssueIngestionScheduler,
   loadGithubIssueIngestionConfig
 } from "./github-issue-ingestion-scheduler.js";
+import {
+  WikipediaMaintenanceIngestionScheduler,
+  loadWikipediaMaintenanceIngestionConfig
+} from "./wikipedia-maintenance-ingestion-scheduler.js";
 import { XcmSettlementWatcherService } from "./xcm-settlement-watcher.js";
 import { XcmObservationRelayService } from "./xcm-observation-relay.js";
 import { normaliseStrategyAssetConfig } from "./strategy-asset-config.js";
@@ -149,6 +153,12 @@ export async function createPlatformRuntime() {
       logger
     })
   );
+  const wikipediaMaintenanceIngestionScheduler = initStep("init-wikipedia-maintenance-ingestion-scheduler", logger, () =>
+    new WikipediaMaintenanceIngestionScheduler(platformService, eventBus, {
+      ...loadWikipediaMaintenanceIngestionConfig(process.env),
+      logger
+    })
+  );
   const xcmSettlementWatcher = initStep("init-xcm-settlement-watcher", logger, () =>
     new XcmSettlementWatcherService(platformService, stateStore, eventBus, {
       enabled: process.env.XCM_SETTLEMENT_WATCHER_ENABLED === undefined
@@ -172,10 +182,12 @@ export async function createPlatformRuntime() {
   );
   platformService.recurringScheduler = recurringScheduler;
   platformService.githubIssueIngestionScheduler = githubIssueIngestionScheduler;
+  platformService.wikipediaMaintenanceIngestionScheduler = wikipediaMaintenanceIngestionScheduler;
   platformService.xcmSettlementWatcher = xcmSettlementWatcher;
   platformService.xcmObservationRelay = xcmObservationRelay;
   recurringScheduler.start();
   githubIssueIngestionScheduler.start();
+  wikipediaMaintenanceIngestionScheduler.start();
   xcmSettlementWatcher.start();
   xcmObservationRelay.start();
 
@@ -201,6 +213,7 @@ export async function createPlatformRuntime() {
     eventListener,
     recurringScheduler,
     githubIssueIngestionScheduler,
+    wikipediaMaintenanceIngestionScheduler,
     xcmSettlementWatcher,
     xcmObservationRelay,
     authConfig,

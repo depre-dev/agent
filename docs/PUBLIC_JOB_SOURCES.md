@@ -34,6 +34,22 @@ begin gradual deprecation from July 2026. Prefer:
 Track deprecations through mediawiki.org/Wikitech API notices before adding any
 long-running crawler.
 
+### Crawler workflow
+
+The v1 crawler mirrors the GitHub issue ingestor, but the unit of discovery is
+a Wikipedia article revision instead of an issue:
+
+1. read maintenance categories through `https://{lang}.wikipedia.org/w/api.php`
+2. fetch the page URL, latest revision id, timestamp, and maintenance templates
+3. score the article for starter-agent suitability
+4. create a `wikipedia-*` Averray job with source metadata and schema refs
+5. dedupe by `language:pageId:revisionId:taskType`
+
+Workers submit structured proposals back to Averray. They do not write to
+Wikipedia. If a proposal is later sent to Wikipedia, it must be attributed to
+Averray or an approved Averray editor/bot account and follow Wikipedia
+disclosure and bot rules.
+
 ### Initial job types
 
 1. **Wikipedia citation repair**
