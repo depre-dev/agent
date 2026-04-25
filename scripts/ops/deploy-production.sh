@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+#
+# Single production deploy entrypoint for merges to main.
+#
+# Intended caller:
+#   - GitHub Actions after CI passes on main
+#   - a human on the VPS when needed
+#
+# The component deploy scripts still own their health gates and rollbacks. This
+# script owns serialization, pulling, path-based routing, and final smoke checks.
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+APP_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+STACK_ROOT=${STACK_ROOT:-$(cd "$APP_ROOT/.." && pwd)}
+COMPOSE_FILE=${COMPOSE_FILE:-"$STACK_ROOT/docker-compose.yml"}
+BRANCH=${BRANCH:-main}
+DEPLOY_LOCK_FILE=${DEPLOY_LOCK_FILE:-/tmp/averray-production-deploy.lock}
+DEPLOY_AUTOSTASH=${DEPLOY_AUTOSTASH:-1}
+
+RUN_BACKEND=${RUN_BACKEND:-auto}
+RUN_FRONTEND=${RUN_FRONTEND:-auto}
+RUN_INDEXER=${RUN_INDEXER:-auto}
+RUN_SITE=${RUN_SITE:-auto}
+RUN_CADDY=${RUN_CADDY:-auto}
+RUN_SMOKE=${RUN_SMOKE:-1}
+
+SITE_BUILD_RUNNER=${SITE_BUILD_RUNNER:-auto}
+SITE_NODE_IMAGE=${SITE_NODE_IMAGE:-node:22-bookworm-slim}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+require_command git
+require_command docker
+require_command curl
+require_command flock
+
+if [[ ! -d "$APP_ROOT/.git" ]]; then
+  echo "Expected repo checkout at $APP_ROOT" >&2
+  exit 1
+fi
+
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+  echo "Missing docker-compose file at $COMPOSE_FILE" >&2
+  exit 1
+fi
+
+with_lock() {
+  flock -n 9 || {
+    echo "Another production deploy is already running." >&2
+    exit 1
+  }
+  deploy
+}
+
+autostash_if_needed() {
+  if [[ "$DEPLOY_AUTOSTASH" != "1" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$(git -C "$APP_ROOT" status --porcelain)" ]]; then
+    return 0
+  fi
+
+  local stamp
+  stamp=$(date -u +"%Y%m%dT%H%M%SZ")
+  echo "Stashing local server changes before pulling ($stamp)."
+  git -C "$APP_ROOT" stash push -u -m "auto-stash before production deploy $stamp" >/dev/null
+}
+
+changed_matches() {
+  local pattern="$1"
+  if [[ "$OLD_SHA" == "$NEW_SHA" ]]; then
+    return 1
+  fi
+  git -C "$APP_ROOT" diff --name-only "$OLD_SHA" "$NEW_SHA" | grep -Eq "$pattern"
+}
+
+should_run() {
+  local setting="$1"
+  local pattern="$2"
+  case "$setting" in
+    1|true|yes) return 0 ;;
+    0|false|no) return 1 ;;
+    auto) changed_matches "$pattern" ;;
+    *)
+      echo "Invalid deploy toggle: $setting" >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_site_runner() {
+  case "$SITE_BUILD_RUNNER" in
+    auto)
+      if command -v npm >/dev/null 2>&1; then
+        SITE_BUILD_RUNNER=host
+      else
+        SITE_BUILD_RUNNER=docker
+      fi
+      ;;
+    host|docker)
+      ;;
+    *)
+      echo "SITE_BUILD_RUNNER must be auto, host, or docker" >&2
+      exit 1
+      ;;
+  esac
+}
+
+build_site() {
+  resolve_site_runner
+  if [[ "$SITE_BUILD_RUNNER" == "host" ]]; then
+    npm --prefix "$APP_ROOT" run build:site
+    return
+  fi
+
+  docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -e npm_config_cache=/tmp/.npm \
+    -v "$APP_ROOT:/workspace" \
+    -w /workspace \
+    "$SITE_NODE_IMAGE" \
+    sh -lc "npm ci && npm run build:site"
+}
+
+apply_caddy() {
+  if [[ -z "${APP_BASIC_AUTH_USER:-}" ]]; then
+    echo "Skipping Caddy render: APP_BASIC_AUTH_USER is not set." >&2
+    echo "Set APP_BASIC_AUTH_USER plus APP_BASIC_AUTH_PASSWORD or APP_BASIC_AUTH_PASSWORD_HASH to deploy Caddy changes." >&2
+    return 0
+  fi
+
+  if [[ -z "${APP_BASIC_AUTH_PASSWORD:-}" && -z "${APP_BASIC_AUTH_PASSWORD_HASH:-}" ]]; then
+    echo "Skipping Caddy render: no app basic-auth password/hash set." >&2
+    return 0
+  fi
+
+  "$APP_ROOT/scripts/ops/render-caddyfile.sh" "$STACK_ROOT/Caddyfile"
+  docker compose \
+    --project-directory "$STACK_ROOT" \
+    -f "$COMPOSE_FILE" \
+    restart caddy
+}
+
+deploy() {
+  echo "Production deploy lock acquired: $DEPLOY_LOCK_FILE"
+  echo "Updating repo in $APP_ROOT"
+  OLD_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
+  git -C "$APP_ROOT" fetch origin "$BRANCH"
+  git -C "$APP_ROOT" checkout "$BRANCH"
+  autostash_if_needed
+  git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
+  NEW_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
+  echo "Deploy range: $OLD_SHA -> $NEW_SHA"
+
+  if [[ "$OLD_SHA" == "$NEW_SHA" ]]; then
+    echo "No new commits. Running smoke check only."
+  fi
+
+  if should_run "$RUN_BACKEND" '^(mcp-server/|sdk/|examples/|docs/schemas/|package(-lock)?\.json|scripts/ops/redeploy-backend\.sh)'; then
+    echo "Deploying backend"
+    SKIP_GIT_UPDATE=1 "$APP_ROOT/scripts/ops/redeploy-backend.sh"
+  else
+    echo "Skipping backend deploy"
+  fi
+
+  if should_run "$RUN_INDEXER" '^(indexer/|package(-lock)?\.json|scripts/ops/redeploy-indexer\.sh)'; then
+    echo "Deploying indexer"
+    SKIP_GIT_UPDATE=1 "$APP_ROOT/scripts/ops/redeploy-indexer.sh"
+  else
+    echo "Skipping indexer deploy"
+  fi
+
+  if should_run "$RUN_FRONTEND" '^(app/|frontend/|scripts/sync-operator-frontend\.mjs|scripts/ops/redeploy-frontend\.sh|package(-lock)?\.json)'; then
+    echo "Deploying operator frontend"
+    SKIP_GIT_UPDATE=1 "$APP_ROOT/scripts/ops/redeploy-frontend.sh"
+  else
+    echo "Skipping operator frontend deploy"
+  fi
+
+  if should_run "$RUN_SITE" '^(marketing/|site/|scripts/sync-marketing-site\.mjs|package(-lock)?\.json)'; then
+    echo "Building public site"
+    build_site
+  else
+    echo "Skipping public site build"
+  fi
+
+  if should_run "$RUN_CADDY" '^(deploy/Caddyfile\.averray|scripts/ops/render-caddyfile\.sh)'; then
+    echo "Applying Caddy config"
+    apply_caddy
+  else
+    echo "Skipping Caddy config"
+  fi
+
+  if changed_matches '^(contracts/|script/|foundry\.toml|remappings\.txt)'; then
+    echo "Contract-related files changed. Smart contracts still require an explicit contract deployment flow." >&2
+  fi
+
+  if [[ "$RUN_SMOKE" == "1" ]]; then
+    echo "Running hosted stack smoke check"
+    "$APP_ROOT/scripts/ops/check-hosted-stack.sh"
+  else
+    echo "RUN_SMOKE=0 set; skipping hosted smoke check."
+  fi
+
+  echo "Production deploy completed."
+}
+
+exec 9>"$DEPLOY_LOCK_FILE"
+with_lock

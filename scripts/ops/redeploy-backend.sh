@@ -18,6 +18,7 @@
 #   HEALTH_URL         URL to poll for readiness (default: https://api.averray.com/health)
 #   HEALTH_TIMEOUT_SEC max seconds to wait for health (default: 120)
 #   HEALTH_INTERVAL_SEC seconds between health polls (default: 5)
+#   SKIP_GIT_UPDATE=1  skip fetch/checkout/pull because caller already pinned the repo
 #   SKIP_ROLLBACK=1    disable auto-rollback (useful for staged canary tests)
 set -euo pipefail
 
@@ -29,6 +30,7 @@ BRANCH=${BRANCH:-main}
 HEALTH_URL=${HEALTH_URL:-https://api.averray.com/health}
 HEALTH_TIMEOUT_SEC=${HEALTH_TIMEOUT_SEC:-120}
 HEALTH_INTERVAL_SEC=${HEALTH_INTERVAL_SEC:-5}
+SKIP_GIT_UPDATE=${SKIP_GIT_UPDATE:-0}
 
 if [[ ! -d "$APP_ROOT/.git" ]]; then
   echo "Expected repo checkout at $APP_ROOT" >&2
@@ -92,9 +94,13 @@ rollback() {
 }
 
 echo "Updating repo in $APP_ROOT"
-git -C "$APP_ROOT" fetch origin "$BRANCH"
-git -C "$APP_ROOT" checkout "$BRANCH"
-git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
+if [[ "$SKIP_GIT_UPDATE" == "1" ]]; then
+  echo "SKIP_GIT_UPDATE=1 set; using current checkout."
+else
+  git -C "$APP_ROOT" fetch origin "$BRANCH"
+  git -C "$APP_ROOT" checkout "$BRANCH"
+  git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
+fi
 
 NEW_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
 echo "Deploying SHA: $NEW_SHA"

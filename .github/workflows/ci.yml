@@ -59,6 +59,51 @@ jobs:
         working-directory: mcp-server
         run: node --test --test-timeout=30000 src/protocols/http/server.smoke.test.js
 
+  frontend:
+    name: Operator app — static export
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck:app
+
+      - name: Build static operator export
+        run: npm run build:frontend
+
+      - name: Generated frontend is committed
+        run: git diff --exit-code -- frontend
+
+  public-site:
+    name: Public site — static export
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Build public site
+        run: npm run build:site
+
+      - name: Generated public site is committed
+        run: git diff --exit-code -- site
+
   indexer:
     name: Indexer — typecheck
     runs-on: ubuntu-latest

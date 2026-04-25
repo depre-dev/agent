@@ -1,0 +1,62 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy VPS production
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      APP_BASIC_AUTH_USER: ${{ secrets.APP_BASIC_AUTH_USER }}
+      APP_BASIC_AUTH_PASSWORD: ${{ secrets.APP_BASIC_AUTH_PASSWORD }}
+      APP_BASIC_AUTH_PASSWORD_HASH: ${{ secrets.APP_BASIC_AUTH_PASSWORD_HASH }}
+      ADMIN_JWT: ${{ secrets.ADMIN_JWT }}
+    steps:
+      - name: Validate required secrets
+        run: |
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+          test -n "$VPS_SSH_KEY"
+          if [ -n "$APP_BASIC_AUTH_USER" ]; then
+            test -n "$APP_BASIC_AUTH_PASSWORD"
+          fi
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${VPS_PORT:-22}" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy production
+        run: |
+          remote_env=$(
+            printf 'APP_BASIC_AUTH_USER=%q APP_BASIC_AUTH_PASSWORD=%q APP_BASIC_AUTH_PASSWORD_HASH=%q ADMIN_JWT=%q ' \
+              "$APP_BASIC_AUTH_USER" \
+              "$APP_BASIC_AUTH_PASSWORD" \
+              "$APP_BASIC_AUTH_PASSWORD_HASH" \
+              "$ADMIN_JWT"
+          )
+
+          ssh -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
+            "set -e && \
+             cd /srv/agent-stack/app && \
+             git fetch origin main && \
+             (git stash push -u -m 'github-actions bootstrap autostash' >/dev/null || true) && \
+             git pull --ff-only origin main && \
+             ${remote_env} ./scripts/ops/deploy-production.sh"

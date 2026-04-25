@@ -15,6 +15,7 @@ INDEXER_MAX_STALENESS_SEC=${INDEXER_MAX_STALENESS_SEC:-1800}
 TIMEOUT_SEC=${TIMEOUT_SEC:-20}
 APP_BASIC_AUTH_USER=${APP_BASIC_AUTH_USER:-}
 APP_BASIC_AUTH_PASSWORD=${APP_BASIC_AUTH_PASSWORD:-}
+APP_EXPECTED_MARKER=${APP_EXPECTED_MARKER:-Opening the operator control room.}
 ADMIN_JWT=${ADMIN_JWT:-}
 
 require_command() {
@@ -58,7 +59,7 @@ jq -e '.baseUrl == "https://api.averray.com"' >/dev/null <<<"$discovery_json"
 
 echo "Checking operator app shell"
 app_html="$(fetch "$APP_URL")"
-grep -q 'id="auth-signin-button"' <<<"$app_html" || {
+grep -Fq "$APP_EXPECTED_MARKER" <<<"$app_html" || {
   echo "Operator app did not return the expected shell" >&2
   exit 1
 }

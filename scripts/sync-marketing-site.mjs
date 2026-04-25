@@ -19,12 +19,43 @@ async function ensureDistExists() {
   }
 }
 
+async function syncDirectory(sourceDir, targetDir) {
+  await mkdir(targetDir, { recursive: true });
+
+  const [sourceEntries, targetEntries] = await Promise.all([
+    readdir(sourceDir, { withFileTypes: true }),
+    readdir(targetDir, { withFileTypes: true }).catch(() => []),
+  ]);
+  const sourceNames = new Set(sourceEntries.map((entry) => entry.name));
+
+  await Promise.all(
+    targetEntries
+      .filter((entry) => !sourceNames.has(entry.name))
+      .map((entry) => rm(path.join(targetDir, entry.name), { recursive: true, force: true }))
+  );
+
+  for (const entry of sourceEntries) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      await syncDirectory(sourcePath, targetPath);
+      continue;
+    }
+    await cp(sourcePath, targetPath, { force: true });
+  }
+}
+
 async function syncEntry(entryName) {
   const source = path.join(distDir, entryName);
   const target = path.join(siteDir, entryName);
 
-  await rm(target, { recursive: true, force: true });
-  await cp(source, target, { recursive: true });
+  const entries = await readdir(source, { withFileTypes: true }).catch(() => null);
+  if (entries) {
+    await syncDirectory(source, target);
+    return;
+  }
+
+  await cp(source, target, { force: true });
 }
 
 await ensureDistExists();
@@ -34,4 +65,4 @@ for (const entry of generatedEntries) {
   await syncEntry(entry);
 }
 
-console.log("Synced marketing/dist landing assets into site/.");
+console.log("Synced marketing/dist landing assets into site/ without replacing mounted directories.");

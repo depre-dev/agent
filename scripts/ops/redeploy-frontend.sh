@@ -19,9 +19,11 @@
 #   APP_EXPECTED_MARKER       expected HTML marker (default: Opening the operator control room.)
 #   FRONTEND_BUILD_RUNNER     auto, host, or docker (default: auto)
 #   FRONTEND_NODE_IMAGE       Docker image used when runner=docker (default: node:22-bookworm-slim)
+#   DEPLOY_AUTOSTASH=0        disable auto-stashing local server build artifacts before pull
 #   RESTART_CADDY=1           restart caddy after sync (not normally needed)
 #   STACK_ROOT                parent dir containing docker-compose.yml (default: repo parent)
 #   COMPOSE_FILE              path to docker-compose.yml
+#   SKIP_GIT_UPDATE=1         skip fetch/checkout/pull because caller already pinned the repo
 #   SKIP_ROLLBACK=1           disable auto-rollback
 set -euo pipefail
 
@@ -38,7 +40,9 @@ APP_BASIC_AUTH_USER=${APP_BASIC_AUTH_USER:-}
 APP_BASIC_AUTH_PASSWORD=${APP_BASIC_AUTH_PASSWORD:-}
 FRONTEND_BUILD_RUNNER=${FRONTEND_BUILD_RUNNER:-auto}
 FRONTEND_NODE_IMAGE=${FRONTEND_NODE_IMAGE:-node:22-bookworm-slim}
+DEPLOY_AUTOSTASH=${DEPLOY_AUTOSTASH:-1}
 RESTART_CADDY=${RESTART_CADDY:-0}
+SKIP_GIT_UPDATE=${SKIP_GIT_UPDATE:-0}
 
 if [[ ! -d "$APP_ROOT/.git" ]]; then
   echo "Expected repo checkout at $APP_ROOT" >&2
@@ -91,6 +95,21 @@ fi
 
 PREVIOUS_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
 echo "Pre-deploy SHA: $PREVIOUS_SHA"
+
+autostash_if_needed() {
+  if [[ "$DEPLOY_AUTOSTASH" != "1" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$(git -C "$APP_ROOT" status --porcelain)" ]]; then
+    return 0
+  fi
+
+  local stamp
+  stamp=$(date -u +"%Y%m%dT%H%M%SZ")
+  echo "Stashing local server build artifacts before pulling ($stamp)."
+  git -C "$APP_ROOT" stash push -u -m "auto-stash before frontend deploy $stamp" >/dev/null
+}
 
 build_frontend() {
   if [[ "$FRONTEND_BUILD_RUNNER" == "host" ]]; then
@@ -157,9 +176,14 @@ rollback() {
 }
 
 echo "Updating repo in $APP_ROOT"
-git -C "$APP_ROOT" fetch origin "$BRANCH"
-git -C "$APP_ROOT" checkout "$BRANCH"
-git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
+if [[ "$SKIP_GIT_UPDATE" == "1" ]]; then
+  echo "SKIP_GIT_UPDATE=1 set; using current checkout."
+else
+  git -C "$APP_ROOT" fetch origin "$BRANCH"
+  git -C "$APP_ROOT" checkout "$BRANCH"
+  autostash_if_needed
+  git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
+fi
 
 NEW_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
 echo "Deploying SHA: $NEW_SHA"

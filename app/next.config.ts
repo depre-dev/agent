@@ -5,6 +5,7 @@ const staticExport = process.env.NEXT_OUTPUT === "export";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  generateBuildId: async () => process.env.NEXT_BUILD_ID ?? "averray-operator",
   ...(staticExport ? { output: "export" as const, trailingSlash: true } : {}),
   ...(staticExport
     ? {}

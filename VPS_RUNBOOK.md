@@ -168,6 +168,49 @@ Expected signals:
 
 ## Redeploy flows
 
+### Production deploy entrypoint
+
+Use this as the single production deploy command when multiple agents are
+working through PRs:
+
+```bash
+cd /srv/agent-stack/app
+APP_BASIC_AUTH_USER=operator \
+APP_BASIC_AUTH_PASSWORD='replace-with-the-current-password' \
+./scripts/ops/deploy-production.sh
+```
+
+The script:
+
+1. Takes a VPS-side `flock` lock so only one production deploy can run.
+2. Auto-stashes local generated/server artifacts before pulling.
+3. Fast-forwards to `origin/main`.
+4. Detects changed paths and deploys only the affected surfaces.
+5. Calls the component deploy scripts for backend, indexer, and frontend.
+   Those scripts run with `SKIP_GIT_UPDATE=1` so the deploy stays pinned to
+   the commit selected by this top-level entrypoint.
+6. Builds the public site if marketing/site files changed.
+7. Applies Caddy only when Caddy files changed and basic-auth env is provided.
+8. Runs the hosted stack smoke check.
+
+GitHub Actions should call this script after CI passes on `main`. Configure
+these repository secrets for `.github/workflows/deploy-production.yml`:
+
+- `VPS_HOST`
+- `VPS_PORT` (optional; defaults to `22`)
+- `VPS_USER`
+- `VPS_SSH_KEY`
+- `APP_BASIC_AUTH_USER`
+- `APP_BASIC_AUTH_PASSWORD` (required for the hosted smoke check when app auth
+  is enabled)
+- `APP_BASIC_AUTH_PASSWORD_HASH` (optional for manual Caddy rendering; the
+  GitHub deploy workflow still needs the plaintext password to smoke-check the
+  protected app)
+- `ADMIN_JWT` (optional, enables admin smoke assertions)
+
+Keep branch protection enabled for `main`: require PRs, require CI, and use
+merge queue or auto-merge so multiple agents are serialized before deployment.
+
 ### Frontend-only changes
 
 Use the scripted frontend deploy. The operator app is a static Next export
@@ -182,11 +225,13 @@ cd /srv/agent-stack/app
 The script now:
 
 1. Pins the pre-deploy SHA for rollback.
-2. Pulls `origin/main` with `--ff-only`.
-3. Runs `npm run build:frontend`.
-4. Syncs `app/out` into `frontend/` without replacing the mounted directory.
-5. Polls `https://app.averray.com/` for the operator shell.
-6. Rolls back and rebuilds the previous frontend if the check fails.
+2. Auto-stashes local generated/server artifacts before pulling.
+3. Pulls `origin/main` with `--ff-only`.
+4. Runs `npm run build:frontend` on the host, or inside Docker if host `npm`
+   is not installed.
+5. Syncs `app/out` into `frontend/` without replacing the mounted directory.
+6. Polls `https://app.averray.com/` for the operator shell.
+7. Rolls back and rebuilds the previous frontend if the check fails.
 
 If the operator app is protected with browser basic auth, pass those
 credentials into the health gate:
