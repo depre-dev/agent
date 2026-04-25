@@ -10,6 +10,9 @@ const jobStateLabels = ["none", "open", "claimed", "submitted", "rejected", "dis
 const requestKindLabels = ["deposit", "withdraw", "claim"] as const;
 const requestStatusLabels = ["unknown", "pending", "succeeded", "failed", "cancelled"] as const;
 const zeroHash = `0x${"0".repeat(64)}` as `0x${string}`;
+const hasXcmWrapper = Boolean(
+  process.env.PONDER_XCM_WRAPPER_ADDRESS?.trim() || process.env.XCM_WRAPPER_ADDRESS?.trim()
+);
 
 const decodeBytes32 = (value: string) => {
   try {
@@ -348,6 +351,7 @@ ponder.on("AgentAccountCore:JobStakeSlashed", async ({ event, context }) => {
   });
 });
 
+if (hasXcmWrapper) {
 ponder.on("XcmWrapper:RequestQueued" as any, async ({ event, context }: any) => {
   const kind = Number(event.args.kind);
   await context.db
@@ -543,3 +547,4 @@ ponder.on("XcmWrapper:RequestStatusUpdated" as any, async ({ event, context }: a
     timestamp: event.block.timestamp
   });
 });
+}
