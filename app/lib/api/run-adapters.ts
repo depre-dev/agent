@@ -29,6 +29,30 @@ function text(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+/**
+ * Read a field that the backend may emit as either a single string or an
+ * array of bullet-style lines. The adapter has historically used `text()`
+ * which silently dropped array values, leaving the Loaded-run panel's
+ * Instructions tab empty for real Wikipedia jobs (whose
+ * `agentInstructions` ships as `string[]`). This helper joins arrays
+ * with newlines so the panel renders readable prose either way.
+ *
+ * Behaviour:
+ *   ["A", "B"] -> "A\nB"
+ *   "A"        -> "A"
+ *   ""/missing -> ""
+ */
+function textOrLines(value: unknown, fallback = ""): string {
+  if (Array.isArray(value)) {
+    const lines = value
+      .filter((line): line is string => typeof line === "string")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return lines.length ? lines.join("\n") : fallback;
+  }
+  return text(value, fallback);
+}
+
 function numberValue(value: unknown, fallback = 0): number {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -175,7 +199,7 @@ export function buildGitHubContext(
     category: text(record.category, "work"),
     body: text(record.description, text(record.body, "")),
     acceptanceCriteria: acceptance,
-    agentInstructions: text(record.agentInstructions),
+    agentInstructions: textOrLines(record.agentInstructions),
     verification: { method: verificationMethod, signals: verificationSignals },
   };
 }
@@ -218,7 +242,7 @@ export function buildWikipediaContext(
     category: text(record.category, "wikipedia"),
     body: text(record.description, text(record.body, "")),
     acceptanceCriteria: acceptance,
-    agentInstructions: text(record.agentInstructions),
+    agentInstructions: textOrLines(record.agentInstructions),
     verification: { method: verificationMethod, signals: verificationSignals },
   };
 }
