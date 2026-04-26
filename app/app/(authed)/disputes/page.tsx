@@ -15,6 +15,7 @@ import { DisputeStatePill, OriginPill } from "@/components/disputes/pills";
 import { DISPUTES } from "@/components/disputes/data";
 import { extractDispute, extractDisputeList } from "@/lib/api/dispute-adapters";
 import { useDispute, useDisputes } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 
 // TODO(data): wire to useApi("/disputes") once the backend emits the list.
 // Drill-in swaps to useApi(`/disputes/${id}`) for the drawer. Fixture for
@@ -69,9 +70,11 @@ export default function DisputesPage() {
     });
   }, [disputes, filter]);
 
+  const freshness = freshnessFromRequests(disputesRequest);
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
-      <DisputesTopbar />
+      <DisputesTopbar freshness={freshness} />
 
       <header className="flex flex-col gap-1.5">
         <span

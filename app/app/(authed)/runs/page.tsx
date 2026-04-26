@@ -18,6 +18,7 @@ import {
   FIXTURE_RUN_ROWS,
 } from "@/components/runs/fixtures";
 import { useJobs, useRecommendations } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 import {
   buildRecommendationCards,
   buildRunFilters,
@@ -130,10 +131,11 @@ function RunsPageInner() {
     : jobs.isLoading
       ? "loading live jobs"
       : "live API";
+  const freshness = freshnessFromRequests(jobs, recommendations);
 
   return (
     <div className="flex w-full max-w-[1440px] flex-col gap-3.5">
-      <RunsTopbar />
+      <RunsTopbar freshness={freshness} />
       <QueueBar
         filters={filters.length ? filters : FIXTURE_FILTERS}
         active={activeFilter}

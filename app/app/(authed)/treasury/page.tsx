@@ -28,6 +28,7 @@ import {
   useBorrowCapacity,
   useStrategyPositions,
 } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 import {
   buildBalanceCards,
   buildCreditLine,
@@ -300,9 +301,11 @@ export default function TreasuryPage() {
     },
   ];
 
+  const freshness = freshnessFromRequests(account, strategyPositions);
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
-      <TreasuryTopbar />
+      <TreasuryTopbar freshness={freshness} />
       <BalanceSheetStrip
         cards={balanceCards}
         scope="AgentAccountCore · asset hub"

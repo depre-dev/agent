@@ -17,6 +17,7 @@ import {
   type PulseEvent,
 } from "@/components/overview/PlatformPulse";
 import { useAccount, useAlerts, useHealth, useJobs, useSessions, useStrategyPositions } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 import { extractRunJobs } from "@/lib/api/run-adapters";
 import {
   buildLaneCards,
@@ -372,9 +373,18 @@ export default function OverviewPage() {
     ? sessions.data.filter((session) => session?.status === "disputed").length
     : 0;
 
+  const freshness = freshnessFromRequests(
+    jobs,
+    sessions,
+    account,
+    strategyPositions,
+    health,
+    apiAlerts
+  );
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-7">
-      <OverviewTopbar />
+      <OverviewTopbar freshness={freshness} />
       <MissionHero
         // Use the explicit `hasLiveOverview` gate rather than `||`
         // fallbacks — the previous form (`liveJobs.length || 14`) silently

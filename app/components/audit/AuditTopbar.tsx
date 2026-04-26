@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  DataFreshnessPill,
+  type FreshnessState,
+} from "@/components/shell/DataFreshnessPill";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const SEED_BLOCK = 28_419_712;
 
-export function AuditTopbar() {
+export function AuditTopbar({ freshness }: { freshness?: FreshnessState }) {
   const [time, setTime] = useState("");
   const [block, setBlock] = useState(SEED_BLOCK);
 
@@ -45,6 +49,7 @@ export function AuditTopbar() {
         </span>
       </div>
       <div className="flex items-center gap-2">
+        {freshness ? <DataFreshnessPill state={freshness} /> : null}
         <button
           type="button"
           className="inline-flex h-[34px] items-center gap-1.5 rounded-[8px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] px-3.5 font-[family-name:var(--font-display)] text-[11.5px] font-bold uppercase text-[var(--avy-ink)] transition-transform hover:-translate-y-px hover:border-[color:rgba(30,102,66,0.24)]"
