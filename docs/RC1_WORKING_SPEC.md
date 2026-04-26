@@ -1,9 +1,9 @@
 # Averray - Working Spec (v1.0.0-rc1)
 
 **Status:** Reconciled with deployed reality and operational docs  
-**Spec version:** 1.3 (arbitration evolution path; on-chain dispute flow grounded in `EscrowCore`; deadline + SLA contract additions)  
+**Spec version:** 1.4 (yield strategy portfolio model; vDOT as v1 moderate default; Hydration GDOT and money-market borrow scoped as v2)
 **Owner:** Pascal  
-**Last updated:** 2026-04-25
+**Last updated:** 2026-04-26
 
 ## Summary
 
@@ -70,9 +70,32 @@ A new agent never needs upfront DOT to start working:
 
 Borrow-to-stake is the durable model, not a v2 item. It exists in the contract suite already (`BORROW_CAP = 25 DOT`, flat per-account, current launch profile).
 
-### Wallet as earning account
+### Wallet as earning account: yield strategy portfolio
 
-Idle DOT in `AgentAccountCore` can be allocated into the vDOT strategy via the async XCM lane to Bifrost. Agents earn yield between jobs. This is real stickiness: switching off Averray means unwinding a yield position, not just changing a default.
+Idle DOT in `AgentAccountCore` can be allocated into yield strategies via the async XCM lane. Agents earn yield between jobs. This is real stickiness: switching off Averray means unwinding a yield position, not just changing a default.
+
+The platform treats yield strategies as a **portfolio**, not a fixed choice. Different agents have different risk tolerances, and the Polkadot DeFi landscape evolves faster than launch-time architecture should lock in. The existing `XcmVdotAdapter.sol` pattern already isolates this concern; new strategies ship as new adapters behind the same `XcmWrapper` surface.
+
+**v1 default: moderate auto-allocation to vDOT (Bifrost).**
+
+- Idle balance above a threshold auto-allocates to vDOT via single-hop XCM to Bifrost.
+- Indicative yield: ~11-14% APR base from native staking rewards.
+- Single vendor (Bifrost), single XCM hop, single correlation primitive (`SetTopic` preserved on reply-leg, pending Chopsticks confirmation).
+- Lowest vendor surface and well-understood risk.
+- Conservative-by-default for trust infrastructure: the platform is sensible by default but does not ceiling agents who want more.
+
+**v2 strategy: Hydration GDOT (composite yield).**
+
+- New `HydrationGdotAdapter` alongside `XcmVdotAdapter`. Same `XcmWrapper` surface; different backend SCALE assembler; different observer correlation logic.
+- Indicative target yield: 18-25% APR from four sources: vDOT staking, aDOT lending, vDOT/aDOT pool trading fees, and Hydration/Polkadot treasury incentives.
+- Tradeoffs: doubled vendor surface (Hydration + Bifrost), multi-hop XCM (Hub -> Hydration -> Bifrost -> Hydration -> Hub), exposure to Hydration's drifting-peg mechanism, Omnipool pricing, and HDX governance.
+- Opt-in only. Agents explicitly choose this strategy; never auto-allocated.
+
+**Decision principle for the portfolio:**
+The marketing line *"Your worker wallet earns between jobs"* does not require maximum yield to be true. Around 12% from vDOT alone meaningfully beats typical CEX yield assumptions. The marginal benefit of GDOT over vDOT is not worth doubling vendor surface and complicating XCM correlation at launch. Ship vDOT first, validate the correlation gate, then add GDOT as an upgrade path for agents who want it.
+
+**Hydration money market for borrow facility (v2):**
+The existing `BORROW_CAP = 25 DOT per account` runs on Averray's own balance sheet: the platform is the lender. When liquidation mechanics ship, strongly consider routing the borrow facility through Hydration's money market instead of building it natively. That changes `BORROW_CAP` from "Averray's exposure ceiling" to "max LTV against agent's GDOT/aDOT collateral on Hydration." Cleaner risk model: Averray no longer carries lender-of-last-resort exposure, borrow caps scale with actual collateral rather than a flat number, and liquidation mechanics already exist at the money-market layer. Reputation-weighted credit becomes a small additional reservoir on top of Hydration's collateral-based lending, rather than the entire borrow primitive.
 
 ### Sustainability principles
 
@@ -432,6 +455,8 @@ To live in `THREAT_MODEL.md`:
 - **Phase 2 dispute compensation restructure.** Change slash split from 50/50 poster/treasury to a three-way split that compensates agent-arbitrators.
 - **Phase 3 arbitration.** Permissionless arbitration tier.
 - **Internal-jobs eligibility ladder.** Separate from arbitration. Lower bar (~30 merges + 6 months).
+- **Hydration GDOT strategy adapter.** New `HydrationGdotAdapter` alongside `XcmVdotAdapter`, using the same `XcmWrapper` surface. Composite yield from vDOT, aDOT, pool fees, and incentives. Multi-hop XCM requires extending the correlation gate verified for single-hop Bifrost. Opt-in only, never auto-allocated. Ship after the v1 vDOT strategy is empirically stable.
+- **Hydration money market borrow facility.** Replace native flat `BORROW_CAP = 25 DOT` balance-sheet lending with collateralized borrowing against agent-held GDOT/aDOT on Hydration's money market. This reduces Averray's lender-of-last-resort exposure, scales borrow with actual collateral, and reuses money-market liquidation mechanics. Trigger when native liquidation mechanics would otherwise need to be built.
 
 ## 11. Marketing / positioning lines
 
@@ -440,7 +465,7 @@ To live in `THREAT_MODEL.md`:
 - *"Receipts, not vibes."*
 - *"Failed attempts are private for 6 months, then join the public record."*
 - *"The first thing Averray sells is trust, not yield."*
-- *"Your worker wallet earns between jobs."*
+- *"Your worker wallet earns between jobs."* (yield-strategy portfolio positioning; v1 default is vDOT auto-allocation)
 - *"Reputation unlocks tiered access: high-trust agents earn internal work; the highest tier earn arbitration rights."* (valid only once Phase 2 is real)
 - *"We migrate to agent arbitration when the data says we can, not when the narrative wants us to."*
 
@@ -523,6 +548,15 @@ To live in `THREAT_MODEL.md`:
 - [ ] Async XCM staging proof captured per `ASYNC_XCM_STAGING.md`.
 
 ## 13. Reconciliation log
+
+### v1.4 - yield strategy portfolio model
+
+1. Replaced the single-vDOT wallet framing with a yield-strategy portfolio model behind the existing `XcmVdotAdapter` pattern.
+2. Locked the v1 default to moderate auto-allocation into Bifrost vDOT: single-hop XCM, single vendor surface, and the simplest correlation path.
+3. Scoped Hydration GDOT as an opt-in v2 composite-yield adapter, never an auto-allocation default.
+4. Scoped Hydration money-market borrowing as the v2 direction for replacing native flat balance-sheet lending once liquidation mechanics become necessary.
+5. Added Hydration GDOT and Hydration money-market borrow facility to deferred items with triggers and rationale.
+6. Updated the worker-wallet positioning line to match the portfolio framing.
 
 ### v1.3 - arbitration evolution path; on-chain dispute flow grounded
 
