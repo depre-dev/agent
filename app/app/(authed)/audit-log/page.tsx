@@ -11,6 +11,7 @@ import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { AUDIT_EVENTS } from "@/components/audit/data";
 import type { AuditActor, AuditCategory, AuditEvent, AuditSource } from "@/components/audit/types";
 import { useAudit } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 
 // TODO(data): wire to useApi("/audit") once backend emits an event
 // stream. The SSE channel in lib/events/stream.ts already carries most
@@ -59,9 +60,11 @@ export default function AuditLogPage() {
     });
   }, [events, filter]);
 
+  const freshness = freshnessFromRequests(auditRequest);
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
-      <AuditTopbar />
+      <AuditTopbar freshness={freshness} />
 
       <header className="flex flex-col gap-1.5">
         <span

@@ -15,6 +15,7 @@ import { DetailDrawer } from "@/components/shell/DetailDrawer";
 import { BADGES, type AgentRecord } from "@/components/agents/types";
 import { extractAgent, extractAgents } from "@/lib/api/agent-adapters";
 import { useAgent, useAgents } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 
 // TODO(data): replace the seeded roster with useApi("/agents") once the
 // backend emits a list endpoint. Per-row drill-in should swap to
@@ -283,9 +284,11 @@ export default function AgentsPage() {
     });
   }, [agents, filter]);
 
+  const freshness = freshnessFromRequests(agentsRequest);
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
-      <AgentsTopbar />
+      <AgentsTopbar freshness={freshness} />
 
       <header className="flex flex-col gap-1.5">
         <span

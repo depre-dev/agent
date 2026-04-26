@@ -27,6 +27,7 @@ import {
   type ReceiptRowWithMeta,
 } from "@/lib/api/receipt-adapters";
 import { useBadge, useBadges } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 
 // TODO(data): wire to useApi("/badges") and useApi(`/badges/${sessionId}`).
 // Fixture matches the handoff exactly so the page reads correctly until
@@ -292,9 +293,11 @@ export default function ReceiptsPage() {
   const detailRequest = useBadge(drawerOpen && selected ? selected.sessionId : null);
   const drawerModel = selected ? buildReceiptDrawer(selected, detailRequest.data) : null;
 
+  const freshness = freshnessFromRequests(badgesRequest);
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
-      <ReceiptsTopbar />
+      <ReceiptsTopbar freshness={freshness} />
 
       <header className="flex flex-col gap-1.5">
         <span

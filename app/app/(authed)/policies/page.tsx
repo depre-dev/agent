@@ -18,6 +18,7 @@ import { POLICIES } from "@/components/policies/policies-data";
 import { SIGNERS } from "@/components/policies/signers";
 import type { Policy, PolicyState } from "@/components/policies/types";
 import { usePolicies, usePolicy } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 
 const STATUS_TO_STATE: Record<Exclude<PoliciesFilter["status"], "all">, PolicyState> = {
   active: "Active",
@@ -74,9 +75,11 @@ export default function PoliciesPage() {
     });
   }, [filter, policies]);
 
+  const freshness = freshnessFromRequests(policiesRequest);
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
-      <PoliciesTopbar />
+      <PoliciesTopbar freshness={freshness} />
 
       <header className="flex flex-col gap-1.5">
         <span

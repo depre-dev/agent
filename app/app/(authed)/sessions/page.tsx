@@ -13,6 +13,7 @@ import { SessionDrawerBody } from "@/components/sessions/SessionDrawerBody";
 import { SessionStatePill } from "@/components/sessions/pills";
 import { SESSIONS } from "@/components/sessions/data";
 import { useJobs, useSession, useSessions, useSessionTimeline } from "@/lib/api/hooks";
+import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 import { buildSessionDetails, mergeSessionTimeline } from "@/lib/api/session-adapters";
 
 // TODO(data): wire to useApi("/sessions") once the backend emits
@@ -84,9 +85,11 @@ export default function SessionsPage() {
     ? mergeSessionTimeline(pickedBase, sessionTimeline.data)
     : pickedBase;
 
+  const freshness = freshnessFromRequests(sessionsQuery, jobsQuery);
+
   return (
     <div className="flex w-full max-w-[1100px] flex-col gap-5">
-      <SessionsTopbar />
+      <SessionsTopbar freshness={freshness} />
 
       <header className="flex flex-col gap-1.5">
         <span
