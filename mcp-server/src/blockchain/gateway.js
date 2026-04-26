@@ -583,7 +583,9 @@ export class BlockchainGateway {
         claimStake: Number(job.claimStake),
         claimStakeBps: Number(job.claimStakeBps),
         state: Number(job.state),
-        claimExpiry: Number(job.claimExpiry)
+        claimExpiry: Number(job.claimExpiry),
+        rejectedAt: Number(job.rejectedAt),
+        disputedAt: Number(job.disputedAt)
       };
     });
   }

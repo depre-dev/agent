@@ -148,8 +148,9 @@ In the order we'd like auditors to break:
   (via `recordOutflow`). Not parameterized.
 - **Single verifier per job**, verifier chosen by `TreasuryPolicy.verifiers`
   allowlist, not per-job assignment. Multi-verifier consensus is out of scope.
-- **Dispute window is 1 day** (`EscrowCore.DISPUTE_WINDOW`). Constant, not
-  per-job.
+- **Dispute window is 7 days** (`EscrowCore.DISPUTE_WINDOW`). Constant, not
+  per-job. Disputed jobs also carry `disputedAt` and can be auto-resolved in
+  the worker's favor after the 14-day `ARBITRATOR_SLA`.
 - **`IERC20Like` vs full ERC20.** We never call `approve`/`allowance`
   on-chain (the deposit flow expects the EOA to pre-approve). SafeTransfer
   handles tokens that don't return a bool (USDT-style) and tokens that
@@ -185,7 +186,8 @@ Current testnet values (reproducible via [deploy_contracts.sh](../scripts/deploy
 | `disputeLossSkillPenalty` | `30` | Applied when arbitrator sides against worker. |
 | `disputeLossReliabilityPenalty` | `50` | |
 | `MAX_MILESTONES` | `32` | Constant in `EscrowCore`. |
-| `DISPUTE_WINDOW` | `1 days` | Constant in `EscrowCore`. |
+| `DISPUTE_WINDOW` | `7 days` | Constant in `EscrowCore`. |
+| `ARBITRATOR_SLA` | `14 days` | Constant in `EscrowCore`; gates `autoResolveOnTimeout`. |
 
 The deploy script now treats those policy values as testnet-friendly defaults
 only. `PROFILE=mainnet` refuses to proceed unless the outflow cap, borrow cap,

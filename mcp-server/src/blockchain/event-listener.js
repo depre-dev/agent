@@ -126,6 +126,41 @@ export class EventListener {
       });
     });
 
+    this.registerEscrow("DisputeResolved", "escrow.dispute_resolved", async ({ args, payload }) => {
+      const job = await this.readJob(args.jobId);
+      return this.buildChainEvent({
+        topic: "escrow.dispute_resolved",
+        args,
+        payload,
+        wallet: normalizeAddress(job.worker),
+        wallets: [job.poster, job.worker, args.arbitrator],
+        sessionId: buildSessionId(args.jobId, job.worker),
+        job,
+        data: {
+          workerPayout: args.workerPayout.toString(),
+          reasonCode: args.reasonCode,
+          metadataURI: args.metadataURI
+        }
+      });
+    });
+
+    this.registerEscrow("AutoResolvedOnTimeout", "escrow.auto_resolved_on_timeout", async ({ args, payload }) => {
+      const job = await this.readJob(args.jobId);
+      return this.buildChainEvent({
+        topic: "escrow.auto_resolved_on_timeout",
+        args,
+        payload,
+        wallet: normalizeAddress(job.worker),
+        wallets: [job.poster, job.worker, args.caller],
+        sessionId: buildSessionId(args.jobId, job.worker),
+        job,
+        data: {
+          workerPayout: args.workerPayout.toString(),
+          reasonCode: args.reasonCode
+        }
+      });
+    });
+
     this.registerAccount("JobStakeLocked", "account.job_stake_locked", async ({ args, payload }) =>
       this.buildChainEvent({
         topic: "account.job_stake_locked",
@@ -340,6 +375,8 @@ export class EventListener {
       claimExpiry: Number(job.claimExpiry),
       claimStake: job.claimStake?.toString?.() ?? `${job.claimStake}`,
       claimStakeBps: Number(job.claimStakeBps),
+      rejectedAt: Number(job.rejectedAt),
+      disputedAt: Number(job.disputedAt),
       state: Number(job.state)
     };
   }

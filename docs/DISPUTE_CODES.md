@@ -38,9 +38,14 @@ uses payout amount as the settlement branch:
   penalized with dispute-loss policy values, and `JobRejected(jobId,
   reasonCode)` is emitted.
 
-That means `reasonCode` is descriptive today, not a policy switch. Contract
-changes that add `autoResolveOnTimeout`, mutual release, or richer partial
-settlement must document whether they keep or change that branch behavior.
+`EscrowCore.autoResolveOnTimeout(jobId)` is permissionless after the
+arbitrator SLA elapses and uses `ARB_TIMEOUT` with a full remaining worker
+payout. That path returns the claim stake and mints a badge, matching the
+worker-favorable dispute branch.
+
+That means `reasonCode` is descriptive today, not a policy switch. Future
+contract changes that add mutual release or richer partial settlement must
+document whether they keep or change that branch behavior.
 
 ## Indexer Guidance
 

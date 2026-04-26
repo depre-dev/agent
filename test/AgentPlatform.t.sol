@@ -288,6 +288,8 @@ contract AgentPlatformTest is Test {
 
         vm.prank(worker);
         escrow.openDispute(jobId);
+        EscrowCore.JobEscrow memory disputedJob = escrow.jobs(jobId);
+        assertEq(disputedJob.disputedAt, block.timestamp);
 
         vm.warp(block.timestamp + escrow.DISPUTE_WINDOW() + 1);
         (bool finalizedDisputed,) = address(escrow).call(abi.encodeCall(escrow.finalizeRejectedJob, (jobId)));
@@ -299,6 +301,16 @@ contract AgentPlatformTest is Test {
         assertEq(workerJobStake, 2.5 ether);
         assertEq(skillAfter, 100);
         assertEq(reliabilityAfter, 100);
+    }
+
+    function testOpenDisputeRejectsAfterDisputeWindow() public {
+        bytes32 jobId = createRejectedSinglePayoutJob("job/rejected/late-dispute", 50 ether);
+
+        vm.warp(block.timestamp + escrow.DISPUTE_WINDOW() + 1);
+
+        vm.prank(worker);
+        (bool ok,) = address(escrow).call(abi.encodeCall(escrow.openDispute, (jobId)));
+        require(!ok, "EXPECTED_DISPUTE_WINDOW_REVERT");
     }
 
     function testResolveDisputeAgainstWorkerSlashesStakeAndReputation() public {
@@ -338,6 +350,42 @@ contract AgentPlatformTest is Test {
         assertEq(reliabilityAfter, 50);
     }
 
+    function testAutoResolveOnTimeoutRejectsBeforeArbitratorSla() public {
+        bytes32 jobId = createRejectedSinglePayoutJob("job/dispute/timeout/early", 50 ether);
+
+        vm.prank(worker);
+        escrow.openDispute(jobId);
+
+        vm.warp(block.timestamp + escrow.ARBITRATOR_SLA() - 1);
+        (bool ok,) = address(escrow).call(abi.encodeCall(escrow.autoResolveOnTimeout, (jobId)));
+        require(!ok, "EXPECTED_ARBITRATOR_SLA_REVERT");
+    }
+
+    function testAutoResolveOnTimeoutPaysWorkerAndReleasesStake() public {
+        bytes32 jobId = createRejectedSinglePayoutJob("job/dispute/timeout/success", 50 ether);
+        uint256 workerTokenBalanceBefore = dot.balanceOf(worker);
+
+        vm.prank(worker);
+        escrow.openDispute(jobId);
+
+        vm.warp(block.timestamp + escrow.ARBITRATOR_SLA());
+        escrow.autoResolveOnTimeout(jobId);
+
+        EscrowCore.JobEscrow memory job = escrow.jobs(jobId);
+        (uint256 liquidPoster, uint256 reservedPoster,,,,) = accounts.positions(poster, address(dot));
+        (uint256 liquidWorker,,,, uint256 workerJobStake,) = accounts.positions(worker, address(dot));
+
+        assertEq(uint256(job.state), uint256(EscrowCore.JobState.Closed));
+        assertEq(job.released, 50 ether);
+        require(job.disputedAt > 0, "EXPECTED_DISPUTED_AT");
+        assertEq(liquidPoster, POSTER_DEPOSIT - 50 ether);
+        assertEq(reservedPoster, 0);
+        assertEq(liquidWorker, WORKER_DEPOSIT);
+        assertEq(workerJobStake, 0);
+        assertEq(dot.balanceOf(worker), workerTokenBalanceBefore + 50 ether);
+        assertEq(reputation.balanceOf(worker), 1);
+    }
+
     function testSlashReputationSaturatesAtZero() public {
         reputation.updateReputation(worker, 5, 3, 1);
         reputation.slashReputation(worker, 10, 10, 10, bytes32("SATURATE"));
@@ -354,5 +402,31 @@ contract AgentPlatformTest is Test {
             abi.encodeCall(reputation.slashReputation, (worker, 1, 1, 0, bytes32("NOPE")))
         );
         require(!ok, "EXPECTED_UNAUTHORIZED_REVERT");
+    }
+
+    function createRejectedSinglePayoutJob(string memory label, uint256 reward) internal returns (bytes32 jobId) {
+        jobId = keccak256(bytes(label));
+
+        vm.prank(poster);
+        escrow.createSinglePayoutJob(
+            jobId,
+            address(dot),
+            reward,
+            5 ether,
+            5 ether,
+            1 days,
+            bytes32("AUTO"),
+            bytes32("DATA"),
+            SPEC_HASH
+        );
+
+        vm.prank(worker);
+        escrow.claimJob(jobId);
+
+        vm.prank(worker);
+        escrow.submitWork(jobId, keccak256(bytes(label)));
+
+        vm.prank(verifier);
+        escrow.resolveSinglePayout(jobId, false, bytes32("REJECTED"), "ipfs://badge/rejected", REASONING_HASH);
     }
 }
