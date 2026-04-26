@@ -9,11 +9,13 @@ export const EscrowCoreAbi = parseAbi([
   "event JobReopened(bytes32 indexed jobId)",
   "event JobRejected(bytes32 indexed jobId, bytes32 reasonCode)",
   "event Verified(bytes32 indexed jobId, address indexed verifier, bool approved, bytes32 reasonCode, bytes32 reasoningHash)",
-  "event DisputeOpened(bytes32 indexed jobId, address indexed opener)",
+  "event DisputeOpened(bytes32 indexed jobId, address indexed opener, uint256 disputedAt)",
+  "event DisputeResolved(bytes32 indexed jobId, address indexed arbitrator, uint256 workerPayout, bytes32 reasonCode, string metadataURI)",
+  "event AutoResolvedOnTimeout(bytes32 indexed jobId, address indexed caller, uint256 workerPayout, bytes32 reasonCode)",
   "event JobClosed(bytes32 indexed jobId, address indexed worker, uint256 releasedAmount)",
   "event Disclosed(bytes32 indexed hash, address indexed byWallet, uint64 timestamp)",
   "event AutoDisclosed(bytes32 indexed hash, uint64 timestamp)",
-  "function jobs(bytes32 jobId) view returns ((address poster, address worker, address asset, bytes32 verifierMode, bytes32 category, bytes32 specHash, uint256 reward, uint256 opsReserve, uint256 contingencyReserve, uint256 released, uint256 claimExpiry, uint256 claimStake, uint16 claimStakeBps, uint8 payoutMode, uint8 state))"
+  "function jobs(bytes32 jobId) view returns ((address poster, address worker, address asset, bytes32 verifierMode, bytes32 category, bytes32 specHash, uint256 reward, uint256 opsReserve, uint256 contingencyReserve, uint256 released, uint256 claimExpiry, uint256 claimStake, uint16 claimStakeBps, uint256 rejectedAt, uint256 disputedAt, uint8 payoutMode, uint8 state))"
 ]);
 
 export const ReputationSbtAbi = parseAbi([

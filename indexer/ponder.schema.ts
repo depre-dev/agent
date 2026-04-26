@@ -17,6 +17,8 @@ export const job = onchainTable("job", (p) => ({
   claimExpiry: p.bigint().notNull(),
   claimStake: p.bigint().notNull(),
   claimStakeBps: p.integer().notNull(),
+  rejectedAt: p.bigint(),
+  disputedAt: p.bigint(),
   payoutMode: p.integer().notNull(),
   payoutModeLabel: p.text().notNull(),
   state: p.integer().notNull(),
@@ -40,6 +42,8 @@ export const jobEvent = onchainTable("job_event", (p) => ({
   reasoningHash: p.hex(),
   approved: p.boolean(),
   reasonCode: p.hex(),
+  metadataUri: p.text(),
+  disputedAt: p.bigint(),
   txHash: p.hex().notNull(),
   blockNumber: p.bigint().notNull(),
   timestamp: p.bigint().notNull()

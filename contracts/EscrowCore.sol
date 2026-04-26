@@ -7,7 +7,8 @@ import {ReputationSBT} from "./ReputationSBT.sol";
 import {ReentrancyGuard} from "./lib/ReentrancyGuard.sol";
 
 contract EscrowCore is ReentrancyGuard {
-    uint256 public constant DISPUTE_WINDOW = 1 days;
+    uint256 public constant DISPUTE_WINDOW = 7 days;
+    uint256 public constant ARBITRATOR_SLA = 14 days;
     // Caps the per-job milestone count so the settlement loop in
     // resolveMilestone() has a known upper gas bound. 32 leaves plenty of
     // headroom for multi-stage deliverables while ruling out griefing via
@@ -15,6 +16,7 @@ contract EscrowCore is ReentrancyGuard {
     uint256 public constant MAX_MILESTONES = 32;
     bytes32 public constant REASON_REJECTED = bytes32("REJECTED");
     bytes32 public constant REASON_DISPUTE_LOST = bytes32("DISPUTE_LOST");
+    bytes32 public constant REASON_ARBITRATOR_TIMEOUT = bytes32("ARB_TIMEOUT");
 
     TreasuryPolicy public immutable policy;
     AgentAccountCore public immutable accounts;
@@ -49,6 +51,8 @@ contract EscrowCore is ReentrancyGuard {
         uint256 claimExpiry;
         uint256 claimStake;
         uint16 claimStakeBps;
+        uint256 rejectedAt;
+        uint256 disputedAt;
         PayoutMode payoutMode;
         JobState state;
     }
@@ -59,7 +63,6 @@ contract EscrowCore is ReentrancyGuard {
     mapping(bytes32 => mapping(bytes32 => bool)) public settlementExecuted;
     mapping(bytes32 => bytes32) public latestEvidence;
     mapping(bytes32 => uint256) public claimTtls;
-    mapping(bytes32 => uint256) public rejectionTimestamps;
     mapping(bytes32 => bool) public autoDisclosed;
 
     event JobFunded(bytes32 indexed jobId, address indexed poster, address indexed asset, uint256 totalReserved, PayoutMode payoutMode);
@@ -70,7 +73,9 @@ contract EscrowCore is ReentrancyGuard {
     event JobReopened(bytes32 indexed jobId);
     event JobRejected(bytes32 indexed jobId, bytes32 reasonCode);
     event Verified(bytes32 indexed jobId, address indexed verifier, bool approved, bytes32 reasonCode, bytes32 reasoningHash);
-    event DisputeOpened(bytes32 indexed jobId, address indexed opener);
+    event DisputeOpened(bytes32 indexed jobId, address indexed opener, uint256 disputedAt);
+    event DisputeResolved(bytes32 indexed jobId, address indexed arbitrator, uint256 workerPayout, bytes32 reasonCode, string metadataURI);
+    event AutoResolvedOnTimeout(bytes32 indexed jobId, address indexed caller, uint256 workerPayout, bytes32 reasonCode);
     event JobClosed(bytes32 indexed jobId, address indexed worker, uint256 releasedAmount);
     event Disclosed(bytes32 indexed hash, address indexed byWallet, uint64 timestamp);
     event AutoDisclosed(bytes32 indexed hash, uint64 timestamp);
@@ -150,6 +155,8 @@ contract EscrowCore is ReentrancyGuard {
             claimExpiry: 0,
             claimStake: 0,
             claimStakeBps: 0,
+            rejectedAt: 0,
+            disputedAt: 0,
             payoutMode: PayoutMode.Single,
             state: JobState.Open
         });
@@ -193,6 +200,8 @@ contract EscrowCore is ReentrancyGuard {
             claimExpiry: 0,
             claimStake: 0,
             claimStakeBps: 0,
+            rejectedAt: 0,
+            disputedAt: 0,
             payoutMode: PayoutMode.Milestone,
             state: JobState.Open
         });
@@ -272,7 +281,8 @@ contract EscrowCore is ReentrancyGuard {
 
         if (!approved) {
             job.state = JobState.Rejected;
-            rejectionTimestamps[jobId] = block.timestamp;
+            job.rejectedAt = block.timestamp;
+            job.disputedAt = 0;
             emit JobRejected(jobId, reasonCode);
             return;
         }
@@ -312,7 +322,8 @@ contract EscrowCore is ReentrancyGuard {
 
         if (!approved) {
             job.state = JobState.Rejected;
-            rejectionTimestamps[jobId] = block.timestamp;
+            job.rejectedAt = block.timestamp;
+            job.disputedAt = 0;
             emit JobRejected(jobId, reasonCode);
             return;
         }
@@ -354,21 +365,22 @@ contract EscrowCore is ReentrancyGuard {
 
     function openDispute(bytes32 jobId) external whenNotPaused onlyParticipant(jobId) {
         JobEscrow storage job = _jobs[jobId];
-        if (job.state != JobState.Rejected && job.state != JobState.Submitted) revert InvalidState();
-        rejectionTimestamps[jobId] = 0;
+        if (job.state != JobState.Rejected) revert InvalidState();
+        require(job.rejectedAt != 0, "NO_REJECTION_TIMESTAMP");
+        require(block.timestamp <= job.rejectedAt + DISPUTE_WINDOW, "DISPUTE_WINDOW_CLOSED");
+        job.disputedAt = block.timestamp;
         job.state = JobState.Disputed;
-        emit DisputeOpened(jobId, msg.sender);
+        emit DisputeOpened(jobId, msg.sender, job.disputedAt);
     }
 
     function finalizeRejectedJob(bytes32 jobId) external whenNotPaused nonReentrant {
         JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Rejected) revert InvalidState();
-        require(rejectionTimestamps[jobId] != 0, "NO_REJECTION_TIMESTAMP");
-        require(block.timestamp > rejectionTimestamps[jobId] + DISPUTE_WINDOW, "DISPUTE_WINDOW_ACTIVE");
+        require(job.rejectedAt != 0, "NO_REJECTION_TIMESTAMP");
+        require(block.timestamp > job.rejectedAt + DISPUTE_WINDOW, "DISPUTE_WINDOW_ACTIVE");
 
         _slashRejectedWorker(job);
         _refundPosterBalances(job);
-        rejectionTimestamps[jobId] = 0;
         job.claimExpiry = 0;
         job.state = JobState.Closed;
         emit JobClosed(jobId, job.worker, job.released);
@@ -383,6 +395,33 @@ contract EscrowCore is ReentrancyGuard {
         JobEscrow storage job = _jobs[jobId];
         if (job.state != JobState.Disputed) revert InvalidState();
         require(workerPayout <= (job.reward - job.released), "EXCESS_PAYOUT");
+        _resolveDispute(jobId, job, workerPayout, reasonCode, metadataURI);
+        emit DisputeResolved(jobId, msg.sender, workerPayout, reasonCode, metadataURI);
+        emit JobClosed(jobId, job.worker, job.released);
+    }
+
+    function autoResolveOnTimeout(bytes32 jobId) external whenNotPaused nonReentrant {
+        JobEscrow storage job = _jobs[jobId];
+        if (job.state != JobState.Disputed) revert InvalidState();
+        require(job.disputedAt != 0, "NO_DISPUTE_TIMESTAMP");
+        require(block.timestamp >= job.disputedAt + ARBITRATOR_SLA, "ARBITRATOR_SLA_ACTIVE");
+
+        uint256 workerPayout = job.reward - job.released;
+        _resolveDispute(jobId, job, workerPayout, REASON_ARBITRATOR_TIMEOUT, "");
+        emit DisputeResolved(jobId, msg.sender, workerPayout, REASON_ARBITRATOR_TIMEOUT, "");
+        emit AutoResolvedOnTimeout(jobId, msg.sender, workerPayout, REASON_ARBITRATOR_TIMEOUT);
+        emit JobClosed(jobId, job.worker, job.released);
+    }
+
+    function _resolveDispute(
+        bytes32 jobId,
+        JobEscrow storage job,
+        uint256 workerPayout,
+        bytes32 reasonCode,
+        string memory metadataURI
+    )
+        internal
+    {
         if (workerPayout > 0) {
             accounts.settleReservedTo(job.poster, job.asset, job.worker, workerPayout);
             job.released += workerPayout;
@@ -393,13 +432,11 @@ contract EscrowCore is ReentrancyGuard {
         }
 
         _refundPosterBalances(job);
-        rejectionTimestamps[jobId] = 0;
         job.claimExpiry = 0;
         job.state = JobState.Closed;
         if (workerPayout > 0) {
             reputation.mintBadge(job.worker, job.category, 1, metadataURI);
         }
-        emit JobClosed(jobId, job.worker, job.released);
     }
 
     function _refundPosterBalances(JobEscrow storage job) internal {

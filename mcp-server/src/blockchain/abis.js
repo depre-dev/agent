@@ -33,8 +33,9 @@ export const ESCROW_CORE_ABI = [
   "function submitWork(bytes32 jobId, bytes32 evidenceHash)",
   "function resolveSinglePayout(bytes32 jobId, bool approved, bytes32 reasonCode, string metadataURI, bytes32 reasoningHash)",
   "function finalizeRejectedJob(bytes32 jobId)",
+  "function autoResolveOnTimeout(bytes32 jobId)",
   "function resolveDispute(bytes32 jobId, uint256 workerPayout, bytes32 reasonCode, string metadataURI)",
-  "function jobs(bytes32 jobId) view returns ((address poster, address worker, address asset, bytes32 verifierMode, bytes32 category, bytes32 specHash, uint256 reward, uint256 opsReserve, uint256 contingencyReserve, uint256 released, uint256 claimExpiry, uint256 claimStake, uint16 claimStakeBps, uint8 payoutMode, uint8 state))",
+  "function jobs(bytes32 jobId) view returns ((address poster, address worker, address asset, bytes32 verifierMode, bytes32 category, bytes32 specHash, uint256 reward, uint256 opsReserve, uint256 contingencyReserve, uint256 released, uint256 claimExpiry, uint256 claimStake, uint16 claimStakeBps, uint256 rejectedAt, uint256 disputedAt, uint8 payoutMode, uint8 state))",
   "event JobFunded(bytes32 indexed jobId, address indexed poster, address indexed asset, uint256 totalReserved, uint8 payoutMode)",
   "event JobCreated(bytes32 indexed jobId, address indexed poster, bytes32 indexed specHash, address asset, uint256 totalReserved, uint8 payoutMode)",
   "event JobClaimed(bytes32 indexed jobId, address indexed worker, uint256 claimExpiry, uint256 claimStake)",
@@ -44,7 +45,9 @@ export const ESCROW_CORE_ABI = [
   "event Verified(bytes32 indexed jobId, address indexed verifier, bool approved, bytes32 reasonCode, bytes32 reasoningHash)",
   "event JobClosed(bytes32 indexed jobId, address indexed worker, uint256 releasedAmount)",
   "event JobReopened(bytes32 indexed jobId)",
-  "event DisputeOpened(bytes32 indexed jobId, address indexed opener)",
+  "event DisputeOpened(bytes32 indexed jobId, address indexed opener, uint256 disputedAt)",
+  "event DisputeResolved(bytes32 indexed jobId, address indexed arbitrator, uint256 workerPayout, bytes32 reasonCode, string metadataURI)",
+  "event AutoResolvedOnTimeout(bytes32 indexed jobId, address indexed caller, uint256 workerPayout, bytes32 reasonCode)",
   "event Disclosed(bytes32 indexed hash, address indexed byWallet, uint64 timestamp)",
   "event AutoDisclosed(bytes32 indexed hash, uint64 timestamp)"
 ];

@@ -65,6 +65,8 @@ const syncJob = async ({
     claimExpiry,
     claimStake,
     claimStakeBps,
+    rejectedAt,
+    disputedAt,
     payoutMode,
     state
   ] = live;
@@ -88,6 +90,8 @@ const syncJob = async ({
       claimExpiry,
       claimStake,
       claimStakeBps,
+      rejectedAt: rejectedAt === 0n ? null : rejectedAt,
+      disputedAt: disputedAt === 0n ? null : disputedAt,
       payoutMode,
       payoutModeLabel: payoutModeLabels[payoutMode] ?? "unknown",
       state,
@@ -105,6 +109,8 @@ const syncJob = async ({
       claimExpiry: row.claimExpiry,
       claimStake: row.claimStake,
       claimStakeBps: row.claimStakeBps,
+      rejectedAt: row.rejectedAt,
+      disputedAt: row.disputedAt,
       payoutMode: row.payoutMode,
       payoutModeLabel: row.payoutModeLabel,
       state: row.state,
@@ -257,6 +263,42 @@ ponder.on("EscrowCore:DisputeOpened", async ({ event, context }) => {
     amount: null,
     evidenceHash: null,
     reasonCode: null,
+    disputedAt: event.args.disputedAt,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    timestamp: event.block.timestamp
+  });
+});
+
+ponder.on("EscrowCore:DisputeResolved", async ({ event, context }) => {
+  await syncJob({ context, event, jobId: event.args.jobId });
+  await context.db.insert(schema.jobEvent).values({
+    id: toEventId(event.transaction.hash, event.log.logIndex),
+    jobId: event.args.jobId,
+    kind: "DisputeResolved",
+    actor: event.args.arbitrator,
+    amount: event.args.workerPayout,
+    evidenceHash: null,
+    approved: event.args.workerPayout > 0n,
+    reasonCode: event.args.reasonCode,
+    metadataUri: event.args.metadataURI,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    timestamp: event.block.timestamp
+  });
+});
+
+ponder.on("EscrowCore:AutoResolvedOnTimeout", async ({ event, context }) => {
+  await syncJob({ context, event, jobId: event.args.jobId });
+  await context.db.insert(schema.jobEvent).values({
+    id: toEventId(event.transaction.hash, event.log.logIndex),
+    jobId: event.args.jobId,
+    kind: "AutoResolvedOnTimeout",
+    actor: event.args.caller,
+    amount: event.args.workerPayout,
+    evidenceHash: null,
+    approved: true,
+    reasonCode: event.args.reasonCode,
     txHash: event.transaction.hash,
     blockNumber: event.block.number,
     timestamp: event.block.timestamp
