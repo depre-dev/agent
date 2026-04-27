@@ -29,6 +29,7 @@ import {
   parseManifests as parseOsvManifests,
   parsePackages as parseOsvPackages
 } from "../../jobs/ingest-osv-advisories.js";
+import { ingestStandardsSpecs, parseSpecs as parseStandardsSpecs } from "../../jobs/ingest-standards-specs.js";
 import { ingestWikipediaMaintenance, parseCategories } from "../../jobs/ingest-wikipedia-maintenance.js";
 
 const {
@@ -825,6 +826,7 @@ function metricPathLabel(pathname) {
     "/admin/jobs/ingest/github",
     "/admin/jobs/ingest/open-data",
     "/admin/jobs/ingest/osv",
+    "/admin/jobs/ingest/standards",
     "/admin/jobs/ingest/wikipedia",
     "/admin/jobs/pause",
     "/admin/jobs/resume",
@@ -1105,6 +1107,7 @@ const server = createServer(async (request, response) => {
           "/admin/jobs/ingest/github",
           "/admin/jobs/ingest/open-data",
           "/admin/jobs/ingest/osv",
+          "/admin/jobs/ingest/standards",
           "/admin/jobs/ingest/wikipedia",
           "/admin/jobs/fire",
           "/admin/jobs/pause",
@@ -2321,6 +2324,59 @@ const server = createServer(async (request, response) => {
       return respond(response, status, {
         provider: result.provider,
         query: result.query,
+        minScore: result.minScore,
+        dryRun: false,
+        candidateCount: result.count,
+        created,
+        skipped: [...skipped, ...(Array.isArray(result.skipped) ? result.skipped : [])],
+        errors
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/admin/jobs/ingest/standards") {
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const payload = await readJsonBody(request);
+      const specs = Array.isArray(payload?.specs) || typeof payload?.specs === "string"
+        ? parseStandardsSpecs(payload.specs)
+        : parseStandardsSpecs(process.env.STANDARDS_INGEST_SPECS_JSON ?? process.env.STANDARDS_INGEST_SPECS);
+      const limit = parsePositiveInteger(payload?.limit, 10, 50);
+      const minScore = parsePositiveInteger(payload?.minScore, 55, 100);
+      const dryRun = payload?.dryRun !== false;
+      const result = await ingestStandardsSpecs({ specs, limit, minScore });
+
+      if (dryRun) {
+        return respond(response, 200, {
+          ...result,
+          dryRun: true,
+          created: []
+        });
+      }
+
+      const created = [];
+      const skipped = [];
+      const errors = [];
+      for (const job of result.jobs) {
+        try {
+          created.push(service.createJob(job));
+        } catch (error) {
+          const normalized = normalizeError(error);
+          if (normalized.code === "job_exists") {
+            skipped.push({ id: job.id, reason: "already_exists" });
+            continue;
+          }
+          errors.push({
+            id: job.id,
+            code: normalized.code,
+            message: normalized.message
+          });
+        }
+      }
+
+      const status = errors.length ? 207 : 201;
+      return respond(response, status, {
+        provider: result.provider,
+        specCount: result.specCount,
         minScore: result.minScore,
         dryRun: false,
         candidateCount: result.count,

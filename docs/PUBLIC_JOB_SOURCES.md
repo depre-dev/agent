@@ -123,11 +123,21 @@ After Wikipedia, use the same pattern for:
      package targets or `OSV_INGEST_MANIFESTS_JSON`, and keep
      `OSV_INGEST_DRY_RUN=true` until candidate quality is reviewed.
 
-4. **Stack Exchange / Discourse**
+4. **Standards/spec freshness**
+   - canonical W3C/IETF/WHATWG/ECMA spec vs local docs drift audits
+   - section-link evidence, status/version checks, missing-update reports
+   - v1 ingestion is allowlist-driven:
+     `POST /admin/jobs/ingest/standards` accepts configured spec URLs and
+     emits review-only docs drift jobs against a configured local surface.
+   - Scheduled ingestion is available behind `STANDARDS_INGEST_ENABLED`; keep
+     `STANDARDS_INGEST_DRY_RUN=true` until `/admin/status` shows useful
+     candidates.
+
+5. **Stack Exchange / Discourse**
    - unanswered-question triage, duplicate detection, answer summaries
    - community-reviewable outputs
 
-5. **Common Crawl / public docs sites**
+6. **Common Crawl / public docs sites**
    - broken-link checks, metadata extraction, stale-doc detection
    - batch outputs with crawl evidence
 
