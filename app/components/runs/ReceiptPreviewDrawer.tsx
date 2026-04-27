@@ -4,6 +4,7 @@ import { DetailDrawer, DrawerSection } from "@/components/shell/DetailDrawer";
 import { SourceBadge, StatePill, type RunState } from "./StatePill";
 import type {
   GitHubJobContext,
+  OpenDataJobContext,
   OsvJobContext,
   WikipediaJobContext,
 } from "./types";
@@ -50,6 +51,14 @@ export interface ReceiptPreviewDraft {
    * attribution line. Mutually exclusive with `github`/`wikipedia`.
    */
   osv?: OsvJobContext;
+  /**
+   * Set when the loaded run is an open-data dataset quality-audit job
+   * (Data.gov today). The drawer surfaces dataset/resource identity,
+   * agency + format, and an "Averray open-data quality audit"
+   * attribution line. Mutually exclusive with the other source
+   * contexts.
+   */
+  openData?: OpenDataJobContext;
   prUrl?: string;
   signers: { label: string; status: "pending" | "signed" }[];
 }
@@ -330,6 +339,124 @@ export function ReceiptPreviewDrawer({
               View remediation PR ↗
             </a>
           ) : null}
+        </DrawerSection>
+      ) : null}
+
+      {draft.openData ? (
+        <DrawerSection title="Source">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[8px] border border-[var(--avy-line)] bg-[color:rgba(17,19,21,0.02)] px-3 py-2">
+            <SourceBadge kind="data_gov" />
+            {/* Glanceable attribution pill so the reviewer sees the
+                audit-only stance without having to read the warning
+                paragraph below. Same warn token as the policy banner
+                on the loaded-run panel. */}
+            <span
+              className="inline-flex items-center whitespace-nowrap rounded-full bg-[var(--avy-warn)] px-1.5 py-0.5 font-[family-name:var(--font-display)] text-[9.5px] font-extrabold uppercase text-white"
+              style={{ letterSpacing: "0.1em" }}
+              title="Averray open-data quality audit — no edits to source data"
+            >
+              Audit only
+            </span>
+            <a
+              href={draft.openData.datasetUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="truncate whitespace-nowrap font-[family-name:var(--font-mono)] text-[12px] text-[var(--avy-ink)] hover:text-[var(--avy-accent)]"
+              style={{ letterSpacing: 0 }}
+              title={draft.openData.datasetTitle}
+            >
+              <span className="text-[var(--avy-accent)]">
+                {draft.openData.datasetTitle}
+              </span>
+            </a>
+            {draft.openData.agency ? (
+              <>
+                <span className="opacity-40">·</span>
+                <span
+                  className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--avy-muted)]"
+                  style={{ letterSpacing: 0 }}
+                >
+                  {draft.openData.agency}
+                </span>
+              </>
+            ) : null}
+            {draft.openData.resourceFormat ? (
+              <>
+                <span className="opacity-40">·</span>
+                <span
+                  className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[11.5px] uppercase text-[var(--avy-muted)]"
+                  style={{ letterSpacing: "0.08em" }}
+                >
+                  {draft.openData.resourceFormat}
+                </span>
+              </>
+            ) : null}
+          </div>
+
+          <dl
+            className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-[family-name:var(--font-mono)] text-[11.5px]"
+            style={{ letterSpacing: 0 }}
+          >
+            <dt className="text-[var(--avy-muted)]">Portal</dt>
+            <dd className="m-0 font-medium text-[var(--avy-ink)]">
+              {draft.openData.provider}
+            </dd>
+            <dt className="text-[var(--avy-muted)]">Dataset</dt>
+            <dd className="m-0 truncate font-medium text-[var(--avy-ink)]">
+              {draft.openData.datasetTitle}
+            </dd>
+            {draft.openData.agency ? (
+              <>
+                <dt className="text-[var(--avy-muted)]">Agency</dt>
+                <dd className="m-0 truncate font-medium text-[var(--avy-ink)]">
+                  {draft.openData.agency}
+                </dd>
+              </>
+            ) : null}
+            <dt className="text-[var(--avy-muted)]">Resource URL</dt>
+            <dd className="m-0">
+              <a
+                href={draft.openData.resourceUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="block truncate font-medium text-[var(--avy-accent)] hover:underline"
+                title={draft.openData.resourceUrl}
+              >
+                {draft.openData.resourceUrl}
+              </a>
+            </dd>
+            {draft.openData.resourceFormat ? (
+              <>
+                <dt className="text-[var(--avy-muted)]">Format</dt>
+                <dd className="m-0 font-medium text-[var(--avy-ink)]">
+                  {draft.openData.resourceFormat}
+                </dd>
+              </>
+            ) : null}
+          </dl>
+
+          {/* Attribution. Spec calls for `Averray open-data quality
+              audit` as the verbatim attribution string in the receipt.
+              Mirrors the structure of the Wikipedia and OSV blocks. */}
+          <p
+            className="mt-2 rounded-[6px] border border-[var(--avy-warn)] bg-[color:rgba(211,145,27,0.08)] px-2.5 py-2 font-[family-name:var(--font-mono)] text-[11px] leading-[1.5] text-[var(--avy-ink)]"
+            style={{ letterSpacing: 0 }}
+          >
+            <b className="font-semibold">Attribution:</b> Averray open-data
+            quality audit. Findings + recommended actions are advisory; the
+            agent does not edit source data and does not contact the
+            publishing agency from this workflow.
+          </p>
+
+          <a
+            href={draft.openData.datasetUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="mt-2 inline-flex h-7 items-center gap-1.5 rounded-[8px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] px-3 font-[family-name:var(--font-display)] text-[11px] font-bold uppercase text-[var(--avy-ink)] transition-transform hover:-translate-y-px hover:border-[color:rgba(30,102,66,0.24)] hover:text-[var(--avy-accent)]"
+            style={{ letterSpacing: "0.04em" }}
+          >
+            Open Data.gov dataset ↗
+          </a>
         </DrawerSection>
       ) : null}
 

@@ -6,6 +6,7 @@ import { SourceBadge, type RunState } from "./StatePill";
 import { IssueMarkdown } from "./IssueMarkdown";
 import type {
   GitHubJobContext,
+  OpenDataJobContext,
   OsvJobContext,
   WikipediaJobContext,
 } from "./types";
@@ -142,6 +143,14 @@ export interface LoadedRunPanelProps {
    * other two source contexts at runtime.
    */
   osv?: OsvJobContext;
+  /**
+   * Same shape as the others but for open-data dataset quality-audit
+   * runs (Data.gov today). The panel renders an audit-only evidence
+   * block that highlights the dataset/resource identity, agency, and
+   * format, with Dataset / Checks / Findings / Submission tabs.
+   * Mutually exclusive with the other source contexts at runtime.
+   */
+  openData?: OpenDataJobContext;
   /**
    * Lifecycle state of the loaded run. Drives the stake block's pill +
    * aux copy so the panel doesn't shout "LOCKED" on a run that hasn't
@@ -289,13 +298,15 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
 
           {/* Evidence — switches to a source-specific 4-tab layout when the
                loaded run was ingested from a third-party tracker (GitHub
-               issue, Wikipedia maintenance, OSV advisory), so the operator
-               sees real job context instead of generic placeholder
-               governance text. */}
+               issue, Wikipedia maintenance, OSV advisory, Data.gov
+               dataset audit), so the operator sees real job context
+               instead of generic placeholder governance text. */}
           {props.github ? (
             <GitHubEvidenceBlock ctx={props.github} />
           ) : props.wikipedia ? (
             <WikipediaEvidenceBlock ctx={props.wikipedia} />
+          ) : props.openData ? (
+            <OpenDataEvidenceBlock ctx={props.openData} />
           ) : props.osv ? (
             <OsvEvidenceBlock ctx={props.osv} />
           ) : (
@@ -511,6 +522,14 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
                   <SmallGhostBtn className="flex-1">Ping maintainer</SmallGhostBtn>
                   <SmallGhostBtn>Raise dispute</SmallGhostBtn>
                   <SmallGhostBtn>Skip advisory</SmallGhostBtn>
+                </>
+              ) : props.openData ? (
+                <>
+                  <SmallGhostBtn className="flex-1">
+                    Flag stale catalog metadata
+                  </SmallGhostBtn>
+                  <SmallGhostBtn>Raise dispute</SmallGhostBtn>
+                  <SmallGhostBtn>Skip dataset</SmallGhostBtn>
                 </>
               ) : (
                 <>
@@ -1352,6 +1371,398 @@ function OsvSubmissionTab({ ctx }: { ctx: OsvJobContext }) {
           style={{ letterSpacing: 0 }}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Open-data quality-audit equivalent of `GitHubEvidenceBlock` /
+ * `WikipediaEvidenceBlock` / `OsvEvidenceBlock`. Same four-tab shape so
+ * an operator reads the surface the same way regardless of source —
+ * here labelled **Dataset · Checks · Findings · Submission** to match
+ * the spec for open-data audit jobs. The header source strip carries
+ * Data.gov · agency · format and degrades gracefully when those
+ * optional catalog fields are missing.
+ *
+ * Critically renders an "audit only" policy banner above the tabs.
+ * The platform never edits source data and never contacts the
+ * publishing agency from this workflow.
+ */
+type OpenDataTab = "dataset" | "checks" | "findings" | "submission";
+
+function OpenDataEvidenceBlock({ ctx }: { ctx: OpenDataJobContext }) {
+  const [tab, setTab] = useState<OpenDataTab>("dataset");
+
+  const tabs: { id: OpenDataTab; label: string; sub?: string }[] = [
+    { id: "dataset", label: "Dataset" },
+    { id: "checks", label: "Checks" },
+    {
+      id: "findings",
+      label: "Findings",
+      sub: `·${ctx.acceptanceCriteria.length}`,
+    },
+    { id: "submission", label: "Submission" },
+  ];
+
+  return (
+    <div>
+      <BlockLabel
+        right={
+          <a
+            href={ctx.datasetUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1 text-[var(--avy-accent)] hover:underline"
+          >
+            Open Data.gov dataset ↗
+          </a>
+        }
+      >
+        Job context
+      </BlockLabel>
+      <div className="flex flex-col overflow-hidden rounded-[8px] border border-[var(--avy-line)] bg-white">
+        {/* Source strip — pinned above the tabs so portal, agency,
+            format, and Fit score stay readable on every tab. Agency
+            and format are optional in the catalog; we drop the chip
+            entirely instead of rendering an empty bullet. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--avy-line-soft)] bg-[color:rgba(17,19,21,0.03)] px-3 py-2">
+          <SourceBadge kind="data_gov" />
+          <a
+            href={ctx.datasetUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="truncate whitespace-nowrap font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--avy-ink)] hover:text-[var(--avy-accent)]"
+            style={{ letterSpacing: 0 }}
+            title={ctx.datasetTitle}
+          >
+            <span className="text-[var(--avy-accent)]">{ctx.datasetTitle}</span>
+          </a>
+          {ctx.agency ? (
+            <>
+              <span className="opacity-40">·</span>
+              <span
+                className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[11px] text-[var(--avy-muted)]"
+                style={{ letterSpacing: 0 }}
+              >
+                {ctx.agency}
+              </span>
+            </>
+          ) : null}
+          {ctx.resourceFormat ? (
+            <>
+              <span className="opacity-40">·</span>
+              <span
+                className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[11px] uppercase text-[var(--avy-muted)]"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                {ctx.resourceFormat}
+              </span>
+            </>
+          ) : null}
+          {typeof ctx.score === "number" ? (
+            <span className="ml-auto inline-flex items-center gap-1 whitespace-nowrap font-[family-name:var(--font-mono)] text-[11px] text-[var(--avy-muted)]">
+              Fit score{" "}
+              <b className="font-semibold text-[var(--avy-ink)]">{ctx.score}</b>
+              <span className="text-[var(--avy-muted)]">/100</span>
+            </span>
+          ) : null}
+        </div>
+
+        {/* Audit-only policy banner — non-negotiable, rendered on every
+            open-data run. Same warn-tinted box as the Wikipedia /
+            OSV scope banners so the visual rhythm of "important, but
+            not error" notes stays consistent across source kinds. */}
+        <div
+          className="flex items-start gap-2 border-b border-[var(--avy-line-soft)] bg-[color:rgba(211,145,27,0.08)] px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] leading-[1.5] text-[var(--avy-ink)]"
+          style={{ letterSpacing: 0 }}
+        >
+          <span
+            className="mt-px shrink-0 rounded-full bg-[var(--avy-warn)] px-1.5 py-0.5 font-[family-name:var(--font-display)] text-[9.5px] font-extrabold uppercase text-white"
+            style={{ letterSpacing: "0.1em" }}
+          >
+            Audit only
+          </span>
+          <span>
+            Report dataset/resource quality issues. Do not edit source
+            data or contact agencies from this workflow.
+          </span>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-2 border-b border-[var(--avy-line-soft)] bg-[#faf8f1] px-2.5 py-1.5">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={cn(
+                "rounded-[5px] px-2 py-0.5 font-[family-name:var(--font-display)] text-[10px] font-extrabold uppercase text-[var(--avy-muted)]",
+                tab === t.id &&
+                  "bg-[var(--avy-paper-solid)] text-[var(--avy-ink)] shadow-[inset_0_0_0_1px_var(--avy-line)]"
+              )}
+              style={{ letterSpacing: "0.12em" }}
+            >
+              {t.label}
+              {t.sub ? (
+                <small className="ml-1 opacity-50" style={{ letterSpacing: 0 }}>
+                  {t.sub}
+                </small>
+              ) : null}
+            </button>
+          ))}
+        </div>
+
+        <div className="px-3.5 py-3">
+          {tab === "dataset" ? <OpenDataDatasetTab ctx={ctx} /> : null}
+          {tab === "checks" ? <OpenDataChecksTab ctx={ctx} /> : null}
+          {tab === "findings" ? <OpenDataFindingsTab ctx={ctx} /> : null}
+          {tab === "submission" ? <OpenDataSubmissionTab ctx={ctx} /> : null}
+        </div>
+
+        {/* Verification footer — same shape as the other source blocks;
+            reads as a quality-audit signal sequence. */}
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--avy-line-soft)] bg-[#faf8f1] px-3 py-2 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--avy-muted)]"
+          style={{ letterSpacing: 0 }}
+        >
+          <span className="text-[var(--avy-accent)]">Verification</span>
+          <span className="inline-flex items-center whitespace-nowrap rounded-full bg-[color:rgba(17,19,21,0.06)] px-1.5 py-px font-medium text-[var(--avy-ink)]">
+            {ctx.verification.method}
+          </span>
+          {ctx.verification.signals.map((s) => (
+            <span key={s}>· {s}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OpenDataDatasetTab({ ctx }: { ctx: OpenDataJobContext }) {
+  return (
+    <>
+      <h3 className="m-0 font-[family-name:var(--font-display)] text-[14px] font-bold leading-[1.3] text-[var(--avy-ink)]">
+        {ctx.datasetTitle}
+      </h3>
+
+      <dl
+        className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-[family-name:var(--font-mono)] text-[11.5px]"
+        style={{ letterSpacing: 0 }}
+      >
+        <dt className="text-[var(--avy-muted)]">Portal</dt>
+        <dd className="m-0 font-medium text-[var(--avy-ink)]">
+          {ctx.provider}
+        </dd>
+        {ctx.agency ? (
+          <>
+            <dt className="text-[var(--avy-muted)]">Agency</dt>
+            <dd className="m-0 truncate font-medium text-[var(--avy-ink)]">
+              {ctx.agency}
+            </dd>
+          </>
+        ) : null}
+        {ctx.resourceTitle ? (
+          <>
+            <dt className="text-[var(--avy-muted)]">Resource</dt>
+            <dd className="m-0 truncate font-medium text-[var(--avy-ink)]">
+              {ctx.resourceTitle}
+            </dd>
+          </>
+        ) : null}
+        {ctx.resourceFormat ? (
+          <>
+            <dt className="text-[var(--avy-muted)]">Format</dt>
+            <dd className="m-0 font-medium text-[var(--avy-ink)]">
+              {ctx.resourceFormat}
+            </dd>
+          </>
+        ) : null}
+        {ctx.license ? (
+          <>
+            <dt className="text-[var(--avy-muted)]">License</dt>
+            <dd className="m-0 truncate font-medium text-[var(--avy-ink)]">
+              {ctx.license}
+            </dd>
+          </>
+        ) : null}
+        {ctx.modified ? (
+          <>
+            <dt className="text-[var(--avy-muted)]">Modified</dt>
+            <dd className="m-0 font-medium text-[var(--avy-ink)]">
+              {ctx.modified}
+            </dd>
+          </>
+        ) : null}
+        {ctx.metadataModified ? (
+          <>
+            <dt className="text-[var(--avy-muted)]">Metadata modified</dt>
+            <dd className="m-0 font-medium text-[var(--avy-ink)]">
+              {ctx.metadataModified}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+
+      {ctx.body ? (
+        <p
+          className="mt-3 max-h-[220px] overflow-y-auto whitespace-pre-wrap font-[family-name:var(--font-body)] text-[12.5px] leading-[1.5] text-[var(--avy-ink)]"
+          style={{ letterSpacing: 0 }}
+        >
+          {ctx.body}
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <a
+          href={ctx.datasetUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex h-7 items-center gap-1.5 rounded-[8px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] px-3 font-[family-name:var(--font-display)] text-[11px] font-bold uppercase text-[var(--avy-ink)] transition-transform hover:-translate-y-px hover:border-[color:rgba(30,102,66,0.24)] hover:text-[var(--avy-accent)]"
+          style={{ letterSpacing: "0.04em" }}
+        >
+          Open dataset ↗
+        </a>
+        <a
+          href={ctx.resourceUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex h-7 items-center gap-1.5 rounded-[8px] border border-[var(--avy-line)] bg-[var(--avy-paper-solid)] px-3 font-[family-name:var(--font-display)] text-[11px] font-bold uppercase text-[var(--avy-ink)] transition-transform hover:-translate-y-px hover:border-[color:rgba(30,102,66,0.24)] hover:text-[var(--avy-accent)]"
+          style={{ letterSpacing: "0.04em" }}
+        >
+          Open resource ↗
+        </a>
+      </div>
+    </>
+  );
+}
+
+function OpenDataChecksTab({ ctx }: { ctx: OpenDataJobContext }) {
+  // The instructions field is the worker-facing "what to do" prose
+  // emitted by the ingestor — re-purposed here as the "Checks" copy
+  // since the open-data audit instructions ARE the check list.
+  if (!ctx.agentInstructions) {
+    return (
+      <p
+        className="m-0 font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--avy-muted)]"
+        style={{ letterSpacing: 0 }}
+      >
+        No check list was generated for this dataset.
+      </p>
+    );
+  }
+  return (
+    <p
+      className="m-0 whitespace-pre-wrap rounded-[6px] border border-[color:rgba(30,102,66,0.18)] bg-[color:rgba(30,102,66,0.04)] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[12px] leading-[1.55] text-[var(--avy-ink)]"
+      style={{ letterSpacing: 0 }}
+    >
+      {ctx.agentInstructions}
+    </p>
+  );
+}
+
+function OpenDataFindingsTab({ ctx }: { ctx: OpenDataJobContext }) {
+  // Acceptance criteria are the "what counts as a complete audit"
+  // checklist the verifier runs against; rendered as a numbered list
+  // so the worker can see the bar before they submit.
+  if (ctx.acceptanceCriteria.length === 0) {
+    return (
+      <p
+        className="m-0 font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--avy-muted)]"
+        style={{ letterSpacing: 0 }}
+      >
+        No acceptance criteria were attached to this audit.
+      </p>
+    );
+  }
+  return (
+    <ul className="m-0 flex flex-col gap-2 pl-0">
+      {ctx.acceptanceCriteria.map((item, i) => (
+        <li
+          key={i}
+          className="grid grid-cols-[18px_1fr] items-start gap-2 font-[family-name:var(--font-body)] text-[12.5px] leading-[1.45] text-[var(--avy-ink)]"
+          style={{ letterSpacing: 0 }}
+        >
+          <span
+            className="mt-px inline-grid h-[16px] w-[16px] place-items-center rounded-[4px] border border-[color:rgba(30,102,66,0.25)] bg-[color:rgba(30,102,66,0.06)] font-[family-name:var(--font-mono)] text-[9px] font-bold text-[var(--avy-accent)]"
+            style={{ letterSpacing: 0 }}
+            aria-hidden="true"
+          >
+            {i + 1}
+          </span>
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function OpenDataSubmissionTab({ ctx }: { ctx: OpenDataJobContext }) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <p
+        className="m-0 font-[family-name:var(--font-mono)] text-[11px] leading-[1.5] text-[var(--avy-muted)]"
+        style={{ letterSpacing: 0 }}
+      >
+        Submit a dataset quality audit report. Do not edit source data
+        and do not contact the publishing agency from this workflow.
+      </p>
+      <SubField
+        label="Dataset URL"
+        required
+        placeholder={ctx.datasetUrl}
+        mono
+      />
+      <SubField
+        label="Resource URL"
+        required
+        placeholder={ctx.resourceUrl}
+        mono
+      />
+      <div>
+        <SubLabel>Checks performed</SubLabel>
+        <textarea
+          spellCheck={false}
+          placeholder="One per line. e.g. dataset_landing_page=200, resource_url=200 (csv), schema_columns_listed, missing_metadata=license"
+          className="min-h-[90px] w-full resize-y rounded-[6px] border border-[var(--avy-line)] bg-white px-2.5 py-2 font-[family-name:var(--font-mono)] text-[11.5px] leading-[1.5] text-[var(--avy-ink)] outline-none placeholder:text-[var(--avy-muted)] focus:border-[var(--avy-accent)] focus:ring-2 focus:ring-[color:rgba(30,102,66,0.15)]"
+          style={{ letterSpacing: 0 }}
+        />
+      </div>
+      <div>
+        <SubLabel>Findings</SubLabel>
+        <textarea
+          spellCheck={false}
+          placeholder={`Concrete findings, or "no_issue_found" with evidence per check.`}
+          className="min-h-[90px] w-full resize-y rounded-[6px] border border-[var(--avy-line)] bg-white px-2.5 py-2 font-[family-name:var(--font-body)] text-[12.5px] leading-[1.5] text-[var(--avy-ink)] outline-none placeholder:text-[var(--avy-muted)] focus:border-[var(--avy-accent)] focus:ring-2 focus:ring-[color:rgba(30,102,66,0.15)]"
+          style={{ letterSpacing: 0 }}
+        />
+      </div>
+      <div>
+        <SubLabel>Recommended actions</SubLabel>
+        <textarea
+          spellCheck={false}
+          placeholder="Concrete cleanup recommendations the agency could action — separate from findings."
+          className="min-h-[60px] w-full resize-y rounded-[6px] border border-[var(--avy-line)] bg-white px-2.5 py-2 font-[family-name:var(--font-body)] text-[12.5px] leading-[1.5] text-[var(--avy-ink)] outline-none placeholder:text-[var(--avy-muted)] focus:border-[var(--avy-accent)] focus:ring-2 focus:ring-[color:rgba(30,102,66,0.15)]"
+          style={{ letterSpacing: 0 }}
+        />
+      </div>
+      <div>
+        <SubLabel>Notes for verifier (optional)</SubLabel>
+        <textarea
+          spellCheck={false}
+          placeholder="Caveats, partial-data notes, anything the verifier should know."
+          className="min-h-[60px] w-full resize-y rounded-[6px] border border-[var(--avy-line)] bg-white px-2.5 py-2 font-[family-name:var(--font-mono)] text-[11.5px] leading-[1.5] text-[var(--avy-ink)] outline-none placeholder:text-[var(--avy-muted)] focus:border-[var(--avy-accent)] focus:ring-2 focus:ring-[color:rgba(30,102,66,0.15)]"
+          style={{ letterSpacing: 0 }}
+        />
+      </div>
+      {ctx.discoveryApi ? (
+        <p
+          className="m-0 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--avy-muted)]"
+          style={{ letterSpacing: 0 }}
+        >
+          Discovered via{" "}
+          <span className="text-[var(--avy-ink)]">{ctx.discoveryApi}</span>
+        </p>
+      ) : null}
     </div>
   );
 }

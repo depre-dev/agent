@@ -18,6 +18,7 @@ import { swrFetcher } from "@/lib/api/client";
 import { useJobDefinition, useJobs } from "@/lib/api/hooks";
 import {
   buildGitHubContext,
+  buildOpenDataContext,
   buildOsvContext,
   buildRunRows,
   buildWikipediaContext,
@@ -72,6 +73,7 @@ export function LoadedRunView({
   const loadedGitHub = buildGitHubContext(loadedRow, selectedJob);
   const loadedWikipedia = buildWikipediaContext(loadedRow, selectedJob);
   const loadedOsv = buildOsvContext(loadedRow, selectedJob);
+  const loadedOpenData = buildOpenDataContext(loadedRow, selectedJob);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -123,7 +125,9 @@ export function LoadedRunView({
       ? "Loaded run · GitHub issue"
       : loadedOsv
         ? "Loaded run · OSV advisory"
-        : "Loaded run";
+        : loadedOpenData
+          ? "Loaded run · Open data dataset"
+          : "Loaded run";
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -135,6 +139,7 @@ export function LoadedRunView({
         github={loadedGitHub}
         wikipedia={loadedWikipedia}
         osv={loadedOsv}
+        openData={loadedOpenData}
         onReceiptPreview={() => setReceiptOpen(true)}
         standaloneUrl={standaloneUrl}
         stake={{
@@ -175,6 +180,14 @@ export function LoadedRunView({
               to the verifier. Window{" "}
               <b className="text-[var(--avy-ink)]">00:08:14 / 02:00:00</b>.
             </>
+          ) : loadedOpenData ? (
+            <>
+              Submits{" "}
+              <b className="text-[var(--avy-ink)]">checks + findings + recommended actions</b>{" "}
+              to the verifier. Audit only — no edits to source data.
+              Window{" "}
+              <b className="text-[var(--avy-ink)]">00:08:14 / 02:00:00</b>.
+            </>
           ) : (
             <>
               Submits <b className="text-[var(--avy-ink)]">PR URL + evidence</b>{" "}
@@ -186,13 +199,102 @@ export function LoadedRunView({
             ? "Submit proposal for review"
             : loadedOsv
               ? "Submit remediation PR"
-              : "Submit for verification",
+              : loadedOpenData
+                ? "Submit audit report"
+                : "Submit for verification",
           onSubmit: handleSubmit,
           submitting,
           error: submitError,
         }}
         verifier={
-          loadedOsv
+          loadedOpenData
+            ? {
+                runner: "verifier-2 · open_data_quality_audit · handler-v0.14",
+                elapsed: "stream · 2.8s",
+                modeNote: "open_data_quality_audit · audit only",
+                lines: [
+                  {
+                    time: "14:28:01",
+                    level: "info",
+                    label: "dataset",
+                    message: (
+                      <>
+                        loaded{" "}
+                        <span className="text-[#f4c989]">
+                          {loadedOpenData.datasetTitle}
+                        </span>
+                        {loadedOpenData.agency
+                          ? ` · ${loadedOpenData.agency}`
+                          : null}
+                      </>
+                    ),
+                  },
+                  {
+                    time: "14:28:01",
+                    level: "ok",
+                    label: "pass",
+                    message: <>dataset URL reachable · landing page 200</>,
+                  },
+                  {
+                    time: "14:28:02",
+                    level: "ok",
+                    label: "pass",
+                    message: (
+                      <>
+                        resource URL reachable
+                        {loadedOpenData.resourceFormat ? (
+                          <>
+                            {" · "}
+                            <span className="text-[#9bd7b5]">
+                              {loadedOpenData.resourceFormat}
+                            </span>
+                          </>
+                        ) : null}
+                      </>
+                    ),
+                  },
+                  {
+                    time: "14:28:02",
+                    level: "info",
+                    label: "policy",
+                    message: (
+                      <>
+                        audit-only path enforced ·{" "}
+                        <span className="text-[#f4c989]">no source edits</span>
+                      </>
+                    ),
+                  },
+                  {
+                    time: "14:28:03",
+                    level: "warn",
+                    label: "note",
+                    message: (
+                      <>
+                        catalog metadata{" "}
+                        <span className="text-[#f4c989]">stale</span> ·
+                        recommendations attached
+                      </>
+                    ),
+                  },
+                  {
+                    time: "14:28:03",
+                    level: "ok",
+                    label: "verdict",
+                    message: (
+                      <>
+                        4/5 signals pass · receipt draft{" "}
+                        <span className="text-[#f4c989]">r_4e133</span>
+                      </>
+                    ),
+                  },
+                ],
+                verdict: {
+                  status: "Audit complete (advisory)",
+                  score: "4 / 5",
+                  scoreLabel: "0.84 confidence",
+                },
+              }
+            : loadedOsv
             ? {
                 runner: "verifier-2 · osv_dependency_pr · handler-v0.14",
                 elapsed: "stream · 3.4s",
@@ -442,7 +544,9 @@ export function LoadedRunView({
             ? "pays worker & verifier once an Averray editor approves the proposal"
             : loadedOsv
               ? "pays worker & verifier once the maintainer merges the remediation PR"
-              : "pays worker & verifier once the maintainer approves the PR",
+              : loadedOpenData
+                ? "pays worker & verifier once the audit report verifies"
+                : "pays worker & verifier once the maintainer approves the PR",
         }}
       />
 
@@ -476,6 +580,17 @@ export function LoadedRunView({
                 </b>{" "}
                 · PR pending merge
               </>
+            ) : loadedOpenData ? (
+              <>
+                Window closes in{" "}
+                <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
+                {" · "}verification{" "}
+                <b className="font-semibold text-[var(--avy-ink)]">
+                  {loadedOpenData.verification.method}
+                </b>
+                {" · "}audit{" "}
+                <b className="font-semibold text-[var(--avy-ink)]">submitted</b>
+              </>
             ) : (
               <>
                 Window closes in{" "}
@@ -494,12 +609,16 @@ export function LoadedRunView({
               ? "Averray review → Pay"
               : loadedOsv
                 ? "Maintainer merge → Pay"
-                : "Maintainer review → Pay",
+                : loadedOpenData
+                  ? "Verifier check → Pay"
+                  : "Maintainer review → Pay",
             sub: loadedWikipedia
               ? "auto-pays on Averray-approved review"
               : loadedOsv
                 ? "auto-pays on PR merge + CI green + lockfile resolves"
-                : "auto-pays on PR merge + CI green",
+                : loadedOpenData
+                  ? "auto-pays on audit verifier signals green"
+                  : "auto-pays on PR merge + CI green",
           }}
         />
       ) : null}
@@ -511,7 +630,8 @@ export function LoadedRunView({
           loadedRow,
           loadedGitHub,
           loadedWikipedia,
-          loadedOsv
+          loadedOsv,
+          loadedOpenData
         )}
       />
     </div>
@@ -538,7 +658,8 @@ function buildReceiptDraft(
   row: RunRow,
   github: ReturnType<typeof buildGitHubContext>,
   wikipedia: ReturnType<typeof buildWikipediaContext>,
-  osv: ReturnType<typeof buildOsvContext>
+  osv: ReturnType<typeof buildOsvContext>,
+  openData: ReturnType<typeof buildOpenDataContext>
 ): ReceiptPreviewDraft {
   const workerSignerLabel = row.worker.isSelf
     ? `Worker · ${row.worker.label} (you)`
@@ -562,11 +683,17 @@ function buildReceiptDraft(
             score: "3 / 4",
             confidence: "0.91 confidence",
           }
-        : {
-            status: "Verified (pending cosign)",
-            score: "4 / 5",
-            confidence: "0.92 confidence",
-          };
+        : openData
+          ? {
+              status: "Audit complete (advisory)",
+              score: "4 / 5",
+              confidence: "0.84 confidence",
+            }
+          : {
+              status: "Verified (pending cosign)",
+              score: "4 / 5",
+              confidence: "0.92 confidence",
+            };
 
   const reviewerSigner = github
     ? "Maintainer · awaiting review"
@@ -574,7 +701,9 @@ function buildReceiptDraft(
       ? "Averray editor reviewer · awaiting review"
       : osv
         ? "Maintainer · awaiting merge"
-        : "Cosigner · 0x9A13…0cb2";
+        : openData
+          ? "Verifier · audit signed"
+          : "Cosigner · 0x9A13…0cb2";
 
   return {
     receiptRef: "r_4e133",
@@ -595,6 +724,7 @@ function buildReceiptDraft(
     ...(github ? { github } : {}),
     ...(wikipedia ? { wikipedia } : {}),
     ...(osv ? { osv } : {}),
+    ...(openData ? { openData } : {}),
     prUrl: github
       ? `https://github.com/${github.repo}/pull/4931`
       : osv

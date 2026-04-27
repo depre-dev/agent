@@ -116,6 +116,17 @@ function RunsPageInner() {
         </b>{" "}
         · PR pending merge
       </>
+    ) : selectedSourceType === "open_data_dataset" ? (
+      <>
+        Window closes in{" "}
+        <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
+        {" · "}verification{" "}
+        <b className="font-semibold text-[var(--avy-ink)]">
+          open_data_quality_audit
+        </b>
+        {" · "}audit{" "}
+        <b className="font-semibold text-[var(--avy-ink)]">submitted</b>
+      </>
     ) : (
       <>
         Window closes in{" "}
@@ -139,11 +150,17 @@ function RunsPageInner() {
             value: "Maintainer merge → Pay",
             sub: "auto-pays on PR merge + CI green + lockfile resolves",
           }
-        : {
-            label: "Next",
-            value: "Maintainer review → Pay",
-            sub: "auto-pays on PR merge + CI green",
-          };
+        : selectedSourceType === "open_data_dataset"
+          ? {
+              label: "Next",
+              value: "Verifier check → Pay",
+              sub: "auto-pays on audit verifier signals green",
+            }
+          : {
+              label: "Next",
+              value: "Maintainer review → Pay",
+              sub: "auto-pays on PR merge + CI green",
+            };
 
   const assignedToMe = rows.filter((row) => row.worker.isSelf).length;
   const liveStatus = jobs.error
