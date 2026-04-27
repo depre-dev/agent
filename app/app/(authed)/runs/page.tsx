@@ -88,11 +88,13 @@ function RunsPageInner() {
   // verification path and implies a direct GitHub flow that doesn't
   // exist for that run.
   const selectedRow = rows.find((row) => row.id === selectedId) ?? rows[0];
-  const selectedSourceType = selectedRow?.source?.type;
-  const selectedOsvSource =
-    selectedRow?.source?.type === "osv_advisory" ? selectedRow.source : null;
+  // One source-of-truth narrow on `selectedRow.source`. The lifecycle
+  // copy below switches on `selectedSource?.type` and TS narrows to the
+  // right per-source field set inside each branch — no per-source
+  // intermediate variables needed.
+  const selectedSource = selectedRow?.source;
   const lifecycleContextNote =
-    selectedSourceType === "wikipedia_article" ? (
+    selectedSource?.type === "wikipedia_article" ? (
       <>
         Window closes in{" "}
         <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
@@ -104,7 +106,7 @@ function RunsPageInner() {
         <b className="font-semibold text-[var(--avy-ink)]">submitted</b> ·
         pending Averray review
       </>
-    ) : selectedOsvSource ? (
+    ) : selectedSource?.type === "osv_advisory" ? (
       <>
         Window closes in{" "}
         <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
@@ -112,11 +114,11 @@ function RunsPageInner() {
         <b className="font-semibold text-[var(--avy-ink)]">osv_dependency_pr</b>
         {" · "}advisory{" "}
         <b className="font-semibold text-[var(--avy-ink)]">
-          {selectedOsvSource.advisoryId}
+          {selectedSource.advisoryId}
         </b>{" "}
         · PR pending merge
       </>
-    ) : selectedSourceType === "open_data_dataset" ? (
+    ) : selectedSource?.type === "open_data_dataset" ? (
       <>
         Window closes in{" "}
         <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
@@ -138,19 +140,19 @@ function RunsPageInner() {
       </>
     );
   const lifecycleNext =
-    selectedSourceType === "wikipedia_article"
+    selectedSource?.type === "wikipedia_article"
       ? {
           label: "Next",
           value: "Averray review → Pay",
           sub: "auto-pays on Averray-approved review",
         }
-      : selectedSourceType === "osv_advisory"
+      : selectedSource?.type === "osv_advisory"
         ? {
             label: "Next",
             value: "Maintainer merge → Pay",
             sub: "auto-pays on PR merge + CI green + lockfile resolves",
           }
-        : selectedSourceType === "open_data_dataset"
+        : selectedSource?.type === "open_data_dataset"
           ? {
               label: "Next",
               value: "Verifier check → Pay",

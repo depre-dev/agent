@@ -228,15 +228,18 @@ const POSITIONS: PositionCard[] = [
 ];
 
 const POLICIES: PolicyItem[] = [
+  // Each row carries a consistent `Role · who/what` prefix so the
+  // enforcement mode reads at a glance (manual co-sign / governance
+  // review / contract-enforced). The right-side detail varies by
+  // enforcement type but the left-side label is uniform across rows.
   {
     tag: "treasury/alloc-dual-sign",
     name: "Allocations > 50k DOT require co-signer",
     meta: "Blocks any Allocate/Deallocate action on lanes 01, 02, 04, 05 without a second signer.",
     signerNote: (
       <>
-        Signer <b className="font-semibold text-[var(--avy-ink)]">0xFd2E…6519</b> ·
-        co-signer{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">0x9A13…0cb2</b>
+        <b className="font-semibold text-[var(--avy-ink)]">Signers</b> ·{" "}
+        <span>0xFd2E…6519</span> + <span>0x9A13…0cb2</span>
       </>
     ),
   },
@@ -244,7 +247,12 @@ const POLICIES: PolicyItem[] = [
     tag: "treasury/debt-cap-85",
     name: "Debt may not exceed 85% of collateral",
     meta: "Currently at 82%. New borrows auto-blocked at 85%. Debt card tints warn when ≥ 80%.",
-    signerNote: <>Governance review · quarterly · next 2026-07-01</>,
+    signerNote: (
+      <>
+        <b className="font-semibold text-[var(--avy-ink)]">Owner</b> ·
+        governance council · quarterly review · next 2026-07-01
+      </>
+    ),
   },
   {
     tag: "xcm/observe-before-settle",
@@ -252,9 +260,8 @@ const POLICIES: PolicyItem[] = [
     meta: "Phase 03 cannot run until phase 02 has recorded a relay receipt. Enforced per-lane.",
     signerNote: (
       <>
-        Enforced by{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">AgentAccountCore</b> ·
-        non-overridable
+        <b className="font-semibold text-[var(--avy-ink)]">Enforcement</b> ·
+        AgentAccountCore contract · non-overridable
       </>
     ),
   },
