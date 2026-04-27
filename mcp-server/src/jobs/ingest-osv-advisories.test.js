@@ -190,6 +190,61 @@ test("ingestOsvAdvisories queries OSV and filters jobs", async () => {
   assert.equal(payload.skipped.length, 0);
 });
 
+test("ingestOsvAdvisories groups advisories by package target", async () => {
+  const firstAdvisory = {
+    ...ADVISORY,
+    id: "GHSA-wc8c-qw6v-h7f6",
+    aliases: ["CVE-2026-29087"],
+    summary: "Encoded slash bypass",
+    affected: [
+      {
+        package: { ecosystem: "npm", name: "minimist" },
+        ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, { fixed: "1.19.10" }] }]
+      }
+    ]
+  };
+  const secondAdvisory = {
+    ...ADVISORY,
+    id: "GHSA-92pp-h63x-v22m",
+    aliases: ["CVE-2026-39406"],
+    summary: "Repeated slash bypass",
+    affected: [
+      {
+        package: { ecosystem: "npm", name: "minimist" },
+        ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, { fixed: "1.19.13" }] }]
+      }
+    ]
+  };
+
+  const payload = await ingestOsvAdvisories({
+    packages: [TARGET],
+    limit: 5,
+    minScore: 55,
+    fetchImpl: async (_url, request) => ({
+      ok: true,
+      async json() {
+        assert.equal(JSON.parse(request.body).queries[0].package.name, "minimist");
+        return { results: [{ vulns: [firstAdvisory, secondAdvisory] }] };
+      }
+    })
+  });
+
+  assert.equal(payload.count, 1);
+  assert.equal(payload.jobs[0].id, "osv-npm-example-app-minimist-0-0-8");
+  assert.equal(payload.jobs[0].title, "Remediate minimist advisories");
+  assert.equal(payload.jobs[0].source.fixedVersion, "1.19.13");
+  assert.equal(payload.jobs[0].source.advisories.length, 2);
+  assert.deepEqual(payload.jobs[0].source.advisoryIds.sort(), [
+    "CVE-2026-29087",
+    "CVE-2026-39406",
+    "GHSA-92pp-h63x-v22m",
+    "GHSA-wc8c-qw6v-h7f6"
+  ]);
+  assert.ok(payload.jobs[0].agentInstructions[1].includes("GHSA-92pp-h63x-v22m"));
+  assert.ok(payload.jobs[0].agentInstructions[1].includes("GHSA-wc8c-qw6v-h7f6"));
+  assert.equal(payload.skipped.length, 0);
+});
+
 test("ingestOsvAdvisories can derive package targets from GitHub lockfiles", async () => {
   const payload = await ingestOsvAdvisories({
     manifests: [{ repo: "example/app", manifestPath: "package-lock.json", ref: "main" }],
