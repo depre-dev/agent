@@ -260,6 +260,33 @@ test("getAdminStatus surfaces public source ingestion scheduler status", async (
   assert.equal(status.providerOperations.openData.lastRun.summary, "2 candidate(s), 2 created, 0 skipped, 0 error(s)");
   assert.equal(status.providerOperations.openApi.health, "error");
   assert.equal(status.providerOperations.openApi.lastRun.errorCount, 1);
+
+  // Public sanitized counterpart preserves health / mode / counts but
+  // strips lastRun.skipped[] and lastRun.errors[] (which can carry
+  // candidate URLs, query strings, stack traces, internal IDs).
+  const publicStatus = await service.getPublicProviderOperations();
+  assert.deepEqual(Object.keys(publicStatus), ["providerOperations"]);
+  // Same six providers as the admin payload.
+  assert.deepEqual(
+    Object.keys(publicStatus.providerOperations).sort(),
+    ["github", "openApi", "openData", "osv", "standards", "wikipedia"]
+  );
+  // Health, mode, counts, and human-readable summary survive…
+  assert.equal(publicStatus.providerOperations.github.mode, "dry_run");
+  assert.equal(publicStatus.providerOperations.github.currentOpenJobs, 3);
+  assert.equal(publicStatus.providerOperations.github.lastRun.skippedCount, 1);
+  assert.equal(publicStatus.providerOperations.openApi.health, "error");
+  assert.equal(publicStatus.providerOperations.openApi.lastRun.errorCount, 1);
+  // …but the arrays themselves are emptied.
+  assert.deepEqual(publicStatus.providerOperations.github.lastRun.skipped, []);
+  assert.deepEqual(publicStatus.providerOperations.github.lastRun.errors, []);
+  assert.deepEqual(publicStatus.providerOperations.openApi.lastRun.skipped, []);
+  assert.deepEqual(publicStatus.providerOperations.openApi.lastRun.errors, []);
+  // No leakage of any admin-only top-level fields (auth, recurring,
+  // anomalies, recentSessions, etc.) — only providerOperations.
+  assert.equal(publicStatus.auth, undefined);
+  assert.equal(publicStatus.anomalies, undefined);
+  assert.equal(publicStatus.recurring, undefined);
 });
 
 test("finalizeXcmRequest records async treasury settlement when the request is strategy-backed", async () => {

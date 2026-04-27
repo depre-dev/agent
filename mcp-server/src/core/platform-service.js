@@ -641,6 +641,88 @@ export class PlatformService {
   async ingestVerification(sessionId, verdict) {
     return this.verificationIngestionService.ingest(sessionId, verdict);
   }
+
+  /**
+   * Public, sanitized counterpart to the providerOperations slice of
+   * `getAdminStatus`. The full admin status carries `lastRun.errors[]` and
+   * `lastRun.skipped[]`, which can include candidate URLs, query strings,
+   * stack traces, or other internals. The public version strips both
+   * arrays but preserves their counts and the human-readable `summary`,
+   * so external trust dashboards can still answer "is each ingestion
+   * provider healthy / running / at capacity?" without leaking internal
+   * detail.
+   */
+  async getPublicProviderOperations() {
+    const [
+      githubIngestion,
+      wikipediaIngestion,
+      osvIngestion,
+      openDataIngestion,
+      standardsIngestion,
+      openApiIngestion
+    ] = await Promise.all([
+      this.githubIssueIngestionScheduler?.getStatus?.() ?? PROVIDER_STATUS_FALLBACK,
+      this.wikipediaMaintenanceIngestionScheduler?.getStatus?.() ?? PROVIDER_STATUS_FALLBACK,
+      this.osvAdvisoryIngestionScheduler?.getStatus?.() ?? PROVIDER_STATUS_FALLBACK,
+      this.openDataIngestionScheduler?.getStatus?.() ?? PROVIDER_STATUS_FALLBACK,
+      this.standardsSpecIngestionScheduler?.getStatus?.() ?? PROVIDER_STATUS_FALLBACK,
+      this.openApiSpecIngestionScheduler?.getStatus?.() ?? PROVIDER_STATUS_FALLBACK
+    ]);
+    const providerOperations = buildProviderOperations({
+      githubIngestion,
+      wikipediaIngestion,
+      osvIngestion,
+      openDataIngestion,
+      standardsIngestion,
+      openApiIngestion
+    });
+    return {
+      providerOperations: sanitizeProviderOperations(providerOperations)
+    };
+  }
+}
+
+/**
+ * Default empty status used when an ingestion scheduler is not wired in
+ * the current process. Matches the shape produced by every concrete
+ * scheduler's `getStatus()` so `buildProviderOperations` can treat all
+ * providers uniformly.
+ */
+const PROVIDER_STATUS_FALLBACK = Object.freeze({
+  enabled: false,
+  running: false,
+  dryRun: true,
+  intervalMs: 0,
+  maxJobsPerRun: 0,
+  maxOpenJobs: 0,
+  currentOpenJobs: 0,
+  lastRun: undefined
+});
+
+/**
+ * Strip `lastRun.errors[]` and `lastRun.skipped[]` from every provider in
+ * a providerOperations object, preserving every other field including
+ * `errorCount` and `skippedCount`. Used to derive the public sanitized
+ * payload from the admin one.
+ */
+function sanitizeProviderOperations(providerOperations) {
+  const entries = Object.entries(providerOperations).map(([key, value]) => [
+    key,
+    sanitizeProviderOperationStatus(value)
+  ]);
+  return Object.fromEntries(entries);
+}
+
+function sanitizeProviderOperationStatus(status) {
+  if (!status?.lastRun) return status;
+  return {
+    ...status,
+    lastRun: {
+      ...status.lastRun,
+      skipped: [],
+      errors: []
+    }
+  };
 }
 
 function buildProviderOperations(statuses) {
