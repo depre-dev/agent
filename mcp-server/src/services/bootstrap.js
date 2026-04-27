@@ -45,6 +45,10 @@ import {
   UpstreamStatusPollerService,
   loadUpstreamStatusPollerConfig
 } from "./upstream-status-poller.js";
+import {
+  JobStaleSweeperService,
+  loadJobStaleSweeperConfig
+} from "./job-stale-sweeper.js";
 import { normaliseStrategyAssetConfig } from "./strategy-asset-config.js";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -234,6 +238,12 @@ export async function createPlatformRuntime() {
       logger
     })
   );
+  const jobStaleSweeper = initStep("init-job-stale-sweeper", logger, () =>
+    new JobStaleSweeperService(platformService, stateStore, eventBus, {
+      ...loadJobStaleSweeperConfig(process.env),
+      logger
+    })
+  );
   platformService.recurringScheduler = recurringScheduler;
   platformService.githubIssueIngestionScheduler = githubIssueIngestionScheduler;
   platformService.wikipediaMaintenanceIngestionScheduler = wikipediaMaintenanceIngestionScheduler;
@@ -244,6 +254,7 @@ export async function createPlatformRuntime() {
   platformService.xcmSettlementWatcher = xcmSettlementWatcher;
   platformService.xcmObservationRelay = xcmObservationRelay;
   platformService.upstreamStatusPoller = upstreamStatusPoller;
+  platformService.jobStaleSweeper = jobStaleSweeper;
   recurringScheduler.start();
   githubIssueIngestionScheduler.start();
   wikipediaMaintenanceIngestionScheduler.start();
@@ -254,6 +265,7 @@ export async function createPlatformRuntime() {
   xcmSettlementWatcher.start();
   xcmObservationRelay.start();
   upstreamStatusPoller.start();
+  jobStaleSweeper.start();
 
   const authMiddleware = createAuthMiddleware({ authConfig, stateStore, logger });
   const rateLimiter = createRateLimiter({ stateStore, logger });
@@ -286,6 +298,7 @@ export async function createPlatformRuntime() {
     xcmSettlementWatcher,
     xcmObservationRelay,
     upstreamStatusPoller,
+    jobStaleSweeper,
     authConfig,
     authMiddleware,
     authCapabilities: {
