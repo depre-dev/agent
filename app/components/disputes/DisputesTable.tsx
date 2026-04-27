@@ -39,7 +39,7 @@ export function DisputesTable({
           <thead>
             <tr>
               <Th width={100}>Dispute</Th>
-              <Th width={100}>Run</Th>
+              <Th width={130}>Run</Th>
               <Th>Opener</Th>
               <Th>Respondent</Th>
               <Th width={90} align="right">Stake</Th>
@@ -56,7 +56,7 @@ export function DisputesTable({
                   className="p-8 text-center font-[family-name:var(--font-mono)] text-[13px] text-[var(--avy-muted)]"
                   style={{ letterSpacing: 0 }}
                 >
-                  No disputes match these filters. Queue is clear.
+                  No disputes match these filters.
                 </td>
               </tr>
             ) : (
@@ -83,7 +83,7 @@ export function DisputesTable({
                       <div className="flex items-center gap-1.5">
                         {d.source ? <SourceBadge kind={d.source} /> : null}
                         <span
-                          className="font-[family-name:var(--font-mono)] text-[12.5px] text-[var(--avy-ink)]"
+                          className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[12.5px] text-[var(--avy-ink)]"
                           style={{ letterSpacing: 0 }}
                         >
                           {d.runRef}

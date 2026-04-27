@@ -138,6 +138,21 @@ function source(value: unknown): AuditSource {
   return "system";
 }
 
+/**
+ * Normalise the category emitted by the audit event stream into the
+ * fixed `AuditCategory` set the timeline filter rail knows how to
+ * render. The backend uses a finer-grained taxonomy than the UI
+ * (e.g. `session`, `escrow`, `reputation`, `admin`) so we collapse
+ * those into the closest UI bucket here:
+ *
+ *   - `session`                            → `runs`     (sessions are run lifecycle events)
+ *   - `escrow` / `reputation` / `admin`    → `treasury` (capital + control-plane)
+ *
+ * If you add a new audit category in the backend, add a passthrough
+ * here OR map it to one of the existing UI buckets — DO NOT silently
+ * drop it; the catch-all returns `"runs"` so unknown events still
+ * surface somewhere instead of disappearing.
+ */
 function category(value: unknown): AuditCategory {
   if (
     value === "policy" ||
