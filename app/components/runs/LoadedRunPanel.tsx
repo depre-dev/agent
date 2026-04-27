@@ -732,10 +732,10 @@ function WikipediaEvidenceBlock({ ctx }: { ctx: WikipediaJobContext }) {
             rel="noreferrer noopener"
             className="truncate whitespace-nowrap font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--avy-ink)] hover:text-[var(--avy-accent)]"
             style={{ letterSpacing: 0 }}
-            title={`${ctx.language}.wikipedia / ${ctx.pageTitle}`}
+            title={`${ctx.language}.wikipedia / "${ctx.pageTitle}"`}
           >
             <span className="text-[var(--avy-muted)]">{ctx.language}.wikipedia</span>
-            <span className="text-[var(--avy-accent)]"> / {ctx.pageTitle}</span>
+            <span className="text-[var(--avy-accent)]"> / &ldquo;{ctx.pageTitle}&rdquo;</span>
           </a>
           <span className="opacity-40">·</span>
           <span
