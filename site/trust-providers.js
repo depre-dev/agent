@@ -101,12 +101,18 @@
     const queryCount = typeof queryCountRaw === "number" && Number.isFinite(queryCountRaw) && queryCountRaw >= 0
       ? Math.floor(queryCountRaw)
       : null;
+    const maxJobsPerQueryRaw = raw && raw.maxJobsPerQuery;
+    const maxJobsPerQuery = typeof maxJobsPerQueryRaw === "number" && Number.isFinite(maxJobsPerQueryRaw) && maxJobsPerQueryRaw > 0
+      ? Math.floor(maxJobsPerQueryRaw)
+      : null;
     return {
       key: key,
       label: asString(raw && raw.label, PROVIDER_LABEL[key] || key),
       mode: ["live", "dry_run", "disabled"].includes(raw && raw.mode) ? raw.mode : "disabled",
       health: ["healthy", "dry_run", "at_capacity", "error", "disabled"].includes(raw && raw.health) ? raw.health : "disabled",
       running: Boolean(raw && raw.running),
+      maxJobsPerRun: nonNegInt(raw && raw.maxJobsPerRun),
+      maxJobsPerQuery: maxJobsPerQuery,
       maxOpenJobs: nonNegInt(raw && raw.maxOpenJobs),
       currentOpenJobs: nonNegInt(raw && raw.currentOpenJobs),
       targetCount: nonNegInt(raw && raw.targetCount),
@@ -159,6 +165,9 @@
             : "") +
           (provider.nextQuery
             ? ' · next <strong>&ldquo;' + escapeHtml(provider.nextQuery) + '&rdquo;</strong>'
+            : "") +
+          (provider.maxJobsPerQuery !== null
+            ? ' · cap <strong>' + escapeHtml(String(provider.maxJobsPerRun)) + '</strong>/run · <strong>' + escapeHtml(String(provider.maxJobsPerQuery)) + '</strong>/query'
             : "") +
           ' · open jobs <strong>' + escapeHtml(String(open)) + '</strong> / ' + escapeHtml(String(cap)) +
         '</p>' +

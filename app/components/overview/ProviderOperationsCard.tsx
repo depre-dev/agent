@@ -81,6 +81,16 @@ function ProviderRow({ provider }: { provider: ProviderOperation }) {
               </span>
             </>
           ) : null}
+          {provider.maxJobsPerQuery !== undefined ? (
+            <>
+              <span>·</span>
+              <span>
+                cap{" "}
+                <span className="text-[var(--avy-ink)]">{provider.maxJobsPerRun}</span>/run ·{" "}
+                <span className="text-[var(--avy-ink)]">{provider.maxJobsPerQuery}</span>/query
+              </span>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -204,6 +214,7 @@ export const PROVIDER_OPERATIONS_FIXTURE: ProviderOperation[] = [
     running: false,
     intervalMs: 5 * 60_000,
     maxJobsPerRun: 8,
+    maxJobsPerQuery: 2,
     maxOpenJobs: 24,
     currentOpenJobs: 11,
     targetCount: 14,
