@@ -76,6 +76,7 @@ export function capabilityMatrix() {
       "/badges": ["badges:list"],
       "/content": ["content:write"],
       "/content/:hash": ["content:read"],
+      "/content/:hash/publish": ["content:write"],
       "/disputes": ["disputes:list"],
       "/disputes/:id": ["disputes:read"],
       "/disputes/:id/verdict": ["disputes:verdict"],

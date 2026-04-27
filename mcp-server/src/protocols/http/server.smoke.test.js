@@ -488,6 +488,26 @@ test("http smoke: /disputes exposes human-review sessions and records verdict/re
     assert.equal(contentBody.visibility, "owner_only");
     assert.equal(contentBody.payload.rationale, "Submission needs correction.");
 
+    const strangerToken = issueToken("0x3333333333333333333333333333333333333333");
+    const forbiddenPublish = await fetch(`${base}/content/${encodeURIComponent(verdictBody.reasoningHash)}/publish`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${strangerToken}` }
+    });
+    assert.equal(forbiddenPublish.status, 403);
+
+    const published = await fetch(`${base}/content/${encodeURIComponent(verdictBody.reasoningHash)}/publish`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(published.status, 200);
+    const publishedBody = await published.json();
+    assert.equal(publishedBody.visibility, "public");
+    assert.match(publishedBody.publishedAt, /^\d{4}-\d{2}-\d{2}T/u);
+
+    const publicContent = await fetch(`${base}/content/${encodeURIComponent(verdictBody.reasoningHash)}`);
+    assert.equal(publicContent.status, 200);
+    assert.equal((await publicContent.json()).visibility, "public");
+
     const release = await fetch(`${base}/disputes/${encodeURIComponent(dispute.id)}/release`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${adminToken}` },

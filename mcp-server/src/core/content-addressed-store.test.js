@@ -5,6 +5,7 @@ import {
   buildContentRecord,
   contentResponse,
   defaultAutoPublicAt,
+  publishContentRecord,
   requireContentAccess,
   resolveContentAccess
 } from "./content-addressed-store.js";
@@ -63,6 +64,23 @@ test("passes and explicitly published content are public immediately", () => {
 
   assert.equal(resolveContentAccess(pass).public, true);
   assert.equal(resolveContentAccess(published).public, true);
+});
+
+test("publishContentRecord sets publishedAt once and makes failed content public", () => {
+  const record = buildContentRecord({
+    ownerWallet: OWNER,
+    payload: { rationale: "owner chose to publish" },
+    contentType: "arbitrator_reasoning",
+    verdict: "fail",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    autoPublicAt: "2026-07-01T00:00:00.000Z"
+  });
+  const published = publishContentRecord(record, { publishedAt: "2026-02-01T00:00:00.000Z" });
+  const republished = publishContentRecord(published, { publishedAt: "2026-03-01T00:00:00.000Z" });
+
+  assert.equal(published.publishedAt, "2026-02-01T00:00:00.000Z");
+  assert.equal(republished.publishedAt, "2026-02-01T00:00:00.000Z");
+  assert.equal(resolveContentAccess(published, undefined, { now: new Date("2026-02-01T00:00:01.000Z") }).public, true);
 });
 
 test("contentResponse includes the stored payload and visibility", () => {

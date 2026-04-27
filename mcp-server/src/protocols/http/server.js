@@ -22,6 +22,7 @@ import {
   buildContentRecord,
   contentResponse,
   normalizeContentHash,
+  publishContentRecord,
   publicContentHeaders,
   requireContentAccess,
   resolveContentAccess
@@ -976,6 +977,7 @@ function metricPathLabel(pathname) {
   if (/^\/disputes\/[^/]+\/verdict$/u.test(pathname)) return "/disputes/:id/verdict";
   if (/^\/disputes\/[^/]+\/release$/u.test(pathname)) return "/disputes/:id/release";
   if (pathname.startsWith("/disputes/")) return "/disputes/:id";
+  if (/^\/content\/[^/]+\/publish$/u.test(pathname)) return "/content/:hash/publish";
   if (pathname.startsWith("/content/")) return "/content/:hash";
   if (pathname.startsWith("/policies/")) return "/policies/:tag";
   if (pathname.startsWith("/badges/")) return "/badges/:sessionId";
@@ -1569,6 +1571,25 @@ const server = createServer(async (request, response) => {
         ...contentResponse(record, access),
         contentURI: publicContentUri(record.hash)
       });
+    }
+
+    if (request.method === "POST" && /^\/content\/[^/]+\/publish$/u.test(pathname)) {
+      const auth = await authMiddleware(request, url);
+      const hash = normalizeContentHash(decodeURIComponent(pathname.slice("/content/".length, -"/publish".length)));
+      const record = await stateStore.getContent?.(hash);
+      if (!record) {
+        return respond(response, 404, { status: "not_found", hash });
+      }
+      if (!walletsMatch(record.ownerWallet, auth.wallet) && !hasRole(auth.claims, "admin")) {
+        throw new AuthorizationError("Only the owner wallet or an admin can publish this content.", "content_publish_forbidden");
+      }
+      const published = publishContentRecord(record);
+      await persistContentRecord(published);
+      const access = resolveContentAccess(published, auth);
+      return respond(response, 200, {
+        ...contentResponse(published, access),
+        contentURI: publicContentUri(published.hash)
+      }, publicContentHeaders(published, access));
     }
 
     if (request.method === "GET" && pathname.startsWith("/content/")) {
