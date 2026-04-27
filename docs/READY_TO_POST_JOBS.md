@@ -451,6 +451,52 @@ Workers must not contact agencies or make direct edits to government datasets.
 
 ---
 
+## Standards/spec freshness jobs
+
+The first standards provider is intentionally allowlist-driven. Operators point
+it at canonical public spec URLs plus the local surface that should remain in
+sync. The generated jobs are review-only docs drift audits: workers compare the
+spec status, version, headings, and section-level requirements against local
+docs or implementation notes, then submit a structured recommendation.
+
+Preview jobs through:
+
+```bash
+npm --workspace mcp-server run ingest:standards-specs -- --dry-run \
+  --specs '[{"provider":"w3c","specId":"vc-data-model-2.0","specTitle":"Verifiable Credentials Data Model v2.0","specUrl":"https://www.w3.org/TR/vc-data-model-2.0/","expectedStatus":"W3C Recommendation","localSurface":"docs/RC1_WORKING_SPEC.md","repo":"averray-agent/agent"}]'
+```
+
+Or through the admin API:
+
+```http
+POST /admin/jobs/ingest/standards
+```
+
+To let the backend pull these periodically, configure:
+
+```bash
+STANDARDS_INGEST_ENABLED=true
+STANDARDS_INGEST_DRY_RUN=true
+STANDARDS_INGEST_INTERVAL_MS=3600000
+STANDARDS_INGEST_MAX_JOBS_PER_RUN=2
+STANDARDS_INGEST_MAX_OPEN_JOBS=20
+STANDARDS_INGEST_SPECS_JSON='[{"provider":"w3c","specId":"vc-data-model-2.0","specTitle":"Verifiable Credentials Data Model v2.0","specUrl":"https://www.w3.org/TR/vc-data-model-2.0/","expectedStatus":"W3C Recommendation","localSurface":"docs/RC1_WORKING_SPEC.md","repo":"averray-agent/agent"}]'
+```
+
+Review `standardsIngestion.lastRun` in `/admin/status`, then switch
+`STANDARDS_INGEST_DRY_RUN=false` when the candidates are ready to create jobs.
+
+The generated jobs use:
+
+- `schema://jobs/docs-input`
+- `schema://jobs/docs-drift-audit-output`
+
+Workers must cite the canonical spec URL and submit `source_surface`,
+`drift_findings`, `missing_updates`, `severity`, and `fix_recommendation`.
+They must not edit external standards pages.
+
+---
+
 ## Before posting
 
 Quick operator checklist:

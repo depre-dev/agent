@@ -30,6 +30,10 @@ import {
   OpenDataIngestionScheduler,
   loadOpenDataIngestionConfig
 } from "./open-data-ingestion-scheduler.js";
+import {
+  StandardsSpecIngestionScheduler,
+  loadStandardsSpecIngestionConfig
+} from "./standards-spec-ingestion-scheduler.js";
 import { XcmSettlementWatcherService } from "./xcm-settlement-watcher.js";
 import { XcmObservationRelayService } from "./xcm-observation-relay.js";
 import { normaliseStrategyAssetConfig } from "./strategy-asset-config.js";
@@ -179,6 +183,12 @@ export async function createPlatformRuntime() {
       logger
     })
   );
+  const standardsSpecIngestionScheduler = initStep("init-standards-spec-ingestion-scheduler", logger, () =>
+    new StandardsSpecIngestionScheduler(platformService, eventBus, {
+      ...loadStandardsSpecIngestionConfig(process.env),
+      logger
+    })
+  );
   const xcmSettlementWatcher = initStep("init-xcm-settlement-watcher", logger, () =>
     new XcmSettlementWatcherService(platformService, stateStore, eventBus, {
       enabled: process.env.XCM_SETTLEMENT_WATCHER_ENABLED === undefined
@@ -205,6 +215,7 @@ export async function createPlatformRuntime() {
   platformService.wikipediaMaintenanceIngestionScheduler = wikipediaMaintenanceIngestionScheduler;
   platformService.osvAdvisoryIngestionScheduler = osvAdvisoryIngestionScheduler;
   platformService.openDataIngestionScheduler = openDataIngestionScheduler;
+  platformService.standardsSpecIngestionScheduler = standardsSpecIngestionScheduler;
   platformService.xcmSettlementWatcher = xcmSettlementWatcher;
   platformService.xcmObservationRelay = xcmObservationRelay;
   recurringScheduler.start();
@@ -212,6 +223,7 @@ export async function createPlatformRuntime() {
   wikipediaMaintenanceIngestionScheduler.start();
   osvAdvisoryIngestionScheduler.start();
   openDataIngestionScheduler.start();
+  standardsSpecIngestionScheduler.start();
   xcmSettlementWatcher.start();
   xcmObservationRelay.start();
 
@@ -240,6 +252,7 @@ export async function createPlatformRuntime() {
     wikipediaMaintenanceIngestionScheduler,
     osvAdvisoryIngestionScheduler,
     openDataIngestionScheduler,
+    standardsSpecIngestionScheduler,
     xcmSettlementWatcher,
     xcmObservationRelay,
     authConfig,
