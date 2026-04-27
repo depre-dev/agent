@@ -141,6 +141,7 @@ test("getAdminStatus surfaces recurring scheduler anomalies", async () => {
   assert.equal(status.jobLifecycle.total, 1);
   assert.equal(status.jobLifecycle.paused, 1);
   assert.equal(status.jobLifecycle.claimable, 0);
+  assert.equal(status.jobStaleSweeper.enabled, false);
 });
 
 test("getAdminStatus surfaces public source ingestion scheduler status", async () => {
@@ -262,6 +263,25 @@ test("getAdminStatus surfaces public source ingestion scheduler status", async (
       };
     }
   };
+  service.jobStaleSweeper = {
+    getStatus() {
+      return {
+        enabled: true,
+        running: true,
+        dryRun: false,
+        mode: "live",
+        intervalMs: 3600000,
+        action: "archive",
+        maxJobsPerRun: 25,
+        lastRun: {
+          candidateCount: 3,
+          updatedCount: 2,
+          skipped: [{ id: "active", reason: "active_session" }],
+          errors: []
+        }
+      };
+    }
+  };
 
   const status = await service.getAdminStatus();
   assert.equal(status.osvIngestion.packageCount, 0);
@@ -294,6 +314,8 @@ test("getAdminStatus surfaces public source ingestion scheduler status", async (
   assert.equal(status.providerOperations.github.nextQuery, undefined);
   assert.equal(status.providerOperations.openApi.health, "error");
   assert.equal(status.providerOperations.openApi.lastRun.errorCount, 1);
+  assert.equal(status.jobStaleSweeper.mode, "live");
+  assert.equal(status.jobStaleSweeper.lastRun.updatedCount, 2);
 
   // Public sanitized counterpart preserves health / mode / counts but
   // strips lastRun.skipped[] and lastRun.errors[] (which can carry

@@ -911,6 +911,11 @@
             "description": "Counts for open, stale, paused, archived, and claimable jobs.",
             "additionalProperties": true
           },
+          "jobStaleSweeper": {
+            "type": "object",
+            "description": "Automatic stale-job sweeper status, including dry-run/live mode, action, limits, and lastRun summary.",
+            "additionalProperties": true
+          },
           "githubIngestion": {
             "type": [
               "object",

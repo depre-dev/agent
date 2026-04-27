@@ -198,6 +198,12 @@ without leaving stale work on the public board forever.
   `archive`, `reopen`, or `mark_stale` plus an optional `reason`.
 - `/admin/status.jobLifecycle` reports total, open, claimable, stale, paused,
   and archived counts for the provider operations UI.
+- The automatic stale sweeper is controlled by `JOB_STALE_SWEEPER_ENABLED`,
+  `JOB_STALE_SWEEPER_DRY_RUN`, `JOB_STALE_SWEEPER_ACTION` (`mark_stale`,
+  `pause`, or `archive`), `JOB_STALE_SWEEPER_INTERVAL_MS`, and
+  `JOB_STALE_SWEEPER_MAX_JOBS_PER_RUN`. It skips recurring templates and jobs
+  with active sessions, and reports its last pass at
+  `/admin/status.jobStaleSweeper`.
 
 ### Public status endpoint
 

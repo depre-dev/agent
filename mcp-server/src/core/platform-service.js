@@ -52,6 +52,7 @@ export class PlatformService {
     this.openDataIngestionScheduler = undefined;
     this.standardsSpecIngestionScheduler = undefined;
     this.openApiSpecIngestionScheduler = undefined;
+    this.jobStaleSweeper = undefined;
     this.xcmSettlementWatcher = undefined;
     this.xcmObservationRelay = undefined;
     this.upstreamStatusPoller = undefined;
@@ -91,7 +92,7 @@ export class PlatformService {
     };
   }
 
-  listJobs(options) {
+  listJobs(options = {}) {
     return this.jobCatalogService.listJobs(options);
   }
 
@@ -135,6 +136,7 @@ export class PlatformService {
       standardsIngestion,
       openApiIngestion,
       upstreamStatus,
+      jobStaleSweeper,
       recentSessions
     ] = await Promise.all([
       this.blockchainGateway?.getTreasuryPolicyStatus?.() ?? {
@@ -226,6 +228,16 @@ export class PlatformService {
         running: false,
         intervalMs: 0,
         batchSize: 0,
+        lastRun: undefined
+      },
+      this.jobStaleSweeper?.getStatus?.() ?? {
+        enabled: false,
+        running: false,
+        dryRun: true,
+        mode: "dry_run",
+        intervalMs: 0,
+        action: "archive",
+        maxJobsPerRun: 0,
         lastRun: undefined
       },
       this.jobExecutionService.listRecentSessions(14)
@@ -325,6 +337,7 @@ export class PlatformService {
       },
       recurring: recurring,
       jobLifecycle: this.jobCatalogService.getJobLifecycleSummary(),
+      jobStaleSweeper,
       scheduler,
       providerOperations,
       githubIngestion: githubIngestion,
