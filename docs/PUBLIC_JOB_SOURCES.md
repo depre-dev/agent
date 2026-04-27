@@ -179,3 +179,14 @@ Each provider entry reports `label`, `enabled`, `running`, `dryRun`, `mode`,
 provider-specific fields such as `osvIngestion` and `openDataIngestion` remain
 available for compatibility, but new admin UI should render from
 `providerOperations`.
+
+### Public status endpoint
+
+`GET /status/providers` is the **public, sanitized** counterpart to
+`/admin/status.providerOperations`. It returns the same `providerOperations`
+object with identical health / mode / counts / `lastRun` summary, but with
+`lastRun.skipped[]` and `lastRun.errors[]` emptied so candidate URLs, query
+strings, stack traces, and internal IDs are never exposed. External trust
+dashboards (e.g. the `/trust/` page on averray.com) should call
+`/status/providers`; the operator app should keep using `/admin/status` for
+the full diagnostic detail.

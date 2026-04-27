@@ -1207,6 +1207,15 @@ const server = createServer(async (request, response) => {
       });
     }
 
+    if (request.method === "GET" && pathname === "/status/providers") {
+      // Public, sanitized counterpart to /admin/status.providerOperations.
+      // Returns the same shape minus lastRun.errors[] / lastRun.skipped[]
+      // (those carry candidate URLs / stack traces / internal IDs).
+      // External trust dashboards can call this without auth to show
+      // "is each ingestion provider healthy?" without leaking internals.
+      return respond(response, 200, await service.getPublicProviderOperations());
+    }
+
     if (request.method === "GET" && pathname === "/metrics") {
       // Optionally gated. Leave METRICS_BEARER_TOKEN unset for the standard
       // Prometheus "scrape any network peer" convention; set it to a random
