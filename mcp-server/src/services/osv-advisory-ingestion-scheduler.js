@@ -198,7 +198,7 @@ export function loadOsvAdvisoryIngestionConfig(env = process.env) {
 
 function osvJobKey(job) {
   const source = job?.source;
-  if (source?.type !== "osv_advisory" || !source.packageName || !source.vulnerableVersion || !source.advisoryId) {
+  if (source?.type !== "osv_advisory" || !source.packageName || !source.vulnerableVersion) {
     return undefined;
   }
   return [
@@ -206,8 +206,7 @@ function osvJobKey(job) {
     String(source.repo ?? "").toLowerCase(),
     String(source.manifestPath ?? "").toLowerCase(),
     String(source.packageName).toLowerCase(),
-    String(source.vulnerableVersion),
-    String(source.advisoryId).toUpperCase()
+    String(source.vulnerableVersion)
   ].join("|");
 }
 

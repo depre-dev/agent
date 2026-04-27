@@ -87,13 +87,14 @@ export async function ingestOsvAdvisories({
     }
   }
 
-  const jobs = candidates
+  const groupedCandidates = groupOsvCandidates(candidates);
+  const jobs = groupedCandidates
     .sort((left, right) => right.score - left.score)
     .slice(0, limit)
-    .map(({ target, advisory, fixedVersion, score }) => toPlatformJob({ target, advisory, fixedVersion, score }));
+    .map(({ target, advisories, fixedVersion, score }) => toPlatformJob({ target, advisories, fixedVersion, score }));
 
-  if (candidates.length > jobs.length) {
-    skipped.push({ reason: "over_limit", count: candidates.length - jobs.length });
+  if (groupedCandidates.length > jobs.length) {
+    skipped.push({ reason: "over_limit", count: groupedCandidates.length - jobs.length });
   }
 
   return {
@@ -204,21 +205,70 @@ export function scoreAdvisory(advisory, { fixedVersion } = {}) {
   return Math.max(0, Math.min(100, score));
 }
 
-export function toPlatformJob({ target, advisory, fixedVersion, score = scoreAdvisory(advisory, { fixedVersion }) }) {
-  const advisoryId = String(advisory.id ?? "OSV-UNKNOWN");
-  const aliases = advisoryAliases(advisory);
+function groupOsvCandidates(candidates) {
+  const groups = new Map();
+  for (const candidate of candidates) {
+    const key = osvTargetKey(candidate.target);
+    const group = groups.get(key) ?? {
+      target: candidate.target,
+      advisories: [],
+      fixedVersion: candidate.fixedVersion,
+      score: candidate.score
+    };
+    group.advisories.push(candidate);
+    if (compareSemverish(candidate.fixedVersion, group.fixedVersion) > 0) {
+      group.fixedVersion = candidate.fixedVersion;
+    }
+    group.score = Math.max(group.score, candidate.score);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => ({
+    ...group,
+    advisories: group.advisories.sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return String(left.advisory.id ?? "").localeCompare(String(right.advisory.id ?? ""));
+    })
+  }));
+}
+
+function osvTargetKey(target) {
+  return [
+    String(target.ecosystem ?? DEFAULT_ECOSYSTEM).toLowerCase(),
+    String(target.repo ?? "").toLowerCase(),
+    String(target.manifestPath ?? "").toLowerCase(),
+    String(target.name).toLowerCase(),
+    String(target.version)
+  ].join("|");
+}
+
+export function toPlatformJob({ target, advisory, advisories, fixedVersion, score }) {
+  const advisoryEntries = normalizeAdvisoryEntries({ advisory, advisories, fixedVersion, score });
+  const primaryEntry = advisoryEntries[0] ?? { advisory: {}, fixedVersion, score: 0 };
+  const primaryAdvisory = primaryEntry.advisory;
+  const primaryAdvisoryId = String(primaryAdvisory.id ?? "OSV-UNKNOWN");
+  const advisoryIds = [...new Set(advisoryEntries.map((entry) => String(entry.advisory.id ?? "").trim()).filter(Boolean))];
+  const aliases = [...new Set(advisoryEntries.flatMap((entry) => advisoryAliases(entry.advisory)))];
   const cves = aliases.filter((alias) => alias.startsWith("CVE-"));
-  const references = advisoryReferences(advisory);
+  const references = uniqueReferences(advisoryEntries.flatMap((entry) => advisoryReferences(entry.advisory)));
   const repo = target.repo ? normalizeRepo(target.repo) : undefined;
   const manifestPath = target.manifestPath ?? "package.json";
-  const title = `Remediate ${advisoryId} in ${target.name}`;
-  const id = `osv-npm-${slugify(repo ?? "repo")}-${slugify(target.name)}-${slugify(target.version)}-${slugify(advisoryId)}`.slice(0, 120);
+  const effectiveFixedVersion = fixedVersion ?? maxFixedVersion(advisoryEntries.map((entry) => entry.fixedVersion));
+  const effectiveScore = score ?? Math.max(...advisoryEntries.map((entry) => entry.score ?? scoreAdvisory(entry.advisory, { fixedVersion: entry.fixedVersion })));
+  const isGrouped = advisoryEntries.length > 1;
+  const advisoryLabel = advisoryIds.length ? advisoryIds.join(", ") : primaryAdvisoryId;
+  const title = isGrouped
+    ? `Remediate ${target.name} advisories`
+    : `Remediate ${primaryAdvisoryId} in ${target.name}`;
+  const id = (isGrouped
+    ? `osv-npm-${slugify(repo ?? "repo")}-${slugify(target.name)}-${slugify(target.version)}`
+    : `osv-npm-${slugify(repo ?? "repo")}-${slugify(target.name)}-${slugify(target.version)}-${slugify(primaryAdvisoryId)}`
+  ).slice(0, 120);
 
   return {
     id,
     title,
     description:
-      `Update npm package ${target.name} from vulnerable version ${target.version} to ${fixedVersion} or a newer safe release. Advisory: ${advisoryId}.`,
+      `Update npm package ${target.name} from vulnerable version ${target.version} to ${effectiveFixedVersion} or a newer safe release. ${isGrouped ? "Advisories" : "Advisory"}: ${advisoryLabel}.`,
     jobType: "work",
     requiredRole: "worker",
     category: "security",
@@ -239,35 +289,45 @@ export function toPlatformJob({ target, advisory, fixedVersion, score = scoreAdv
       ecosystem: target.ecosystem,
       packageName: target.name,
       vulnerableVersion: target.version,
-      fixedVersion,
+      fixedVersion: effectiveFixedVersion,
       repo,
       manifestPath,
-      advisoryId,
+      advisoryId: primaryAdvisoryId,
+      advisoryIds: aliases,
       aliases,
       cves,
       nvdUrls: cves.map((cve) => `https://nvd.nist.gov/vuln/detail/${cve}`),
-      summary: String(advisory.summary ?? "").trim(),
-      details: summarise(String(advisory.details ?? "")),
+      summary: String(primaryAdvisory.summary ?? "").trim(),
+      details: summarise(String(primaryAdvisory.details ?? "")),
+      advisories: advisoryEntries.map((entry) => ({
+        advisoryId: String(entry.advisory.id ?? "OSV-UNKNOWN"),
+        fixedVersion: entry.fixedVersion,
+        aliases: advisoryAliases(entry.advisory),
+        summary: String(entry.advisory.summary ?? "").trim(),
+        references: advisoryReferences(entry.advisory),
+        severity: entry.advisory.severity ?? [],
+        score: entry.score ?? scoreAdvisory(entry.advisory, { fixedVersion: entry.fixedVersion })
+      })),
       references,
-      severity: advisory.severity ?? [],
-      published: advisory.published,
-      modified: advisory.modified,
-      score,
+      severity: primaryAdvisory.severity ?? [],
+      published: primaryAdvisory.published,
+      modified: primaryAdvisory.modified,
+      score: effectiveScore,
       discoveryApi: "https://api.osv.dev/v1/querybatch"
     },
     acceptanceCriteria: [
       `Update ${target.name} in ${manifestPath} so ${target.version} is no longer selected.`,
-      `Use ${fixedVersion} or a newer non-vulnerable version when compatible.`,
+      `Use ${effectiveFixedVersion} or a newer non-vulnerable version when compatible.`,
       "Update the lockfile when the ecosystem uses one.",
       "Run the relevant package manager install/check/test commands, or explain why a command cannot be run.",
-      "Open a focused pull request that references the OSV advisory and any CVE/GHSA aliases."
+      "Open a focused pull request that references the OSV advisory/advisories and any CVE/GHSA aliases."
     ],
-    estimatedDifficulty: estimateDifficulty(score),
+    estimatedDifficulty: estimateDifficulty(effectiveScore),
     agentInstructions: [
       ...(repo ? [`Work in https://github.com/${repo}.`] : ["Use the repository supplied by the operator before making changes."]),
-      `Review OSV advisory ${advisoryId}${aliases.length ? ` (${aliases.join(", ")})` : ""}.`,
+      `Review OSV ${isGrouped ? "advisories" : "advisory"} ${advisoryLabel}${aliases.length ? ` (${aliases.join(", ")})` : ""}.`,
       `Find every occurrence of ${target.name}@${target.version} in ${manifestPath} and related lockfiles.`,
-      "Prefer the smallest safe dependency bump that satisfies the advisory.",
+      "Prefer the smallest safe dependency bump that satisfies every advisory.",
       "Run tests or at least dependency installation/lockfile validation before submitting.",
       "Submit structured evidence with prUrl, packageName, vulnerableVersion, fixedVersion, advisoryIds, tests, and notes."
     ],
@@ -278,6 +338,44 @@ export function toPlatformJob({ target, advisory, fixedVersion, score = scoreAdv
       signals: ["pr_opened", "advisory_referenced", "dependency_updated", "lockfile_updated", "tests_submitted", "ci_passed"]
     }
   };
+}
+
+function normalizeAdvisoryEntries({ advisory, advisories, fixedVersion, score }) {
+  const rawEntries = Array.isArray(advisories) && advisories.length
+    ? advisories
+    : [{ advisory, fixedVersion, score }];
+  return rawEntries
+    .map((entry) => {
+      const advisoryValue = entry?.advisory ?? entry;
+      if (!advisoryValue || typeof advisoryValue !== "object") return undefined;
+      const entryFixedVersion = entry?.fixedVersion ?? fixedVersion;
+      return {
+        advisory: advisoryValue,
+        fixedVersion: entryFixedVersion,
+        score: entry?.score ?? score ?? scoreAdvisory(advisoryValue, { fixedVersion: entryFixedVersion })
+      };
+    })
+    .filter(Boolean);
+}
+
+function maxFixedVersion(versions) {
+  return versions
+    .map((version) => String(version ?? "").trim())
+    .filter(isSemverish)
+    .sort(compareSemverish)
+    .at(-1);
+}
+
+function uniqueReferences(references) {
+  const seen = new Set();
+  const unique = [];
+  for (const reference of references) {
+    const key = `${reference.type}|${reference.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(reference);
+  }
+  return unique;
 }
 
 export async function postJobs({ baseUrl, adminToken, jobs, fetchImpl = fetch }) {
