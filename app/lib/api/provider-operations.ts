@@ -59,6 +59,9 @@ export interface ProviderOperation {
   running: boolean;
   intervalMs: number;
   maxJobsPerRun: number;
+  /** Per-query throttle so one noisy query can't eat the whole run
+   *  budget. Only github emits this today. */
+  maxJobsPerQuery?: number;
   maxOpenJobs: number;
   currentOpenJobs: number;
   /** Upstream queries / categories / packages / datasets / specs scanned. */
@@ -127,6 +130,9 @@ function buildProvider(
     running: Boolean(raw.running),
     intervalMs: nonNegInt(raw.intervalMs),
     maxJobsPerRun: nonNegInt(raw.maxJobsPerRun),
+    ...(typeof raw.maxJobsPerQuery === "number" && Number.isFinite(raw.maxJobsPerQuery) && raw.maxJobsPerQuery > 0
+      ? { maxJobsPerQuery: Math.floor(raw.maxJobsPerQuery) }
+      : {}),
     maxOpenJobs: nonNegInt(raw.maxOpenJobs),
     currentOpenJobs: nonNegInt(raw.currentOpenJobs),
     targetCount: nonNegInt(raw.targetCount),
