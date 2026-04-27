@@ -82,6 +82,17 @@ export function requireContentAccess(record, auth = undefined, options = {}) {
   return access;
 }
 
+export function publishContentRecord(record, { publishedAt = new Date().toISOString() } = {}) {
+  assertContentHashMatches(record);
+  if (record.publishedAt) {
+    return record;
+  }
+  return {
+    ...record,
+    publishedAt: normalizeIsoTimestamp(publishedAt, "publishedAt")
+  };
+}
+
 export function publicContentHeaders(record, access, { now = new Date() } = {}) {
   if (access?.public) {
     return { "cache-control": "public, max-age=31536000, immutable" };
