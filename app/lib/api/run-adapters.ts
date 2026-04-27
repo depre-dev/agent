@@ -5,6 +5,7 @@ import type { RunState, Tier } from "@/components/runs/StatePill";
 import type {
   GitHubJobContext,
   JobSource,
+  OpenDataJobContext,
   OsvJobContext,
   WikipediaJobContext,
 } from "@/components/runs/types";
@@ -218,6 +219,39 @@ export function buildJobSource(job: unknown): JobSource | undefined {
       ...(text(src.discoveryApi) ? { discoveryApi: text(src.discoveryApi) } : {}),
     };
   }
+  if (sourceType === "open_data_dataset") {
+    const provider = text(src.provider, "data.gov");
+    const datasetTitle = text(src.datasetTitle);
+    const datasetUrl = text(src.datasetUrl);
+    const resourceUrl = text(src.resourceUrl);
+    if (!datasetTitle || !datasetUrl || !resourceUrl) return undefined;
+    return {
+      type: "open_data_dataset",
+      provider,
+      ...(text(src.portal) ? { portal: text(src.portal) } : {}),
+      ...(text(src.datasetId) ? { datasetId: text(src.datasetId) } : {}),
+      datasetTitle,
+      datasetUrl,
+      ...(text(src.resourceId) ? { resourceId: text(src.resourceId) } : {}),
+      ...(text(src.resourceTitle)
+        ? { resourceTitle: text(src.resourceTitle) }
+        : {}),
+      resourceUrl,
+      ...(text(src.resourceFormat)
+        ? { resourceFormat: text(src.resourceFormat) }
+        : {}),
+      ...(text(src.agency) ? { agency: text(src.agency) } : {}),
+      ...(text(src.license) ? { license: text(src.license) } : {}),
+      ...(text(src.modified) ? { modified: text(src.modified) } : {}),
+      ...(text(src.metadataModified)
+        ? { metadataModified: text(src.metadataModified) }
+        : {}),
+      ...(typeof src.score === "number" ? { score: src.score } : {}),
+      ...(text(src.discoveryApi)
+        ? { discoveryApi: text(src.discoveryApi) }
+        : {}),
+    };
+  }
   return undefined;
 }
 
@@ -343,6 +377,52 @@ export function buildOsvContext(
   };
 }
 
+/**
+ * Mirror of `buildOsvContext` for open-data dataset quality-audit runs.
+ * Returns undefined for any non-open-data row so the panel falls back to
+ * the generic layout. Defaults bake in the audit-only verification path
+ * since the platform never edits source data and never contacts the
+ * publishing agency from this workflow.
+ */
+export function buildOpenDataContext(
+  row: Pick<RunRow, "source" | "title">,
+  job: unknown
+): OpenDataJobContext | undefined {
+  if (row.source?.type !== "open_data_dataset") return undefined;
+  const record = asRecord(job);
+  const verification = asRecord(record.verification);
+  const verificationMethod = text(
+    verification.method,
+    "open_data_quality_audit"
+  );
+  const verificationSignals = Array.isArray(verification.signals)
+    ? verification.signals.filter(
+        (signal): signal is string => typeof signal === "string"
+      )
+    : [
+        "Dataset URL reachable",
+        "Resource URL reachable",
+        "Checks performed",
+        "Findings or no_issue_found recorded",
+        "Recommended actions present",
+      ];
+  const acceptance = Array.isArray(record.acceptanceCriteria)
+    ? record.acceptanceCriteria.filter(
+        (item): item is string => typeof item === "string"
+      )
+    : [];
+
+  return {
+    ...row.source,
+    title: text(record.title, row.title),
+    category: text(record.category, "data"),
+    body: text(record.description, text(record.body, "")),
+    acceptanceCriteria: acceptance,
+    agentInstructions: textOrLines(record.agentInstructions),
+    verification: { method: verificationMethod, signals: verificationSignals },
+  };
+}
+
 export function extractRunJobs(payload: unknown): RawRecord[] {
   return asArray(payload);
 }
@@ -379,7 +459,25 @@ export function buildRunRows(payload: unknown): RunRow[] {
           ? `${category} · ${tier}`
           : source?.type === "osv_advisory"
             ? `${source.ecosystem} / ${source.packageName} · ${source.advisoryId} · ${tier}`
-            : `${id} · ${category} · ${tier}`;
+            : source?.type === "open_data_dataset"
+              ? // Spec: `Data.gov · <agency> · <resource_format> · quality
+                // audit`. Agency and format are optional in the catalog;
+                // drop the missing parts and any leading/trailing
+                // separators so the meta line never reads
+                // `Data.gov ·  ·  · quality audit`.
+                [
+                  "Data.gov",
+                  source.agency,
+                  source.resourceFormat,
+                  "quality audit",
+                  tier,
+                ]
+                  .filter(
+                    (part): part is string =>
+                      typeof part === "string" && part.length > 0
+                  )
+                  .join(" · ")
+              : `${id} · ${category} · ${tier}`;
     return {
       id,
       sessionId: text(job.sessionId),
@@ -407,9 +505,13 @@ export function buildRunRows(payload: unknown): RunRow[] {
               ? state === "ready"
                 ? "Ingested from OSV · dependency remediation"
                 : `State: ${state}`
-              : state === "ready"
-                ? "Job listed"
-                : `State: ${state}`,
+              : source?.type === "open_data_dataset"
+                ? state === "ready"
+                  ? "Ingested from Data.gov · audit only"
+                  : `State: ${state}`
+                : state === "ready"
+                  ? "Job listed"
+                  : `State: ${state}`,
       lastEventMeta:
         source?.type === "github_issue"
           ? `${source.repo} #${source.issueNumber} · verifier ${verifierLabel(job.verifierMode)}`
@@ -417,7 +519,17 @@ export function buildRunRows(payload: unknown): RunRow[] {
             ? `${source.language}.wikipedia · rev ${source.revisionId} · ${source.taskType.replace(/_/g, " ")}`
             : source?.type === "osv_advisory"
               ? `${source.repo} · ${source.manifestPath} · ${source.vulnerableVersion} → ${source.fixedVersion}`
-              : `${text(job.rewardAsset, "DOT")} · verifier ${verifierLabel(job.verifierMode)}`,
+              : source?.type === "open_data_dataset"
+                ? // Same graceful-degrade rule as jobMeta: drop missing
+                  // optional parts so the meta never has empty bullets.
+                  [source.agency, source.resourceFormat, source.datasetTitle]
+                    .filter(
+                      (part): part is string =>
+                        typeof part === "string" && part.length > 0
+                    )
+                    .join(" · ") ||
+                  `verifier ${verifierLabel(job.verifierMode)}`
+                : `${text(job.rewardAsset, "DOT")} · verifier ${verifierLabel(job.verifierMode)}`,
     };
   });
 }
@@ -455,11 +567,24 @@ export function buildRecommendationCards(
     const jobMeta =
       source?.type === "osv_advisory"
         ? `${source.ecosystem} / ${source.packageName} · ${source.advisoryId}`
-        : category;
+        : source?.type === "open_data_dataset"
+          ? [
+              "Data.gov",
+              source.agency,
+              source.resourceFormat,
+              "quality audit",
+            ]
+              .filter(
+                (part): part is string =>
+                  typeof part === "string" && part.length > 0
+              )
+              .join(" · ")
+          : category;
     const isIngested =
       source?.type === "github_issue" ||
       source?.type === "wikipedia_article" ||
-      source?.type === "osv_advisory";
+      source?.type === "osv_advisory" ||
+      source?.type === "open_data_dataset";
     return {
       id,
       title: text(job.title, text(job.description, titleFromId(id))),

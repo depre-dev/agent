@@ -79,10 +79,47 @@ export interface OsvJobSource {
   discoveryApi?: string;
 }
 
+/**
+ * Provenance for runs ingested from open-data catalogs (Data.gov today,
+ * with other portals reserved for the future). These are dataset/
+ * resource quality AUDIT jobs — the worker reports reachability, format
+ * clarity, schema, and stale-metadata findings on a public dataset and
+ * its resource. The platform never edits source data and never contacts
+ * the publishing agency from this workflow.
+ *
+ * Field set mirrors what `mcp-server/src/jobs/ingest-open-data-datasets.js`
+ * emits today: dataset + resource identity, optional agency/license/
+ * modified-at, and the discovery-API endpoint that found the record.
+ */
+export interface OpenDataJobSource {
+  type: "open_data_dataset";
+  /** "data.gov" today; reserved for future portals. */
+  provider: string;
+  /** Mirror of `provider` from the backend payload. */
+  portal?: string;
+  datasetId?: string;
+  datasetTitle: string;
+  datasetUrl: string;
+  resourceId?: string;
+  resourceTitle?: string;
+  resourceUrl: string;
+  /** "CSV", "JSON", "ZIP", "GeoJSON", … — free string from the catalog. */
+  resourceFormat?: string;
+  /** Publishing agency / organisation. Optional. */
+  agency?: string;
+  license?: string;
+  modified?: string;
+  metadataModified?: string;
+  score?: number;
+  /** Catalog API endpoint that discovered the dataset; surfaced in the receipt for audit. */
+  discoveryApi?: string;
+}
+
 export type JobSource =
   | GitHubJobSource
   | WikipediaJobSource
   | OsvJobSource
+  | OpenDataJobSource
   | { type: "native" };
 
 /**
@@ -133,6 +170,23 @@ export interface OsvJobContext extends OsvJobSource {
   agentInstructions: string;
   verification: {
     method: string; // e.g. "osv_dependency_pr"
+    signals: string[];
+  };
+}
+
+/**
+ * Rich context for open-data dataset quality-audit runs. Same shape as
+ * the other source contexts so the Loaded-run panel can render a fourth
+ * source-specific evidence block without a new code path.
+ */
+export interface OpenDataJobContext extends OpenDataJobSource {
+  title: string;
+  body: string; // human-readable description of the audit scope
+  category: string; // always "data" today; reserved for future sub-types
+  acceptanceCriteria: string[];
+  agentInstructions: string;
+  verification: {
+    method: string; // e.g. "open_data_quality_audit"
     signals: string[];
   };
 }

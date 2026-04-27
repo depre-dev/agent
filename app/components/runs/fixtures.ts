@@ -194,6 +194,39 @@ export const FIXTURE_RUN_ROWS: RunRow[] = [
     lastEventMeta:
       "averray-agent/agent · frontend/package.json · 1.2.5 → 1.2.6",
   },
+  {
+    id: "run-2752",
+    title:
+      "Audit Federal sample spending data resource (CSV) for reachability + schema clarity",
+    jobMeta: "Data.gov · GSA · CSV · quality audit · T1",
+    source: {
+      type: "open_data_dataset",
+      provider: "data.gov",
+      portal: "data.gov",
+      datasetId: "federal-sample-spending-data",
+      datasetTitle: "Federal sample spending data",
+      datasetUrl:
+        "https://catalog.data.gov/dataset/federal-sample-spending-data",
+      resourceId: "fed-sample-spending-csv",
+      resourceTitle: "Spending records (CSV)",
+      resourceUrl: "https://example.gov/fed-sample-spending.csv",
+      resourceFormat: "CSV",
+      agency: "General Services Administration",
+      license: "U.S. Government Work",
+      modified: "2025-11-02",
+      metadataModified: "2026-02-14",
+      score: 71,
+      discoveryApi:
+        "https://catalog.data.gov/api/3/action/package_search",
+    },
+    worker: { variant: "unclaimed", initials: "—", label: "unclaimed" },
+    state: "ready",
+    stake: "2.0",
+    age: "00:00:48",
+    lastEvent: "Ingested from Data.gov · audit only",
+    lastEventMeta:
+      "General Services Administration · CSV · Federal sample spending data",
+  },
 ];
 
 // Counts are seeded higher than the row list because the fixture is a
@@ -324,6 +357,40 @@ export const FIXTURE_RECOMMENDATIONS: JobCardData[] = [
       { label: "Fit score", value: "88/100" },
     ],
     fit: 5,
+  },
+  {
+    id: "job-0432",
+    jobMeta: "Data.gov · GSA · CSV · quality audit",
+    category: "data",
+    title:
+      "Audit Federal sample spending data resource (CSV) for reachability + schema clarity",
+    source: {
+      type: "open_data_dataset",
+      provider: "data.gov",
+      portal: "data.gov",
+      datasetId: "federal-sample-spending-data",
+      datasetTitle: "Federal sample spending data",
+      datasetUrl:
+        "https://catalog.data.gov/dataset/federal-sample-spending-data",
+      resourceTitle: "Spending records (CSV)",
+      resourceUrl: "https://example.gov/fed-sample-spending.csv",
+      resourceFormat: "CSV",
+      agency: "General Services Administration",
+      score: 71,
+    },
+    rewardValue: "2.0",
+    rewardCurrency: "DOT",
+    rewardUsd: "~ $14",
+    tier: "T1",
+    modeLabel: "Quality audit",
+    modeTone: "ready",
+    meta: [
+      { label: "Stake", value: "1.0 DOT" },
+      { label: "Verifier", value: "open_data_quality_audit" },
+      { label: "Window", value: "2 h", accent: true },
+      { label: "Fit score", value: "71/100" },
+    ],
+    fit: 3,
   },
   {
     id: "job-0421",
@@ -526,6 +593,58 @@ Repro: run \`cargo test --test claim_race -- --test-threads=1 --ignored\` in a l
         "PR opened against the vulnerable manifest",
         "Lockfile updated to fixed version",
         "Install + test evidence attached",
+      ],
+    },
+  },
+  {
+    id: "run-2752",
+    title:
+      "Audit Federal sample spending data resource (CSV) for reachability + schema clarity",
+    category: "data",
+    description:
+      "Run a quality audit on the Federal sample spending data CSV resource published on Data.gov. Confirm the dataset landing page and resource URL resolve, summarise the columns/headers, surface any stale catalog metadata (missing license, format, modified date), and report concrete recommendations the publishing agency could action. Audit only — do not edit the source data and do not contact the agency from this workflow.",
+    source: {
+      type: "open_data_dataset",
+      provider: "data.gov",
+      portal: "data.gov",
+      datasetId: "federal-sample-spending-data",
+      datasetTitle: "Federal sample spending data",
+      datasetUrl:
+        "https://catalog.data.gov/dataset/federal-sample-spending-data",
+      resourceId: "fed-sample-spending-csv",
+      resourceTitle: "Spending records (CSV)",
+      resourceUrl: "https://example.gov/fed-sample-spending.csv",
+      resourceFormat: "CSV",
+      agency: "General Services Administration",
+      license: "U.S. Government Work",
+      modified: "2025-11-02",
+      metadataModified: "2026-02-14",
+      score: 71,
+      discoveryApi:
+        "https://catalog.data.gov/api/3/action/package_search",
+    },
+    acceptanceCriteria: [
+      "Fetch the dataset landing page and resource URL and record their status, content type, and final URL if redirected.",
+      "Summarise the resource format and columns/headers when the resource is CSV, JSON, GeoJSON, XML, or spreadsheet-like.",
+      "Check for stale or incomplete catalog metadata such as missing format, license, agency, modified date, or broken resource links.",
+      "Report at least one concrete finding, or set no_issue_found=true with evidence for each completed check.",
+      "Do not edit the government dataset directly or contact the agency; submit a reviewable audit report only.",
+    ],
+    agentInstructions: [
+      "Treat this as a public-data quality audit, not a direct edit task.",
+      "Review the Data.gov dataset page: https://catalog.data.gov/dataset/federal-sample-spending-data.",
+      "Inspect the resource URL: https://example.gov/fed-sample-spending.csv.",
+      "If the resource is tabular, capture the header/field summary and obvious missing-value or schema problems without downloading huge files.",
+      "Submit structured evidence with dataset_title, dataset_url, resource_url, checks, findings, no_issue_found, summary, and recommended_actions.",
+    ],
+    verification: {
+      method: "open_data_quality_audit",
+      signals: [
+        "Dataset URL reachable",
+        "Resource URL reachable",
+        "Checks performed",
+        "Findings or no_issue_found recorded",
+        "Recommended actions present",
       ],
     },
   },
