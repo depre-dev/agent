@@ -189,7 +189,7 @@ function RunRowCard({
                   <span className="truncate">
                     <span>{row.source.language}.wikipedia</span>
                     <span className="text-[var(--avy-accent)]">
-                      {" "}/ {row.source.pageTitle}
+                      {" "}/ &ldquo;{row.source.pageTitle}&rdquo;
                     </span>
                   </span>
                   <span className="shrink-0 opacity-40">·</span>

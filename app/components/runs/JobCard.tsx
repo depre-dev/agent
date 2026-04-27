@@ -66,7 +66,7 @@ export function JobCard({ job }: { job: JobCardData }) {
             >
               <span className="shrink-0">{job.source.language}.wikipedia</span>
               <span className="truncate text-[var(--avy-ink)]">
-                / {job.source.pageTitle}
+                / &ldquo;{job.source.pageTitle}&rdquo;
               </span>
             </p>
           ) : job.source?.type === "osv_advisory" ? (
@@ -149,7 +149,7 @@ export function JobCard({ job }: { job: JobCardData }) {
       </div>
 
       <dl
-        className="grid grid-cols-2 gap-x-2.5 gap-y-1 border-t border-[var(--avy-line-soft)] pt-2 font-[family-name:var(--font-mono)] text-[10.5px]"
+        className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-1 border-t border-[var(--avy-line-soft)] pt-2 font-[family-name:var(--font-mono)] text-[10.5px]"
         style={{ letterSpacing: 0 }}
       >
         {job.meta.map((row) => (
@@ -157,7 +157,7 @@ export function JobCard({ job }: { job: JobCardData }) {
             <dt className="text-[var(--avy-muted)]">{row.label}</dt>
             <dd
               className={cn(
-                "m-0 font-medium",
+                "m-0 min-w-0 break-words font-medium",
                 row.accent ? "text-[var(--avy-accent)]" : "text-[var(--avy-ink)]"
               )}
             >
