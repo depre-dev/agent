@@ -5,6 +5,7 @@ import { mutate } from "swr";
 import { LoadedRunPanel } from "./LoadedRunPanel";
 import { LifecycleRail } from "./LifecycleRail";
 import { LifecycleActionBar } from "./LifecycleActionBar";
+import { RunSemanticBlock } from "./RunSemanticBlock";
 import {
   ReceiptPreviewDrawer,
   type ReceiptPreviewDraft,
@@ -142,6 +143,16 @@ export function LoadedRunView({
 
   return (
     <div className="flex flex-col gap-3.5">
+      {/*
+       * The standalone detail page (showLifecycle === true) is the
+       * URL a browser-only agent receives when an upstream system
+       * links into Averray. Render the plain-HTML semantic block at
+       * the very top so the agent can scrape source / category /
+       * state / reward / job ID without OCRing the panel below. The
+       * queue page hides this block — it would just repeat the row
+       * the operator already clicked.
+       */}
+      {showLifecycle ? <RunSemanticBlock row={loadedRow} /> : null}
       <LifecycleActionBar
         jobId={loadedRow.id}
         lifecycle={loadedRow.lifecycle}
