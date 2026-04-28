@@ -147,6 +147,66 @@ test("job lifecycle supports archival and claimability guardrails", () => {
   });
 });
 
+test("public Wikipedia definitions expose agent-ready detail affordances", () => {
+  const service = makeService();
+  service.createJob({
+    ...BASE_JOB,
+    id: "wiki-en-123-citation-repair-example",
+    title: "Wikipedia citation repair: Example article",
+    category: "wikipedia",
+    jobType: "review",
+    requiredRole: "worker",
+    inputSchemaRef: "schema://jobs/wikipedia-maintenance-input",
+    outputSchemaRef: "schema://jobs/wikipedia-citation-repair-output",
+    verifierTerms: ["page_title", "revision_id", "citation_findings", "proposed_changes", "review_notes"],
+    verifierMinimumMatches: 4,
+    acceptanceCriteria: ["Names the exact Wikipedia page title and revision id reviewed."],
+    verification: {
+      method: "reviewable_wikipedia_proposal",
+      signals: ["page_revision_cited", "source_urls_present", "proposal_only"]
+    },
+    source: {
+      type: "wikipedia_article",
+      project: "wikipedia",
+      language: "en",
+      pageId: 123,
+      pageTitle: "Example article",
+      pageUrl: "https://en.wikipedia.org/wiki/Example_article",
+      revisionId: "987654321",
+      taskType: "citation_repair"
+    }
+  });
+
+  const definition = service.getPublicJobDefinition("wiki-en-123-citation-repair-example");
+
+  assert.equal(definition.source.lang, "en");
+  assert.equal(definition.source.articleUrl, "https://en.wikipedia.org/wiki/Example_article");
+  assert.equal(
+    definition.source.pinnedRevisionUrl,
+    "https://en.wikipedia.org/w/index.php?title=Example+article&oldid=987654321"
+  );
+  assert.equal(definition.source.proposalOnly, true);
+  assert.match(definition.source.attributionPolicy, /do not edit Wikipedia directly/);
+  assert.deepEqual(definition.agentContext, {
+    jobId: "wiki-en-123-citation-repair-example",
+    source: "wikipedia",
+    sourceType: "wikipedia_article",
+    taskType: "citation_repair",
+    pageTitle: "Example article",
+    lang: "en",
+    revisionId: "987654321",
+    articleUrl: "https://en.wikipedia.org/wiki/Example_article",
+    pinnedRevisionUrl: "https://en.wikipedia.org/w/index.php?title=Example+article&oldid=987654321",
+    proposalOnly: true,
+    attributionPolicy: "Averray proposal only; do not edit Wikipedia directly from the agent account.",
+    acceptanceCriteria: ["Names the exact Wikipedia page title and revision id reviewed."],
+    outputSchemaRef: "schema://jobs/wikipedia-citation-repair-output",
+    outputSchemaUrl: "/schemas/jobs/wikipedia-citation-repair-output.json",
+    requiredOutputKeywords: ["page_title", "revision_id", "citation_findings", "proposed_changes", "review_notes"],
+    verificationSignals: ["page_revision_cited", "source_urls_present", "proposal_only"]
+  });
+});
+
 test("createJob accepts github_pr verifier configuration", () => {
   const service = makeService();
   const job = service.createJob({

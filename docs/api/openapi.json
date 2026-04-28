@@ -256,7 +256,7 @@
         ],
         "operationId": "getJobDefinition",
         "summary": "Get one job definition",
-        "description": "Returns a single job definition by job id.",
+        "description": "Returns a single job definition by job id. Source-specific jobs may include an agentContext block with compact, explicit fields for autonomous agents; Wikipedia jobs expose page title, revision id, pinned revision URL, output schema URL, proposal-only status, and attribution policy.",
         "parameters": [
           {
             "name": "jobId",
@@ -837,6 +837,11 @@
           },
           "source": {
             "type": "object",
+            "additionalProperties": true
+          },
+          "agentContext": {
+            "type": "object",
+            "description": "Optional source-specific summary for autonomous agents. Wikipedia definitions include jobId, source, taskType, pageTitle, lang, revisionId, articleUrl, pinnedRevisionUrl, proposalOnly, attributionPolicy, outputSchemaRef, outputSchemaUrl, requiredOutputKeywords, and verificationSignals.",
             "additionalProperties": true
           },
           "lifecycle": {

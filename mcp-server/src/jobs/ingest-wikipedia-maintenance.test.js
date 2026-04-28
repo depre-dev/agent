@@ -31,6 +31,14 @@ test("toPlatformJob produces an Averray-attributed Wikipedia proposal job", () =
   assert.equal(job.jobType, "review");
   assert.equal(job.source.type, "wikipedia_article");
   assert.equal(job.source.writePolicy, "averray_company_reviewed_proposal_only");
+  assert.equal(job.source.lang, "en");
+  assert.equal(job.source.articleUrl, "https://en.wikipedia.org/wiki/Example_article");
+  assert.equal(
+    job.source.pinnedRevisionUrl,
+    "https://en.wikipedia.org/w/index.php?title=Example+article&oldid=987654321"
+  );
+  assert.equal(job.source.proposalOnly, true);
+  assert.match(job.source.attributionPolicy, /do not edit Wikipedia directly/);
   assert.equal(job.source.attribution.proposer, "Averray");
   assert.equal(job.source.attribution.directEdit, false);
   assert.equal(job.inputSchemaRef, "schema://jobs/wikipedia-maintenance-input");

@@ -218,6 +218,9 @@ export function toPlatformJob(article, score = scoreArticle(article)) {
       pageId: article.pageId,
       pageTitle: article.title,
       pageUrl: article.pageUrl,
+      lang: article.language,
+      articleUrl: article.pageUrl,
+      pinnedRevisionUrl: wikipediaPinnedRevisionUrl(article),
       revisionId: article.revisionId,
       revisionTimestamp: article.revisionTimestamp,
       categoryTitle: article.categoryTitle,
@@ -226,6 +229,8 @@ export function toPlatformJob(article, score = scoreArticle(article)) {
       score,
       discoveryApi: `https://${article.language}.wikipedia.org/w/api.php`,
       writePolicy: "averray_company_reviewed_proposal_only",
+      proposalOnly: true,
+      attributionPolicy: "Averray proposal only; do not edit Wikipedia directly from the agent account.",
       attribution: {
         proposer: "Averray",
         directEdit: false,
@@ -332,6 +337,18 @@ function normalizeTaskType(value) {
 function normalizeLanguage(value) {
   const language = String(value ?? DEFAULT_LANGUAGE).trim().toLowerCase();
   return /^[a-z][a-z0-9-]{1,15}$/u.test(language) ? language : DEFAULT_LANGUAGE;
+}
+
+function wikipediaPinnedRevisionUrl(article) {
+  const title = String(article?.title ?? "").trim();
+  const revisionId = String(article?.revisionId ?? "").trim();
+  if (!title || !revisionId) {
+    return undefined;
+  }
+  const url = new URL(`https://${normalizeLanguage(article?.language)}.wikipedia.org/w/index.php`);
+  url.searchParams.set("title", title);
+  url.searchParams.set("oldid", revisionId);
+  return url.toString();
 }
 
 function mediaWikiActionUrl(language) {

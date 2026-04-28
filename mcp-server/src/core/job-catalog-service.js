@@ -3,7 +3,7 @@ import {
   NotFoundError,
   ValidationError
 } from "./errors.js";
-import { isBuiltinJobSchemaRef } from "./job-schema-registry.js";
+import { isBuiltinJobSchemaRef, schemaRefToJobSchemaPath } from "./job-schema-registry.js";
 
 const DEFAULT_AGENT_PROFILE = {
   capabilities: ["claim_job", "submit_work", "allocate_idle_funds"],
@@ -344,7 +344,7 @@ export class JobCatalogService {
     if (!this.isVisibleJob(job)) {
       throw new NotFoundError(`Unknown job: ${jobId}`, "job_not_found");
     }
-    return this.withLifecycle(job);
+    return this.withAgentDefinitionContext(this.withLifecycle(job));
   }
 
   getClaimableJobDefinition(jobId) {
@@ -493,6 +493,48 @@ export class JobCatalogService {
     return {
       ...job,
       lifecycle: this.buildLifecycle(job, now)
+    };
+  }
+
+  withAgentDefinitionContext(job) {
+    if (job?.source?.type !== "wikipedia_article") {
+      return job;
+    }
+
+    const language = job.source.language ?? job.source.lang;
+    const articleUrl = job.source.pageUrl ?? job.source.articleUrl;
+    const source = {
+      ...job.source,
+      lang: language,
+      articleUrl,
+      pinnedRevisionUrl: job.source.pinnedRevisionUrl ?? buildWikipediaPinnedRevisionUrl(job.source),
+      proposalOnly: true,
+      attributionPolicy: job.source.attributionPolicy
+        ?? "Averray proposal only; do not edit Wikipedia directly from the agent account."
+    };
+
+    return {
+      ...job,
+      source,
+      agentContext: {
+        ...(job.agentContext ?? {}),
+        jobId: job.id,
+        source: "wikipedia",
+        sourceType: "wikipedia_article",
+        taskType: source.taskType,
+        pageTitle: source.pageTitle,
+        lang: source.language ?? source.lang,
+        revisionId: source.revisionId,
+        articleUrl: source.pageUrl ?? source.articleUrl,
+        pinnedRevisionUrl: source.pinnedRevisionUrl,
+        proposalOnly: true,
+        attributionPolicy: source.attributionPolicy,
+        acceptanceCriteria: job.acceptanceCriteria ?? [],
+        outputSchemaRef: job.outputSchemaRef,
+        outputSchemaUrl: schemaRefToJobSchemaPath(job.outputSchemaRef),
+        requiredOutputKeywords: job.verifierConfig?.requiredKeywords ?? [],
+        verificationSignals: job.verification?.signals ?? []
+      }
     };
   }
 
@@ -847,6 +889,24 @@ function normaliseSchedule(raw, recurring) {
 function normalizeJobType(value) {
   const normalised = String(value ?? "work").trim().toLowerCase();
   return VALID_JOB_TYPES.has(normalised) ? normalised : undefined;
+}
+
+function buildWikipediaPinnedRevisionUrl(source) {
+  const language = normalizeWikipediaLanguage(source?.language ?? source?.lang);
+  const pageTitle = String(source?.pageTitle ?? "").trim();
+  const revisionId = String(source?.revisionId ?? "").trim();
+  if (!pageTitle || !revisionId) {
+    return undefined;
+  }
+  const url = new URL(`https://${language}.wikipedia.org/w/index.php`);
+  url.searchParams.set("title", pageTitle);
+  url.searchParams.set("oldid", revisionId);
+  return url.toString();
+}
+
+function normalizeWikipediaLanguage(value) {
+  const language = String(value ?? "en").trim().toLowerCase();
+  return /^[a-z][a-z0-9-]{1,15}$/u.test(language) ? language : "en";
 }
 
 function normalizeAgentRole(value) {
