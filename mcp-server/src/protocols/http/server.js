@@ -179,6 +179,16 @@ function ensureXcmRequestOwnership(record, auth) {
   }
 }
 
+function ensureAsyncXcmTreasuryAdmin(auth) {
+  if (hasRole(auth.claims, "admin")) {
+    return;
+  }
+  throw new AuthorizationError(
+    "Async XCM treasury actions require an admin role until the server-side XCM assembler is enabled.",
+    "async_xcm_admin_required"
+  );
+}
+
 function clientIp(request) {
   return extractClientKey(request, { trustProxy });
 }
@@ -2082,6 +2092,7 @@ const server = createServer(async (request, response) => {
       const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
       const strategy = findStrategyConfig(strategyId);
       if (strategy?.executionMode === "async_xcm") {
+        ensureAsyncXcmTreasuryAdmin(auth);
         const strategyAsset = resolveStrategyAssetSymbol(strategy);
         const options = parseAsyncTreasuryOptions(payload, url);
         const mutationKey = options.idempotencyKey
@@ -2120,6 +2131,7 @@ const server = createServer(async (request, response) => {
       const amount = Number(payload?.amount ?? url.searchParams.get("amount") ?? "0");
       const strategy = findStrategyConfig(strategyId);
       if (strategy?.executionMode === "async_xcm") {
+        ensureAsyncXcmTreasuryAdmin(auth);
         const strategyAsset = resolveStrategyAssetSymbol(strategy);
         const options = parseAsyncTreasuryOptions(payload, url, {
           defaultRecipient: gateway?.config?.agentAccountAddress
