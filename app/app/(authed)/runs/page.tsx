@@ -1,12 +1,19 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RunsTopbar } from "@/components/runs/RunsTopbar";
 import {
   QueueBar,
   type QueueFilter,
 } from "@/components/runs/QueueBar";
+import {
+  buildSourceFilters,
+  parseSourceFilter,
+  rowSourceKind,
+  SourceFilterBar,
+  type SourceFilter,
+} from "@/components/runs/SourceFilter";
 import { RunQueueTable } from "@/components/runs/RunQueueTable";
 import { RecommendationRail } from "@/components/runs/RecommendationRail";
 import { LoadedRunView } from "@/components/runs/LoadedRunView";
@@ -49,12 +56,73 @@ export default function RunsPage() {
   );
 }
 
+// State filters that are valid as `?state=` URL params. Anything else
+// falls back to "all" so a malformed link doesn't surface a broken
+// filter chip.
+const STATE_VALUES: QueueFilter[] = [
+  "all",
+  "ready",
+  "claimed",
+  "submitted",
+  "disputed",
+  "settled",
+];
+
+function parseStateFilter(value: string | null | undefined): QueueFilter {
+  if (!value) return "all";
+  return STATE_VALUES.includes(value as QueueFilter)
+    ? (value as QueueFilter)
+    : "all";
+}
+
 function RunsPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const runParam = searchParams?.get("run") ?? null;
-  const [activeFilter, setActiveFilter] = useState<QueueFilter>("all");
+  const initialState = parseStateFilter(searchParams?.get("state"));
+  const initialSource = parseSourceFilter(searchParams?.get("source"));
+  const [activeFilter, setActiveFilter] = useState<QueueFilter>(initialState);
+  const [activeSource, setActiveSource] = useState<SourceFilter>(initialSource);
   const [showClosed, setShowClosed] = useState(false);
   const [selectedId, setSelectedId] = useState<string>(runParam ?? "run-2742");
+
+  // Sync filter state into the URL query string so links are
+  // shareable and a browser agent can deep-link to a narrowed
+  // marketplace view (e.g. `/runs?source=wikipedia&state=ready`).
+  // We use `replace` rather than `push` so toggling filters doesn't
+  // pollute the back stack.
+  const syncQuery = useCallback(
+    (next: { state?: QueueFilter; source?: SourceFilter }) => {
+      if (!pathname) return;
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      const stateValue = next.state ?? activeFilter;
+      const sourceValue = next.source ?? activeSource;
+      if (stateValue === "all") params.delete("state");
+      else params.set("state", stateValue);
+      if (sourceValue === "all") params.delete("source");
+      else params.set("source", sourceValue);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [activeFilter, activeSource, pathname, router, searchParams]
+  );
+
+  const onStateChange = useCallback(
+    (next: QueueFilter) => {
+      setActiveFilter(next);
+      syncQuery({ state: next });
+    },
+    [syncQuery]
+  );
+
+  const onSourceChange = useCallback(
+    (next: SourceFilter) => {
+      setActiveSource(next);
+      syncQuery({ source: next });
+    },
+    [syncQuery]
+  );
 
   const jobs = useJobs();
   const adminJobs = useAdminJobs();
@@ -69,6 +137,7 @@ function RunsPageInner() {
   const liveRows = useMemo(() => buildRunRows(sourceForRows), [sourceForRows]);
   const rows = liveRows.length ? liveRows : FIXTURE_RUN_ROWS;
   const filters = useMemo(() => buildRunFilters(rows), [rows]);
+  const sourceFilters = useMemo(() => buildSourceFilters(rows), [rows]);
   const recommendationCards = useMemo(() => {
     const liveCards = buildRecommendationCards(recommendations.data, jobs.data);
     return liveCards.length ? liveCards : FIXTURE_RECOMMENDATIONS;
@@ -101,8 +170,11 @@ function RunsPageInner() {
     if (activeFilter !== "all") {
       next = next.filter((r) => r.state === activeFilter);
     }
+    if (activeSource !== "all") {
+      next = next.filter((r) => rowSourceKind(r) === activeSource);
+    }
     return next;
-  }, [activeFilter, rows, showClosed]);
+  }, [activeFilter, activeSource, rows, showClosed]);
 
   const closedRowCount = rows.filter(
     (r) => r.lifecycle && r.lifecycle.state !== "open"
@@ -205,7 +277,12 @@ function RunsPageInner() {
       <QueueBar
         filters={filters.length ? filters : FIXTURE_FILTERS}
         active={activeFilter}
-        onChange={setActiveFilter}
+        onChange={onStateChange}
+      />
+      <SourceFilterBar
+        filters={sourceFilters}
+        active={activeSource}
+        onChange={onSourceChange}
       />
       {closedRowCount > 0 || showClosed ? (
         <div className="flex items-center justify-between rounded-[10px] border border-[var(--avy-line-soft)] bg-[var(--avy-paper)] px-3.5 py-2 font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--avy-muted)]">
