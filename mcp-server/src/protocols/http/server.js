@@ -45,6 +45,7 @@ import {
 } from "../../jobs/ingest-osv-advisories.js";
 import { ingestStandardsSpecs, parseSpecs as parseStandardsSpecs } from "../../jobs/ingest-standards-specs.js";
 import { ingestWikipediaMaintenance, parseCategories } from "../../jobs/ingest-wikipedia-maintenance.js";
+import { buildPublicJobsResponse } from "./jobs-response.js";
 
 const {
   platformService: service,
@@ -1338,7 +1339,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && pathname === "/jobs") {
-      return respond(response, 200, service.listJobs());
+      return respond(response, 200, buildPublicJobsResponse(service.listJobs(), url.searchParams));
     }
 
     if (request.method === "GET" && pathname === "/admin/jobs") {
