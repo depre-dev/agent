@@ -126,6 +126,21 @@ If the Hub topic does not equal the request id, stop. That means the backend
 assembler, `previewRequestId(context)` mirror, or wrapper validation path is not
 the one we think it is.
 
+If the capture source is decoded PAPI, Chopsticks, Polkadot.js, or
+block-explorer event JSON, normalize it into the required shape with:
+
+```bash
+npm run extract:native-xcm-event -- \
+  --chain hub \
+  --events-json artifacts/xcm/2026-04-29-vdot-correlation/deposit/hub-decoded-events.json \
+  --request-id "$REQUEST_ID" \
+  --output artifacts/xcm/2026-04-29-vdot-correlation/deposit/hub.json
+```
+
+Use `--block-number`, `--block-hash`, `--event-index`,
+`--extrinsic-hash`, or `--message-hash` when the decoded source separates
+block metadata from event records.
+
 ### 3. Capture Bifrost Evidence
 
 Capture the Bifrost-side terminal event or storage proof. The JSON must include:
@@ -154,6 +169,20 @@ capture includes a durable remote reference that can be found again from chain
 evidence without operator judgement.
 
 Do not promote `ledger_join`. It is staging-only.
+
+Normalize decoded Bifrost evidence with:
+
+```bash
+npm run extract:native-xcm-event -- \
+  --chain bifrost \
+  --events-json artifacts/xcm/2026-04-29-vdot-correlation/deposit/bifrost-decoded-events.json \
+  --request-id "$REQUEST_ID" \
+  --output artifacts/xcm/2026-04-29-vdot-correlation/deposit/bifrost.json
+```
+
+If Bifrost does not preserve the topic and the capture is investigating the
+`remote_ref` fallback, add `--allow-missing-topic` and provide the durable
+remote reference later to `capture-native-xcm-evidence`.
 
 ### 4. Assemble One Evidence Envelope
 

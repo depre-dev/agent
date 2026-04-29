@@ -173,6 +173,9 @@ Current implementation status:
 - evidence-to-`PublishedOutcome` normalization exists
 - captured evidence is now correlation-gated: SetTopic/request-id evidence,
   remote-ref evidence, and staging-only ledger joins are validated differently
+- decoded PAPI/Chopsticks/block-explorer events can be normalized into
+  `hub.json` / `bifrost.json` capture inputs with
+  `npm run extract:native-xcm-event`
 - live PAPI reads intentionally fail until the correlation gate is proven
 
 Adapter responsibilities:

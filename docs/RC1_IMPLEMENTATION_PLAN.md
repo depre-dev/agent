@@ -63,6 +63,8 @@ Completed and deployed in this lane:
   promoting the native observer
 - native XCM evidence capture now has an operator runbook and can emit a
   decision record from the evidence-pack checker
+- decoded PAPI/Chopsticks/block-explorer events can be normalized into the raw
+  `hub.json` / `bifrost.json` inputs required by the evidence assembler
 
 Still open in the broader rc1 path:
 
@@ -284,6 +286,8 @@ allocation.
   evidence.
 - [x] Add an operator runbook for capturing Hub/Bifrost evidence and producing
   the promotion decision record.
+- [x] Add a decoded-event extractor for producing `hub.json` / `bifrost.json`
+  capture inputs from PAPI, Chopsticks, or block-explorer event JSON.
 - [ ] Run Chopsticks experiment for Bifrost reply-leg topic preservation.
 - [ ] If preserved, match return leg by topic.
 - [ ] If not preserved but Hub credit events are unambiguous, use serialized
