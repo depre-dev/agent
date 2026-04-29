@@ -271,6 +271,8 @@ Native observer output is acceptable for automated settlement only after:
 The repo includes a sample evidence envelope:
 
 - [docs/fixtures/xcm/native-observer-evidence.sample.json](./fixtures/xcm/native-observer-evidence.sample.json)
+- [docs/fixtures/xcm/native-observer-evidence-withdraw.sample.json](./fixtures/xcm/native-observer-evidence-withdraw.sample.json)
+- [docs/fixtures/xcm/native-observer-evidence-failure.sample.json](./fixtures/xcm/native-observer-evidence-failure.sample.json)
 - [docs/fixtures/xcm/native-hub-event.sample.json](./fixtures/xcm/native-hub-event.sample.json)
 - [docs/fixtures/xcm/native-bifrost-event.sample.json](./fixtures/xcm/native-bifrost-event.sample.json)
 
@@ -318,6 +320,38 @@ The validator checks:
 This is intentionally stricter than the public `/xcm/outcomes` item. The
 compact feed is for automated settlement; the evidence envelope is for
 debugging, audit, and proving the native observer is not guessing.
+
+### Evidence pack gate
+
+Before the native observer can become settlement truth, collect three separate
+captures:
+
+1. successful vDOT deposit
+2. successful vDOT withdrawal
+3. one failed request with a stable `failureCode`
+
+Validate the whole pack:
+
+```bash
+npm run check:native-xcm-evidence-pack -- \
+  --deposit artifacts/xcm/native-deposit-evidence.json \
+  --withdraw artifacts/xcm/native-withdraw-evidence.json \
+  --failure artifacts/xcm/native-failure-evidence.json
+```
+
+The pack checker runs the single-envelope validator for each file, then applies
+the launch gate across all three captures:
+
+- deposit must be `direction=deposit` and `status=succeeded`
+- withdraw must be `direction=withdraw` and `status=succeeded`
+- failure must be `status=failed` and include a `failureCode`
+- every capture must be `production_candidate` or `production`
+- all captures must use the same production correlation method
+- `ledger_join` is rejected because it is staging-only
+
+If all three use `request_id_in_message`, the pack supports the SetTopic
+preservation path. If they all use `remote_ref`, the pack supports the fallback
+path and the fallback must be documented here before live reads are enabled.
 
 ---
 
