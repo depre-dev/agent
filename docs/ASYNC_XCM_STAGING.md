@@ -206,3 +206,16 @@ The native evidence validator now enforces the correlation gate:
 
 Until a real Chopsticks/PAPI capture passes those rules, use the internal
 observe/finalize path above for staging settlement.
+
+Once deposit, withdraw, and failure captures exist, validate the three-artifact
+gate before promoting the native observer:
+
+```bash
+npm run check:native-xcm-evidence-pack -- \
+  --deposit artifacts/xcm/native-deposit-evidence.json \
+  --withdraw artifacts/xcm/native-withdraw-evidence.json \
+  --failure artifacts/xcm/native-failure-evidence.json
+```
+
+The pack gate rejects staging-only `ledger_join` evidence and requires a single
+production-candidate correlation method across all three captures.

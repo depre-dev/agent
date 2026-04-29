@@ -200,6 +200,8 @@ npm run validate:subscan-xcm -- --require-published
   evidence linked back to the Averray `requestId`.
 - [ ] Captured evidence passes
   `npm run validate:native-xcm-evidence -- --file <capture.json>`.
+- [ ] Deposit, withdrawal, and failure captures pass
+  `npm run check:native-xcm-evidence-pack -- --deposit <deposit.json> --withdraw <withdraw.json> --failure <failure.json>`.
 - [ ] Captured evidence was assembled with
   `npm run capture:native-xcm-evidence` or contains the same
   `native-xcm-observer-evidence-v1` fields.
