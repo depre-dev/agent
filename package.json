@@ -26,6 +26,7 @@
     "typecheck:indexer": "npm --workspace indexer run typecheck",
     "extract:native-xcm-event": "node scripts/ops/extract-native-xcm-event.mjs",
     "capture:native-xcm-evidence": "node scripts/ops/capture-native-xcm-evidence.mjs",
+    "preflight:native-xcm-capture": "node scripts/ops/preflight-native-xcm-capture.mjs",
     "check:native-xcm-evidence-pack": "node scripts/ops/check-native-xcm-evidence-pack.mjs",
     "validate:subscan-xcm": "node scripts/ops/validate-subscan-xcm-source.mjs",
     "validate:native-xcm-evidence": "node scripts/ops/validate-native-xcm-evidence.mjs",
