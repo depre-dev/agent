@@ -67,12 +67,16 @@ Completed and deployed in this lane:
   `hub.json` / `bifrost.json` inputs required by the evidence assembler
 - testnet deploy wiring can now emit `XCM_WRAPPER_ADDRESS` plus an async
   `polkadot_vdot` strategy manifest for capture rehearsals
+- native XCM capture now has a preflight gate that rejects scaffolded vDOT
+  builder output and missing PAPI/Chopsticks tooling before evidence is promoted
 
 Still open in the broader rc1 path:
 
 - scheduler/email hardening for weekly reports after enough real jobs exist
 - real Chopsticks/PAPI native XCM evidence capture and selected fallback
   documentation if Bifrost does not preserve SetTopic
+- replacing the scaffolded vDOT XCM message prefixes with a real PAPI/ParaSpell
+  builder before sending staging capture transactions
 
 ## PR Slices
 
@@ -292,6 +296,10 @@ allocation.
   capture inputs from PAPI, Chopsticks, or block-explorer event JSON.
 - [x] Add testnet/staging deploy wiring for `XcmWrapper` plus
   `XcmVdotAdapter`; keep it blocked on mainnet until evidence passes.
+- [x] Add native capture preflight so scaffolded builder output cannot be
+  mistaken for real evidence.
+- [ ] Replace scaffolded vDOT XCM message prefixes with a real PAPI/ParaSpell
+  message builder for deposit, withdraw, and failure rehearsal.
 - [ ] Run Chopsticks experiment for Bifrost reply-leg topic preservation.
 - [ ] If preserved, match return leg by topic.
 - [ ] If not preserved but Hub credit events are unambiguous, use serialized

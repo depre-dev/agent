@@ -52,6 +52,27 @@ the production observer path is `request_id_in_message` or `remote_ref`.
 Do not use native observer output for automated settlement until this runbook
 has produced a passing evidence pack.
 
+Before queueing a live request, run the local capture preflight:
+
+```bash
+npm run preflight:native-xcm-capture
+```
+
+For an actual live staging capture, include the runtime environment check:
+
+```bash
+API_URL=https://api.averray.com \
+ADMIN_JWT="$ADMIN_JWT" \
+WALLET_JWT="$WALLET_JWT" \
+XCM_NATIVE_HUB_WS=wss://... \
+XCM_NATIVE_BIFROST_WS=wss://... \
+npm run preflight:native-xcm-capture -- --strict-env
+```
+
+The preflight must pass before treating captured files as real evidence. It
+checks that reproducible PAPI/Chopsticks tooling is declared and that the
+backend vDOT XCM builder is no longer on scaffold bytes.
+
 ## Artifact Layout
 
 Use one directory per capture date or deployment:
