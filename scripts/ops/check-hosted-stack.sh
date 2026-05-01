@@ -14,6 +14,7 @@ INDEXER_STATUS_URL=${INDEXER_STATUS_URL:-https://index.averray.com/status}
 INDEXER_MAX_STALENESS_SEC=${INDEXER_MAX_STALENESS_SEC:-1800}
 INDEXER_RETRY_ATTEMPTS=${INDEXER_RETRY_ATTEMPTS:-12}
 INDEXER_RETRY_SLEEP_SEC=${INDEXER_RETRY_SLEEP_SEC:-5}
+CHECK_INDEXER=${CHECK_INDEXER:-1}
 TIMEOUT_SEC=${TIMEOUT_SEC:-20}
 APP_BASIC_AUTH_USER=${APP_BASIC_AUTH_USER:-}
 APP_BASIC_AUTH_PASSWORD=${APP_BASIC_AUTH_PASSWORD:-}
@@ -70,6 +71,13 @@ fetch_indexer_with_retries() {
   return 1
 }
 
+enabled() {
+  case "${1:-}" in
+    1|true|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 echo "Checking public site"
 public_html="$(fetch "$PUBLIC_SITE_URL")"
 grep -q "<title>Averray" <<<"$public_html" || {
@@ -99,23 +107,27 @@ onboarding_json="$(fetch "$API_ONBOARDING_URL")"
 jq -e '.name | length > 0' >/dev/null <<<"$onboarding_json"
 jq -e '.protocols | index("http") != null' >/dev/null <<<"$onboarding_json"
 
-echo "Checking indexer root"
-indexer_json="$(fetch_indexer_with_retries "Indexer root" "$INDEXER_URL")"
-jq -e '.status == "ok"' >/dev/null <<<"$indexer_json"
+if enabled "$CHECK_INDEXER"; then
+  echo "Checking indexer root"
+  indexer_json="$(fetch_indexer_with_retries "Indexer root" "$INDEXER_URL")"
+  jq -e '.status == "ok"' >/dev/null <<<"$indexer_json"
 
-echo "Checking indexer readiness"
-fetch_indexer_with_retries "Indexer readiness" "$INDEXER_READY_URL" >/dev/null
+  echo "Checking indexer readiness"
+  fetch_indexer_with_retries "Indexer readiness" "$INDEXER_READY_URL" >/dev/null
 
-echo "Checking indexer status freshness"
-indexer_status_json="$(fetch_indexer_with_retries "Indexer status" "$INDEXER_STATUS_URL")"
-jq -e 'type == "object" and (keys | length) > 0' >/dev/null <<<"$indexer_status_json"
-jq -e 'to_entries[0].value.block.number > 0' >/dev/null <<<"$indexer_status_json"
-jq -e --argjson maxAge "$INDEXER_MAX_STALENESS_SEC" '
-  to_entries
-  | map(.value.block.timestamp)
-  | max as $latest
-  | (now - $latest) <= $maxAge
-' >/dev/null <<<"$indexer_status_json"
+  echo "Checking indexer status freshness"
+  indexer_status_json="$(fetch_indexer_with_retries "Indexer status" "$INDEXER_STATUS_URL")"
+  jq -e 'type == "object" and (keys | length) > 0' >/dev/null <<<"$indexer_status_json"
+  jq -e 'to_entries[0].value.block.number > 0' >/dev/null <<<"$indexer_status_json"
+  jq -e --argjson maxAge "$INDEXER_MAX_STALENESS_SEC" '
+    to_entries
+    | map(.value.block.timestamp)
+    | max as $latest
+    | (now - $latest) <= $maxAge
+  ' >/dev/null <<<"$indexer_status_json"
+else
+  echo "CHECK_INDEXER=$CHECK_INDEXER set; skipping indexer checks."
+fi
 
 if [[ -n "$ADMIN_JWT" ]]; then
   echo "Checking admin async XCM status"

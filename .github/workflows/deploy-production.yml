@@ -55,6 +55,24 @@ jobs:
           )
 
           ssh -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
-            "set -e && \
-             cd /srv/agent-stack/app && \
-             ${remote_env} ./scripts/ops/deploy-production.sh"
+            "${remote_env} bash -s" <<'REMOTE'
+          set -e
+          cd /srv/agent-stack/app
+
+          old_sha=$(git rev-parse HEAD)
+          git fetch origin main
+          git checkout main
+          if ! git pull --ff-only origin main; then
+            if [ -z "$(git status --porcelain)" ]; then
+              echo "Pull failed without local changes to stash." >&2
+              exit 1
+            fi
+            stamp=$(date -u +"%Y%m%dT%H%M%SZ")
+            echo "Fast-forward pull failed with local changes; stashing and retrying ($stamp)."
+            git stash push -u -m "auto-stash before production deploy $stamp" >/dev/null
+            git pull --ff-only origin main
+          fi
+          new_sha=$(git rev-parse HEAD)
+
+          DEPLOY_OLD_SHA="$old_sha" DEPLOY_NEW_SHA="$new_sha" ./scripts/ops/deploy-production.sh
+          REMOTE

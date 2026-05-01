@@ -61,6 +61,10 @@ Run:
 
 # Optional: include the async XCM operator lane in the smoke check
 ADMIN_JWT='<admin-jwt>' ./scripts/ops/check-hosted-stack.sh
+
+# Component-scoped deploys can skip indexer checks when the indexer was not
+# touched, while scheduled/full-stack smoke should keep the default.
+CHECK_INDEXER=0 ./scripts/ops/check-hosted-stack.sh
 ```
 
 ---
@@ -80,7 +84,13 @@ What it does:
 3. Rebuilds the public Astro landing page and syncs it into `site/`.
 4. Typechecks the indexer workspace.
 5. Verifies the deployed contracts against the manifest for the selected profile.
-6. Runs the hosted-stack smoke check.
+6. Runs the hosted-stack smoke check. The deploy entrypoint keeps indexer
+   checks for indexer/Caddy changes and full smoke-only runs, but skips them
+   for unrelated component deploys so an existing indexer outage does not
+   falsely mark a backend or frontend deploy as failed.
+7. Preserves previously generated frontend/site output across unrelated
+   component deploys. Server-local changes are only stashed if the
+   fast-forward pull actually cannot proceed with them present.
 
 Useful overrides:
 
