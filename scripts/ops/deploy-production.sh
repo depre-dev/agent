@@ -17,6 +17,8 @@ COMPOSE_FILE=${COMPOSE_FILE:-"$STACK_ROOT/docker-compose.yml"}
 BRANCH=${BRANCH:-main}
 DEPLOY_LOCK_FILE=${DEPLOY_LOCK_FILE:-/tmp/averray-production-deploy.lock}
 DEPLOY_AUTOSTASH=${DEPLOY_AUTOSTASH:-1}
+DEPLOY_OLD_SHA=${DEPLOY_OLD_SHA:-}
+DEPLOY_NEW_SHA=${DEPLOY_NEW_SHA:-}
 
 RUN_BACKEND=${RUN_BACKEND:-auto}
 RUN_FRONTEND=${RUN_FRONTEND:-auto}
@@ -24,6 +26,7 @@ RUN_INDEXER=${RUN_INDEXER:-auto}
 RUN_SITE=${RUN_SITE:-auto}
 RUN_CADDY=${RUN_CADDY:-auto}
 RUN_SMOKE=${RUN_SMOKE:-1}
+SMOKE_CHECK_INDEXER=${SMOKE_CHECK_INDEXER:-auto}
 
 SITE_BUILD_RUNNER=${SITE_BUILD_RUNNER:-auto}
 SITE_NODE_IMAGE=${SITE_NODE_IMAGE:-node:22-bookworm-slim}
@@ -58,21 +61,6 @@ with_lock() {
   deploy
 }
 
-autostash_if_needed() {
-  if [[ "$DEPLOY_AUTOSTASH" != "1" ]]; then
-    return 0
-  fi
-
-  if [[ -z "$(git -C "$APP_ROOT" status --porcelain)" ]]; then
-    return 0
-  fi
-
-  local stamp
-  stamp=$(date -u +"%Y%m%dT%H%M%SZ")
-  echo "Stashing local server changes before pulling ($stamp)."
-  git -C "$APP_ROOT" stash push -u -m "auto-stash before production deploy $stamp" >/dev/null
-}
-
 changed_matches() {
   local pattern="$1"
   if [[ "$OLD_SHA" == "$NEW_SHA" ]]; then
@@ -93,6 +81,28 @@ should_run() {
       exit 1
       ;;
   esac
+}
+
+pull_latest() {
+  if git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"; then
+    return 0
+  fi
+
+  if [[ "$DEPLOY_AUTOSTASH" != "1" ]]; then
+    echo "Pull failed and DEPLOY_AUTOSTASH is disabled." >&2
+    exit 1
+  fi
+
+  if [[ -z "$(git -C "$APP_ROOT" status --porcelain)" ]]; then
+    echo "Pull failed without local changes to stash." >&2
+    exit 1
+  fi
+
+  local stamp
+  stamp=$(date -u +"%Y%m%dT%H%M%SZ")
+  echo "Fast-forward pull failed with local changes; stashing and retrying ($stamp)."
+  git -C "$APP_ROOT" stash push -u -m "auto-stash before production deploy $stamp" >/dev/null
+  git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
 }
 
 resolve_site_runner() {
@@ -151,19 +161,39 @@ apply_caddy() {
 deploy() {
   echo "Production deploy lock acquired: $DEPLOY_LOCK_FILE"
   echo "Updating repo in $APP_ROOT"
-  OLD_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
-  git -C "$APP_ROOT" fetch origin "$BRANCH"
-  git -C "$APP_ROOT" checkout "$BRANCH"
-  autostash_if_needed
-  git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
-  NEW_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
+  if [[ -n "$DEPLOY_OLD_SHA" || -n "$DEPLOY_NEW_SHA" ]]; then
+    if [[ -z "$DEPLOY_OLD_SHA" || -z "$DEPLOY_NEW_SHA" ]]; then
+      echo "DEPLOY_OLD_SHA and DEPLOY_NEW_SHA must be set together." >&2
+      exit 1
+    fi
+    OLD_SHA="$DEPLOY_OLD_SHA"
+    NEW_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
+    if [[ "$NEW_SHA" != "$DEPLOY_NEW_SHA" ]]; then
+      echo "Checkout SHA $NEW_SHA does not match DEPLOY_NEW_SHA $DEPLOY_NEW_SHA." >&2
+      exit 1
+    fi
+    echo "Using pre-updated checkout from workflow wrapper."
+  else
+    OLD_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
+    git -C "$APP_ROOT" fetch origin "$BRANCH"
+    git -C "$APP_ROOT" checkout "$BRANCH"
+    pull_latest
+    NEW_SHA=$(git -C "$APP_ROOT" rev-parse HEAD)
+  fi
   echo "Deploy range: $OLD_SHA -> $NEW_SHA"
 
   if [[ "$OLD_SHA" == "$NEW_SHA" ]]; then
     echo "No new commits. Running smoke check only."
   fi
 
+  local run_backend=0
+  local run_indexer=0
+  local run_frontend=0
+  local run_site=0
+  local run_caddy=0
+
   if should_run "$RUN_BACKEND" '^(mcp-server/|sdk/|examples/|docs/schemas/|package(-lock)?\.json|scripts/ops/redeploy-backend\.sh)'; then
+    run_backend=1
     echo "Deploying backend"
     SKIP_GIT_UPDATE=1 "$APP_ROOT/scripts/ops/redeploy-backend.sh"
   else
@@ -171,13 +201,15 @@ deploy() {
   fi
 
   if should_run "$RUN_INDEXER" '^(indexer/|package(-lock)?\.json|scripts/ops/redeploy-indexer\.sh)'; then
+    run_indexer=1
     echo "Deploying indexer"
     SKIP_GIT_UPDATE=1 "$APP_ROOT/scripts/ops/redeploy-indexer.sh"
   else
     echo "Skipping indexer deploy"
   fi
 
-  if should_run "$RUN_FRONTEND" '^(app/|frontend/|scripts/sync-operator-frontend\.mjs|scripts/ops/redeploy-frontend\.sh|package(-lock)?\.json)'; then
+  if should_run "$RUN_FRONTEND" '^(app/|frontend/|scripts/sync-operator-frontend\.mjs|scripts/ops/redeploy-frontend\.sh|scripts/ops/deploy-production\.sh|package(-lock)?\.json)'; then
+    run_frontend=1
     echo "Deploying operator frontend"
     SKIP_GIT_UPDATE=1 "$APP_ROOT/scripts/ops/redeploy-frontend.sh"
   else
@@ -185,6 +217,7 @@ deploy() {
   fi
 
   if should_run "$RUN_SITE" '^(marketing/|site/|scripts/sync-marketing-site\.mjs|package(-lock)?\.json)'; then
+    run_site=1
     echo "Building public site"
     build_site
   else
@@ -192,6 +225,7 @@ deploy() {
   fi
 
   if should_run "$RUN_CADDY" '^(deploy/Caddyfile\.averray|scripts/ops/render-caddyfile\.sh)'; then
+    run_caddy=1
     echo "Applying Caddy config"
     apply_caddy
   else
@@ -204,12 +238,37 @@ deploy() {
 
   if [[ "$RUN_SMOKE" == "1" ]]; then
     echo "Running hosted stack smoke check"
-    "$APP_ROOT/scripts/ops/check-hosted-stack.sh"
+    local check_indexer
+    check_indexer=$(resolve_smoke_check_indexer "$run_indexer" "$run_caddy")
+    if [[ "$check_indexer" != "1" ]]; then
+      echo "Skipping indexer smoke checks because this deploy did not change indexer or Caddy."
+    fi
+    CHECK_INDEXER="$check_indexer" "$APP_ROOT/scripts/ops/check-hosted-stack.sh"
   else
     echo "RUN_SMOKE=0 set; skipping hosted smoke check."
   fi
 
   echo "Production deploy completed."
+}
+
+resolve_smoke_check_indexer() {
+  local ran_indexer="$1"
+  local ran_caddy="$2"
+  case "$SMOKE_CHECK_INDEXER" in
+    1|true|yes) echo 1 ;;
+    0|false|no) echo 0 ;;
+    auto)
+      if [[ "$OLD_SHA" == "$NEW_SHA" || "$ran_indexer" == "1" || "$ran_caddy" == "1" ]]; then
+        echo 1
+      else
+        echo 0
+      fi
+      ;;
+    *)
+      echo "Invalid SMOKE_CHECK_INDEXER toggle: $SMOKE_CHECK_INDEXER" >&2
+      exit 1
+      ;;
+  esac
 }
 
 exec 9>"$DEPLOY_LOCK_FILE"
