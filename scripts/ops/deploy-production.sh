@@ -19,6 +19,7 @@ DEPLOY_LOCK_FILE=${DEPLOY_LOCK_FILE:-/tmp/averray-production-deploy.lock}
 DEPLOY_AUTOSTASH=${DEPLOY_AUTOSTASH:-1}
 DEPLOY_OLD_SHA=${DEPLOY_OLD_SHA:-}
 DEPLOY_NEW_SHA=${DEPLOY_NEW_SHA:-}
+DEPLOY_STATE_DIR=${DEPLOY_STATE_DIR:-"$STACK_ROOT/.deploy-state"}
 
 RUN_BACKEND=${RUN_BACKEND:-auto}
 RUN_FRONTEND=${RUN_FRONTEND:-auto}
@@ -72,13 +73,79 @@ changed_matches() {
   git -C "$APP_ROOT" diff --name-only "$OLD_SHA" "$NEW_SHA" | grep -Eq "$pattern"
 }
 
-should_run() {
-  local setting="$1"
+component_state_file() {
+  local component="$1"
+  printf '%s/%s.last-good\n' "$DEPLOY_STATE_DIR" "$component"
+}
+
+write_component_sha() {
+  local component="$1"
+  local sha="$2"
+  local file
+  file=$(component_state_file "$component")
+  mkdir -p "$DEPLOY_STATE_DIR"
+  local tmp="${file}.tmp.$$"
+  printf '%s\n' "$sha" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+read_component_sha() {
+  local component="$1"
+  local file
+  file=$(component_state_file "$component")
+  if [[ ! -f "$file" ]]; then
+    echo "$OLD_SHA"
+    return
+  fi
+
+  local sha
+  sha=$(head -n 1 "$file" | tr -d '[:space:]')
+  if git -C "$APP_ROOT" cat-file -e "${sha}^{commit}" >/dev/null 2>&1; then
+    echo "$sha"
+    return
+  fi
+
+  echo "Ignoring invalid deploy state for $component: $sha" >&2
+  echo "$OLD_SHA"
+}
+
+initialize_component_state() {
+  local component
+  for component in backend indexer frontend site caddy; do
+    local file
+    file=$(component_state_file "$component")
+    if [[ ! -f "$file" ]]; then
+      write_component_sha "$component" "$OLD_SHA"
+      echo "Initialized $component deploy pointer at $OLD_SHA"
+    fi
+  done
+}
+
+component_changed_matches() {
+  local component="$1"
   local pattern="$2"
+  local base_sha
+  base_sha=$(read_component_sha "$component")
+  if [[ "$base_sha" == "$NEW_SHA" ]]; then
+    return 1
+  fi
+  git -C "$APP_ROOT" diff --name-only "$base_sha" "$NEW_SHA" | grep -Eq "$pattern"
+}
+
+mark_component_deployed() {
+  local component="$1"
+  write_component_sha "$component" "$NEW_SHA"
+  echo "Recorded $component deploy pointer: $NEW_SHA"
+}
+
+should_run() {
+  local component="$1"
+  local setting="$2"
+  local pattern="$3"
   case "$setting" in
     1|true|yes) return 0 ;;
     0|false|no) return 1 ;;
-    auto) changed_matches "$pattern" ;;
+    auto) component_changed_matches "$component" "$pattern" ;;
     *)
       echo "Invalid deploy toggle: $setting" >&2
       exit 1
@@ -266,6 +333,7 @@ deploy() {
     echo "No new commits. Running smoke check only."
   fi
 
+  initialize_component_state
   apply_indexer_database_schema
 
   local run_backend=0
@@ -274,44 +342,64 @@ deploy() {
   local run_site=0
   local run_caddy=0
 
-  if should_run "$RUN_BACKEND" '^(mcp-server/|sdk/|examples/|docs/schemas/|package(-lock)?\.json|scripts/ops/redeploy-backend\.sh)'; then
+  if should_run backend "$RUN_BACKEND" '^(mcp-server/|sdk/|examples/|docs/schemas/|package(-lock)?\.json|scripts/ops/redeploy-backend\.sh)'; then
     run_backend=1
     echo "Deploying backend"
     SKIP_GIT_UPDATE=1 PRE_DEPLOY_SHA="$OLD_SHA" "$APP_ROOT/scripts/ops/redeploy-backend.sh"
+    mark_component_deployed backend
   else
     echo "Skipping backend deploy"
+    if [[ "$RUN_BACKEND" == "auto" ]]; then
+      mark_component_deployed backend
+    fi
   fi
 
-  if should_run "$RUN_INDEXER" '^(indexer/|package(-lock)?\.json|scripts/ops/redeploy-indexer\.sh)'; then
+  if should_run indexer "$RUN_INDEXER" '^(indexer/|package(-lock)?\.json|scripts/ops/redeploy-indexer\.sh)'; then
     run_indexer=1
     echo "Deploying indexer"
     SKIP_GIT_UPDATE=1 PRE_DEPLOY_SHA="$OLD_SHA" "$APP_ROOT/scripts/ops/redeploy-indexer.sh"
+    mark_component_deployed indexer
   else
     echo "Skipping indexer deploy"
+    if [[ "$RUN_INDEXER" == "auto" ]]; then
+      mark_component_deployed indexer
+    fi
   fi
 
-  if should_run "$RUN_FRONTEND" '^(app/|frontend/|scripts/sync-operator-frontend\.mjs|scripts/ops/redeploy-frontend\.sh|scripts/ops/deploy-production\.sh|package(-lock)?\.json)'; then
+  if should_run frontend "$RUN_FRONTEND" '^(app/|frontend/|scripts/sync-operator-frontend\.mjs|scripts/ops/redeploy-frontend\.sh|scripts/ops/deploy-production\.sh|package(-lock)?\.json)'; then
     run_frontend=1
     echo "Deploying operator frontend"
     SKIP_GIT_UPDATE=1 PRE_DEPLOY_SHA="$OLD_SHA" "$APP_ROOT/scripts/ops/redeploy-frontend.sh"
+    mark_component_deployed frontend
   else
     echo "Skipping operator frontend deploy"
+    if [[ "$RUN_FRONTEND" == "auto" ]]; then
+      mark_component_deployed frontend
+    fi
   fi
 
-  if should_run "$RUN_SITE" '^(marketing/|site/|scripts/sync-marketing-site\.mjs|package(-lock)?\.json)'; then
+  if should_run site "$RUN_SITE" '^(marketing/|site/|scripts/sync-marketing-site\.mjs|package(-lock)?\.json)'; then
     run_site=1
     echo "Building public site"
     build_site
+    mark_component_deployed site
   else
     echo "Skipping public site build"
+    if [[ "$RUN_SITE" == "auto" ]]; then
+      mark_component_deployed site
+    fi
   fi
 
-  if should_run "$RUN_CADDY" '^(deploy/Caddyfile\.averray|scripts/ops/render-caddyfile\.sh)'; then
+  if should_run caddy "$RUN_CADDY" '^(deploy/Caddyfile\.averray|scripts/ops/render-caddyfile\.sh)'; then
     run_caddy=1
     echo "Applying Caddy config"
     apply_caddy
+    mark_component_deployed caddy
   else
     echo "Skipping Caddy config"
+    if [[ "$RUN_CADDY" == "auto" ]]; then
+      mark_component_deployed caddy
+    fi
   fi
 
   if changed_matches '^(contracts/|script/|foundry\.toml|remappings\.txt)'; then

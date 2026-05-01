@@ -60,6 +60,9 @@ jobs:
         working-directory: mcp-server
         run: node --test --test-timeout=30000 src/protocols/http/server.smoke.test.js
 
+      - name: Ops script regression tests
+        run: npm run test:ops
+
   frontend:
     name: Operator app — static export
     runs-on: ubuntu-latest
