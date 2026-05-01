@@ -132,7 +132,7 @@
             "name": "state",
             "in": "query",
             "required": false,
-            "description": "Filter by lifecycle state or status.",
+            "description": "Filter by effective claim state/status. Agents should use claimStatus.claimable and claimStatus.reason before attempting /jobs/claim.",
             "schema": {
               "type": "string"
             },
@@ -215,6 +215,14 @@
                           "id": "wiki-en-123-citation-repair-example",
                           "title": "Repair Wikipedia citations: Example",
                           "state": "open",
+                          "claimState": "open",
+                          "effectiveState": "claimable",
+                          "claimable": true,
+                          "currentWalletCanClaim": null,
+                          "reason": "claimable",
+                          "retryLimit": 1,
+                          "claimAttemptCount": 0,
+                          "remainingClaimAttempts": 1,
                           "source": "wikipedia",
                           "sourceType": "wikipedia_article",
                           "category": "wikipedia",
@@ -267,7 +275,7 @@
         ],
         "operationId": "getJobDefinition",
         "summary": "Get one job definition",
-        "description": "Returns a single job definition by job id. Wikipedia jobs include publicDetails with article, pinned revision, proposal-only, attribution, acceptance, and schema affordances for generic agents.",
+        "description": "Returns a single job definition by job id. Wikipedia jobs include publicDetails with article, pinned revision, proposal-only, attribution, acceptance, and schema affordances for generic agents. claimStatus.claimable and claimStatus.reason are the authoritative current claimability decision; lifecycle.status describes the content/job lifecycle and may remain open when a job is claimed, submitted, or exhausted.",
         "parameters": [
           {
             "name": "jobId",
@@ -855,6 +863,95 @@
           },
           "lifecycle": {
             "$ref": "#/components/schemas/JobLifecycle"
+          },
+          "claimStatus": {
+            "$ref": "#/components/schemas/JobClaimStatus"
+          },
+          "claimabilitySource": {
+            "type": "string",
+            "const": "claimStatus"
+          },
+          "lifecycleStatusMeaning": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "JobClaimStatus": {
+        "type": "object",
+        "description": "Authoritative current claimability state for agents. Use this before mutating /jobs/claim; lifecycle.status is content/job lifecycle metadata.",
+        "properties": {
+          "claimState": {
+            "type": "string",
+            "enum": [
+              "open",
+              "claimed",
+              "expired",
+              "submitted",
+              "exhausted"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "effectiveState": {
+            "type": "string",
+            "enum": [
+              "claimable",
+              "claimed",
+              "expired",
+              "submitted",
+              "exhausted"
+            ]
+          },
+          "claimable": {
+            "type": "boolean"
+          },
+          "currentWalletCanClaim": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "retryLimit": {
+            "type": "integer"
+          },
+          "claimAttemptCount": {
+            "type": "integer"
+          },
+          "remainingClaimAttempts": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "claimedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimabilitySource": {
+            "type": "string",
+            "const": "claimStatus"
+          },
+          "lifecycleStatusMeaning": {
+            "type": "string"
           }
         },
         "additionalProperties": true
@@ -933,6 +1030,75 @@
           },
           "state": {
             "type": "string"
+          },
+          "claimState": {
+            "type": "string"
+          },
+          "effectiveState": {
+            "type": "string"
+          },
+          "claimable": {
+            "type": "boolean"
+          },
+          "currentWalletCanClaim": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retryLimit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "claimAttemptCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "remainingClaimAttempts": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "claimNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "claimedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source": {
             "type": "string"

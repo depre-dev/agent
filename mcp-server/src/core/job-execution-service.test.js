@@ -7,6 +7,7 @@ import { MemoryStateStore } from "./state-store.js";
 import { computeClaimEconomics } from "./claim-economics.js";
 
 const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const WALLET_2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 function makeJob(overrides = {}) {
   return {
@@ -180,6 +181,70 @@ test("submitWork rejects and materializes expired claims before mutation", async
   const stored = await stateStore.getSession(claimed.sessionId);
   assert.equal(stored.status, "expired");
   assert.equal(stored.expiredAt, "2026-05-01T10:01:00.000Z");
+});
+
+test("claimJob reopens an expired claim when retry budget remains", async () => {
+  const stateStore = new MemoryStateStore();
+  const job = makeJob({
+    claimTtlSeconds: 60,
+    retryLimit: 2
+  });
+  const service = new JobExecutionService(stateStore, undefined, () => job);
+
+  const first = await service.claimJob(WALLET, job.id, "http", "idemp-expired-retry-1");
+  await stateStore.upsertSession({
+    ...first,
+    claimedAt: "2026-05-01T10:00:00.000Z",
+    statusHistory: [
+      {
+        from: null,
+        to: "claimed",
+        reason: "job_claimed",
+        at: "2026-05-01T10:00:00.000Z"
+      }
+    ]
+  });
+
+  const second = await service.claimJob(WALLET_2, job.id, "http", "idemp-expired-retry-2");
+
+  assert.equal(second.status, "claimed");
+  assert.equal(second.wallet, WALLET_2);
+  assert.notEqual(second.sessionId, first.sessionId);
+  assert.equal((await stateStore.getSession(first.sessionId)).status, "expired");
+  assert.equal((await stateStore.findSessionByJobId(job.id)).sessionId, second.sessionId);
+});
+
+test("claimJob reports exhausted retry budget after an expired single-attempt job", async () => {
+  const stateStore = new MemoryStateStore();
+  const job = makeJob({
+    claimTtlSeconds: 60,
+    retryLimit: 1
+  });
+  const service = new JobExecutionService(stateStore, undefined, () => job);
+
+  const first = await service.claimJob(WALLET, job.id, "http", "idemp-expired-exhausted-1");
+  await stateStore.upsertSession({
+    ...first,
+    claimedAt: "2026-05-01T10:00:00.000Z",
+    statusHistory: [
+      {
+        from: null,
+        to: "claimed",
+        reason: "job_claimed",
+        at: "2026-05-01T10:00:00.000Z"
+      }
+    ]
+  });
+
+  await assert.rejects(
+    () => service.claimJob(WALLET_2, job.id, "http", "idemp-expired-exhausted-2"),
+    (error) => {
+      assert.equal(error.code, "retry_limit_exhausted");
+      assert.equal(error.details.claimAttemptCount, 1);
+      return true;
+    }
+  );
+  assert.equal((await stateStore.getSession(first.sessionId)).status, "expired");
 });
 
 test("computeClaimEconomics waives first three claims and then applies stake plus fee", () => {

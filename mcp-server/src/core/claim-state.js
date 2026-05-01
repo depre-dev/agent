@@ -21,10 +21,21 @@ export function isTerminalSession(session) {
   return TERMINAL_SESSION_STATUSES.has(session?.status);
 }
 
-export function summarizeJobClaimState({ job, session = undefined, wallet = undefined, now = new Date() } = {}) {
+export function summarizeJobClaimState({
+  job,
+  session = undefined,
+  sessions = undefined,
+  wallet = undefined,
+  now = new Date()
+} = {}) {
   const lifecycle = job?.lifecycle ?? {};
   const lifecycleState = lifecycle.state ?? lifecycle.status ?? "open";
   const retryLimit = Number.isInteger(job?.retryLimit) ? job.retryLimit : 1;
+  const claimAttemptCount = countClaimAttempts(sessions, session);
+  const retryExhausted = retryLimit > 0 && claimAttemptCount >= retryLimit;
+  const remainingClaimAttempts = retryLimit > 0
+    ? Math.max(0, retryLimit - claimAttemptCount)
+    : null;
   const normalizedWallet = normalizeWallet(wallet);
   const claimedBy = normalizeWallet(session?.wallet) ?? normalizeWallet(job?.claimedBy);
   const walletMatchesClaim = Boolean(normalizedWallet && claimedBy && normalizedWallet === claimedBy);
@@ -32,13 +43,18 @@ export function summarizeJobClaimState({ job, session = undefined, wallet = unde
   const expired = isExpiredClaim(session, job, now) || session?.status === "expired";
 
   if (!session) {
-    const claimable = lifecycleState === "open";
+    const claimable = lifecycleState === "open" && !retryExhausted;
+    const claimState = retryExhausted ? "exhausted" : claimable ? "open" : lifecycleState;
     return compact({
-      claimState: claimable ? "open" : lifecycleState,
+      claimState,
+      state: claimState,
+      effectiveState: claimable ? "claimable" : claimState,
       claimable,
       currentWalletCanClaim: normalizedWallet ? claimable : null,
-      reason: claimable ? "claimable" : `job_${lifecycleState}`,
+      reason: retryExhausted ? "retry_limit_exhausted" : claimable ? "claimable" : `job_${lifecycleState}`,
       retryLimit,
+      claimAttemptCount,
+      remainingClaimAttempts,
       claimedBy: null,
       claimedAt: null,
       claimExpiresAt: null,
@@ -48,13 +64,18 @@ export function summarizeJobClaimState({ job, session = undefined, wallet = unde
   }
 
   if (expired) {
-    const retryLimitExhausted = walletMatchesClaim && retryLimit <= 1;
+    const claimable = lifecycleState === "open" && !retryExhausted;
+    const claimState = retryExhausted ? "exhausted" : "expired";
     return compact({
-      claimState: "expired",
-      claimable: false,
-      currentWalletCanClaim: normalizedWallet ? false : null,
-      reason: retryLimitExhausted ? "retry_limit_exhausted" : "claim_expired_reopen_required",
+      claimState,
+      state: claimState,
+      effectiveState: claimable ? "claimable" : claimState,
+      claimable,
+      currentWalletCanClaim: normalizedWallet ? claimable : null,
+      reason: retryExhausted ? "retry_limit_exhausted" : "claim_ttl_expired_reopen_available",
       retryLimit,
+      claimAttemptCount,
+      remainingClaimAttempts,
       claimedBy,
       claimedAt: session.claimedAt ?? null,
       claimExpiresAt: claimExpiresAtValue ?? session.expiredAt ?? null,
@@ -67,10 +88,14 @@ export function summarizeJobClaimState({ job, session = undefined, wallet = unde
   if (session.status === "claimed") {
     return compact({
       claimState: "claimed",
+      state: "claimed",
+      effectiveState: "claimed",
       claimable: false,
       currentWalletCanClaim: normalizedWallet ? false : null,
       reason: walletMatchesClaim ? "already_claimed_by_current_wallet" : "claimed_by_other_wallet",
       retryLimit,
+      claimAttemptCount,
+      remainingClaimAttempts,
       claimedBy,
       claimedAt: session.claimedAt ?? null,
       claimExpiresAt: claimExpiresAtValue ?? null,
@@ -82,10 +107,14 @@ export function summarizeJobClaimState({ job, session = undefined, wallet = unde
   const claimState = submittedLikeState(session.status);
   return compact({
     claimState,
+    state: claimState,
+    effectiveState: claimState,
     claimable: false,
     currentWalletCanClaim: normalizedWallet ? false : null,
     reason: claimState === "exhausted" ? "job_session_completed" : `session_${claimState}`,
     retryLimit,
+    claimAttemptCount,
+    remainingClaimAttempts,
     claimedBy,
     claimedAt: session.claimedAt ?? null,
     claimExpiresAt: claimExpiresAtValue ?? null,
@@ -96,19 +125,47 @@ export function summarizeJobClaimState({ job, session = undefined, wallet = unde
 
 export function claimStatusFields(claimStatus) {
   return {
-    claimStatus,
+    claimStatus: {
+      ...claimStatus,
+      state: claimStatus.state ?? claimStatus.claimState,
+      claimabilitySource: "claimStatus",
+      lifecycleStatusMeaning: "content/job lifecycle; check claimStatus.claimable and claimStatus.reason before claiming"
+    },
     claimState: claimStatus.claimState,
+    effectiveState: claimStatus.effectiveState ?? claimStatus.claimState,
     claimable: claimStatus.claimable,
     currentWalletCanClaim: claimStatus.currentWalletCanClaim,
     reason: claimStatus.reason,
     retryLimit: claimStatus.retryLimit,
+    claimAttemptCount: claimStatus.claimAttemptCount ?? null,
+    remainingClaimAttempts: claimStatus.remainingClaimAttempts ?? null,
     claimNumber: claimStatus.claimNumber ?? null,
     claimedBy: claimStatus.claimedBy ?? null,
     claimedAt: claimStatus.claimedAt ?? null,
     claimExpiresAt: claimStatus.claimExpiresAt ?? null,
     sessionId: claimStatus.sessionId ?? null,
-    state: claimStatus.claimState
+    state: claimStatus.state ?? claimStatus.claimState,
+    claimabilitySource: "claimStatus",
+    lifecycleStatusMeaning: "content/job lifecycle; check claimStatus.claimable and claimStatus.reason before claiming"
   };
+}
+
+export function countClaimAttempts(sessions = undefined, session = undefined) {
+  const candidates = Array.isArray(sessions)
+    ? sessions
+    : session
+      ? [session]
+      : [];
+  const seen = new Set();
+  let count = 0;
+  for (const candidate of candidates) {
+    if (!candidate?.sessionId || seen.has(candidate.sessionId)) continue;
+    seen.add(candidate.sessionId);
+    if (candidate.claimedAt || candidate.status) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function submittedLikeState(status) {

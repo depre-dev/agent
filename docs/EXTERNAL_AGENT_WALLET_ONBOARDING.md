@@ -126,6 +126,11 @@ curl -s 'https://api.averray.com/jobs?source=wikipedia&state=open&limit=5'
 curl -s 'https://api.averray.com/jobs/definition?jobId=<job-id>'
 ```
 
+Use `claimStatus.claimable` and `claimStatus.reason` as the authoritative
+claimability signal before attempting `/jobs/claim`. `lifecycle.status`
+describes the content/job lifecycle and may remain `open` for a job whose
+current claim state is `claimed`, `submitted`, or `exhausted`.
+
 After SIWE login, check readiness before claiming:
 
 ```bash

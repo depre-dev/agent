@@ -76,8 +76,12 @@ function matchesFilters(job, filters) {
     return false;
   }
   if (filters.state) {
-    const { state, status } = effectiveJobState(job);
-    if (filters.state !== state && filters.state !== status) {
+    const { state, status, effectiveState } = effectiveJobState(job);
+    const wantsClaimable = ["open", "available", "claimable"].includes(filters.state);
+    if (wantsClaimable && effectiveState === "claimable") {
+      return true;
+    }
+    if (filters.state !== state && filters.state !== status && filters.state !== effectiveState) {
       return false;
     }
   }
@@ -87,19 +91,23 @@ function matchesFilters(job, filters) {
 function toCompactJobRow(job) {
   const lifecycle = job.lifecycle ?? {};
   const { state } = effectiveJobState(job);
+  const claimable = job.claimable ?? state === "open";
   const sourceDetails = compactSourceDetails(job);
   return {
     id: job.id,
     title: job.title,
     state,
     claimState: job.claimState ?? state,
-    claimable: job.claimable ?? state === "open",
+    effectiveState: job.effectiveState ?? (claimable ? "claimable" : job.claimState ?? state),
+    claimable,
     currentWalletCanClaim: job.currentWalletCanClaim ?? null,
     reason: job.reason ?? null,
     claimedBy: job.claimedBy ?? null,
     claimedAt: job.claimedAt ?? null,
     claimExpiresAt: job.claimExpiresAt ?? null,
     retryLimit: job.retryLimit ?? null,
+    claimAttemptCount: job.claimAttemptCount ?? null,
+    remainingClaimAttempts: job.remainingClaimAttempts ?? null,
     claimNumber: job.claimNumber ?? null,
     sessionId: job.sessionId ?? null,
     source: publicSourceLabel(job),
@@ -123,7 +131,8 @@ function effectiveJobState(job) {
   const lifecycle = job.lifecycle ?? {};
   const state = normalizeToken(job.claimState ?? job.state ?? lifecycle.state ?? lifecycle.status ?? "open");
   const status = normalizeToken(job.claimStatus?.claimState ?? job.state ?? state);
-  return { state, status };
+  const effectiveState = normalizeToken(job.effectiveState ?? (job.claimable ? "claimable" : state));
+  return { state, status, effectiveState };
 }
 
 function compactSourceDetails(job) {

@@ -17,7 +17,7 @@ import {
   DEFAULT_OPEN_PR_CAP_PER_REPO,
   countOpenGithubPullRequestsForRepo
 } from "./maintainer-surface-policy.js";
-import { claimExpiresAt, isExpiredClaim, isTerminalSession } from "./claim-state.js";
+import { claimExpiresAt, countClaimAttempts, isExpiredClaim, isTerminalSession } from "./claim-state.js";
 
 export class JobExecutionService {
   constructor(
@@ -52,10 +52,28 @@ export class JobExecutionService {
       if (!this.isTerminalSession(refreshed)) {
         return refreshed;
       }
+      throw new ConflictError(
+        "Idempotency key already belongs to a terminal claim session.",
+        "idempotency_key_already_used",
+        { sessionId: refreshed.sessionId, jobId: refreshed.jobId, status: refreshed.status }
+      );
     }
 
     const job = this.getClaimableJobDefinition(jobId);
-    const sessionId = `${jobId}:${wallet}`;
+    const activeJobSession = await this.stateStore.findSessionByJobId(jobId);
+    const refreshedActiveJobSession = activeJobSession
+      ? await this.materializeExpiredClaim(activeJobSession, job)
+      : undefined;
+    const jobSessions = await this.listJobSessions(jobId);
+    const claimAttemptCount = countClaimAttempts(jobSessions);
+    if (this.isRetryExhausted(job, claimAttemptCount)) {
+      throw new ConflictError(
+        `Job ${jobId} exhausted its claim retry budget.`,
+        "retry_limit_exhausted",
+        { jobId, retryLimit: job.retryLimit, claimAttemptCount }
+      );
+    }
+    const sessionId = this.nextSessionId(jobId, wallet, jobSessions);
     const sessionLockId = sessionId;
     const lockOwner = randomUUID();
     const lockAcquired = await this.stateStore.acquireClaimLock?.(
@@ -80,22 +98,34 @@ export class JobExecutionService {
         if (!this.isTerminalSession(refreshed)) {
           return refreshed;
         }
+        throw new ConflictError(
+          "Idempotency key already belongs to a terminal claim session.",
+          "idempotency_key_already_used",
+          { sessionId: refreshed.sessionId, jobId: refreshed.jobId, status: refreshed.status }
+        );
       }
 
       const existingSession = await this.stateStore.getSession(sessionId);
       if (existingSession) {
         const refreshed = await this.materializeExpiredClaim(existingSession, job);
         if (this.isTerminalSession(refreshed)) {
-          throw new ConflictError(
-            `Job ${jobId} already has a completed session for this wallet. Create or select a different job to run again.`,
-            refreshed.status === "expired" ? "retry_limit_exhausted" : "job_session_completed",
-            this.buildClaimExpiryDetails(refreshed, job)
-          );
+          const refreshedSessions = await this.listJobSessions(jobId);
+          if (refreshed.status === "expired" && !this.isRetryExhausted(job, countClaimAttempts(refreshedSessions))) {
+            await this.reopenExpiredClaim(jobId);
+          } else {
+            throw new ConflictError(
+              `Job ${jobId} already has a completed session for this wallet. Create or select a different job to run again.`,
+              refreshed.status === "expired" ? "retry_limit_exhausted" : "job_session_completed",
+              this.buildClaimExpiryDetails(refreshed, job)
+            );
+          }
         }
-        return refreshed;
+        if (!this.isTerminalSession(refreshed)) {
+          return refreshed;
+        }
       }
 
-      const liveJobSession = await this.stateStore.findSessionByJobId(jobId);
+      const liveJobSession = refreshedActiveJobSession ?? await this.stateStore.findSessionByJobId(jobId);
       if (liveJobSession && liveJobSession.sessionId !== sessionId) {
         const refreshed = await this.materializeExpiredClaim(liveJobSession, job);
         if (!this.isTerminalSession(refreshed)) {
@@ -106,11 +136,16 @@ export class JobExecutionService {
           );
         }
         if (refreshed.status === "expired") {
-          throw new ConflictError(
-            `Job ${jobId} has an expired claim that must be reopened before it can be claimed again.`,
-            "claim_expired_reopen_required",
-            this.buildClaimExpiryDetails(refreshed, job)
-          );
+          const refreshedSessions = await this.listJobSessions(jobId);
+          if (!this.isRetryExhausted(job, countClaimAttempts(refreshedSessions))) {
+            await this.reopenExpiredClaim(jobId);
+          } else {
+            throw new ConflictError(
+              `Job ${jobId} exhausted its claim retry budget.`,
+              "retry_limit_exhausted",
+              this.buildClaimExpiryDetails(refreshed, job)
+            );
+          }
         }
       }
 
@@ -327,6 +362,36 @@ export class JobExecutionService {
       reason: "claim_ttl_expired"
     });
     return persisted;
+  }
+
+  async reopenExpiredClaim(jobId) {
+    if (this.blockchainGateway?.isEnabled() && typeof this.blockchainGateway.handleClaimTimeout === "function") {
+      await this.blockchainGateway.handleClaimTimeout(jobId);
+    }
+  }
+
+  async listJobSessions(jobId, limit = 100) {
+    return await this.stateStore.listSessionsByJob?.(jobId, limit) ?? [];
+  }
+
+  isRetryExhausted(job, claimAttemptCount) {
+    const retryLimit = Number.isInteger(job?.retryLimit) ? job.retryLimit : 1;
+    return retryLimit > 0 && claimAttemptCount >= retryLimit;
+  }
+
+  nextSessionId(jobId, wallet, sessions = []) {
+    const baseSessionId = `${jobId}:${wallet}`;
+    const existingIds = new Set(sessions.map((session) => session?.sessionId).filter(Boolean));
+    if (!existingIds.has(baseSessionId)) {
+      return baseSessionId;
+    }
+    let attempt = existingIds.size + 1;
+    let candidate = `${baseSessionId}:${attempt}`;
+    while (existingIds.has(candidate)) {
+      attempt += 1;
+      candidate = `${baseSessionId}:${attempt}`;
+    }
+    return candidate;
   }
 
   buildClaimExpiryDetails(session, job) {
