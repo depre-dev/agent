@@ -1,4 +1,4 @@
-import { hexToString } from "viem";
+import { decodeFunctionResult, encodeFunctionData, hexToString } from "viem";
 
 import { ponder } from "ponder:registry";
 import schema from "ponder:schema";
@@ -28,6 +28,7 @@ const decodeBytes32 = (value: string) => {
 const toEventId = (txHash: string, logIndex: number | bigint) => `${txHash}-${logIndex.toString()}`;
 const nullIfZeroHash = (value: `0x${string}`): `0x${string}` | null =>
   value.toLowerCase() === zeroHash ? null : value;
+const hexByteLength = (value: `0x${string}`) => (value.length - 2) / 2;
 
 const toTier = (skill: bigint) => {
   if (skill >= 200n) return "elite";
@@ -137,123 +138,138 @@ const readLiveJob = async ({
   event: any;
   jobId: `0x${string}`;
 }) => {
-  try {
-    return await context.client.readContract({
+  const response = await context.client.call({
+    to: event.log.address,
+    data: encodeFunctionData({
       abi: EscrowCoreAbi,
-      address: event.log.address,
       functionName: "jobs",
       args: [jobId]
-    });
-  } catch {
-    return readLegacyJob({ context, event, jobId });
+    })
+  });
+  const data = (typeof response === "string" ? response : response?.data) as `0x${string}` | undefined;
+
+  if (!data || data === "0x") {
+    throw new Error(`EscrowCore.jobs returned empty data for ${jobId}`);
   }
+
+  return decodeLiveJob(data);
 };
 
-const readLegacyJob = async ({
-  context,
-  event,
-  jobId
-}: {
-  context: any;
-  event: any;
-  jobId: `0x${string}`;
-}) => {
-  try {
-    const legacy = await context.client.readContract({
-      abi: EscrowCoreLegacyJobsAbi,
-      address: event.log.address,
+const decodeLiveJob = (data: `0x${string}`) => {
+  const byteLength = hexByteLength(data);
+
+  if (byteLength >= 672) {
+    return decodeFunctionResult({
+      abi: EscrowCoreAbi,
       functionName: "jobs",
-      args: [jobId]
-    });
-    const [
-      poster,
-      worker,
-      asset,
-      verifierMode,
-      category,
-      specHash,
-      reward,
-      opsReserve,
-      contingencyReserve,
-      released,
-      claimExpiry,
-      claimStake,
-      claimStakeBps,
-      rejectedAt,
-      disputedAt,
-      payoutMode,
-      state
-    ] = legacy;
-    return [
-      poster,
-      worker,
-      asset,
-      verifierMode,
-      category,
-      specHash,
-      reward,
-      opsReserve,
-      contingencyReserve,
-      released,
-      claimExpiry,
-      claimStake,
-      claimStakeBps,
-      0n,
-      0,
-      false,
-      "0x0000000000000000000000000000000000000000",
-      rejectedAt,
-      disputedAt,
-      payoutMode,
-      state
-    ] as const;
-  } catch {
-    const oldLegacy = await context.client.readContract({
-      abi: EscrowCoreOldLegacyJobsAbi,
-      address: event.log.address,
-      functionName: "jobs",
-      args: [jobId]
-    });
-    const [
-      poster,
-      worker,
-      asset,
-      verifierMode,
-      category,
-      reward,
-      opsReserve,
-      contingencyReserve,
-      released,
-      claimExpiry,
-      claimStake,
-      claimStakeBps,
-      payoutMode,
-      state
-    ] = oldLegacy;
-    return [
-      poster,
-      worker,
-      asset,
-      verifierMode,
-      category,
-      zeroHash,
-      reward,
-      opsReserve,
-      contingencyReserve,
-      released,
-      claimExpiry,
-      claimStake,
-      claimStakeBps,
-      0n,
-      0,
-      false,
-      "0x0000000000000000000000000000000000000000",
-      0n,
-      0n,
-      payoutMode,
-      state
-    ] as const;
+      data
+    }) as any;
   }
+
+  if (byteLength >= 544) {
+    return normalizeLegacyJob(
+      decodeFunctionResult({
+        abi: EscrowCoreLegacyJobsAbi,
+        functionName: "jobs",
+        data
+      }) as any
+    );
+  }
+
+  return normalizeOldLegacyJob(
+    decodeFunctionResult({
+      abi: EscrowCoreOldLegacyJobsAbi,
+      functionName: "jobs",
+      data
+    }) as any
+  );
+};
+
+const normalizeLegacyJob = (legacy: any) => {
+  const [
+    poster,
+    worker,
+    asset,
+    verifierMode,
+    category,
+    specHash,
+    reward,
+    opsReserve,
+    contingencyReserve,
+    released,
+    claimExpiry,
+    claimStake,
+    claimStakeBps,
+    rejectedAt,
+    disputedAt,
+    payoutMode,
+    state
+  ] = legacy;
+  return [
+    poster,
+    worker,
+    asset,
+    verifierMode,
+    category,
+    specHash,
+    reward,
+    opsReserve,
+    contingencyReserve,
+    released,
+    claimExpiry,
+    claimStake,
+    claimStakeBps,
+    0n,
+    0,
+    false,
+    "0x0000000000000000000000000000000000000000",
+    rejectedAt,
+    disputedAt,
+    payoutMode,
+    state
+  ] as const;
+};
+
+const normalizeOldLegacyJob = (oldLegacy: any) => {
+  const [
+    poster,
+    worker,
+    asset,
+    verifierMode,
+    category,
+    reward,
+    opsReserve,
+    contingencyReserve,
+    released,
+    claimExpiry,
+    claimStake,
+    claimStakeBps,
+    payoutMode,
+    state
+  ] = oldLegacy;
+  return [
+    poster,
+    worker,
+    asset,
+    verifierMode,
+    category,
+    zeroHash,
+    reward,
+    opsReserve,
+    contingencyReserve,
+    released,
+    claimExpiry,
+    claimStake,
+    claimStakeBps,
+    0n,
+    0,
+    false,
+    "0x0000000000000000000000000000000000000000",
+    0n,
+    0n,
+    payoutMode,
+    state
+  ] as const;
 };
 
 ponder.on("EscrowCore:JobFunded", async ({ event, context }) => {
