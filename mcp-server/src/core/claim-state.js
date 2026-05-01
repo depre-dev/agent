@@ -1,0 +1,135 @@
+const TERMINAL_SESSION_STATUSES = new Set(["resolved", "rejected", "closed", "expired", "timed_out"]);
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+export function claimExpiresAt(session, job) {
+  if (!session?.claimedAt) return undefined;
+  const claimedAtMs = Date.parse(session.claimedAt);
+  const ttlSeconds = Number(job?.claimTtlSeconds ?? 0);
+  if (!Number.isFinite(claimedAtMs) || !Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    return undefined;
+  }
+  return new Date(claimedAtMs + ttlSeconds * 1000).toISOString();
+}
+
+export function isExpiredClaim(session, job, now = new Date()) {
+  if (session?.status !== "claimed") return false;
+  const expiresAt = claimExpiresAt(session, job);
+  return Boolean(expiresAt && Date.parse(expiresAt) <= now.getTime());
+}
+
+export function isTerminalSession(session) {
+  return TERMINAL_SESSION_STATUSES.has(session?.status);
+}
+
+export function summarizeJobClaimState({ job, session = undefined, wallet = undefined, now = new Date() } = {}) {
+  const lifecycle = job?.lifecycle ?? {};
+  const lifecycleState = lifecycle.state ?? lifecycle.status ?? "open";
+  const retryLimit = Number.isInteger(job?.retryLimit) ? job.retryLimit : 1;
+  const normalizedWallet = normalizeWallet(wallet);
+  const claimedBy = normalizeWallet(session?.wallet) ?? normalizeWallet(job?.claimedBy);
+  const walletMatchesClaim = Boolean(normalizedWallet && claimedBy && normalizedWallet === claimedBy);
+  const claimExpiresAtValue = claimExpiresAt(session, job);
+  const expired = isExpiredClaim(session, job, now) || session?.status === "expired";
+
+  if (!session) {
+    const claimable = lifecycleState === "open";
+    return compact({
+      claimState: claimable ? "open" : lifecycleState,
+      claimable,
+      currentWalletCanClaim: normalizedWallet ? claimable : null,
+      reason: claimable ? "claimable" : `job_${lifecycleState}`,
+      retryLimit,
+      claimedBy: null,
+      claimedAt: null,
+      claimExpiresAt: null,
+      claimNumber: null,
+      sessionId: null
+    });
+  }
+
+  if (expired) {
+    const retryLimitExhausted = walletMatchesClaim && retryLimit <= 1;
+    return compact({
+      claimState: "expired",
+      claimable: false,
+      currentWalletCanClaim: normalizedWallet ? false : null,
+      reason: retryLimitExhausted ? "retry_limit_exhausted" : "claim_expired_reopen_required",
+      retryLimit,
+      claimedBy,
+      claimedAt: session.claimedAt ?? null,
+      claimExpiresAt: claimExpiresAtValue ?? session.expiredAt ?? null,
+      claimNumber: session.claimNumber ?? 1,
+      sessionId: session.sessionId ?? null,
+      expiredAt: session.expiredAt ?? claimExpiresAtValue ?? null
+    });
+  }
+
+  if (session.status === "claimed") {
+    return compact({
+      claimState: "claimed",
+      claimable: false,
+      currentWalletCanClaim: normalizedWallet ? false : null,
+      reason: walletMatchesClaim ? "already_claimed_by_current_wallet" : "claimed_by_other_wallet",
+      retryLimit,
+      claimedBy,
+      claimedAt: session.claimedAt ?? null,
+      claimExpiresAt: claimExpiresAtValue ?? null,
+      claimNumber: session.claimNumber ?? 1,
+      sessionId: session.sessionId ?? null
+    });
+  }
+
+  const claimState = submittedLikeState(session.status);
+  return compact({
+    claimState,
+    claimable: false,
+    currentWalletCanClaim: normalizedWallet ? false : null,
+    reason: claimState === "exhausted" ? "job_session_completed" : `session_${claimState}`,
+    retryLimit,
+    claimedBy,
+    claimedAt: session.claimedAt ?? null,
+    claimExpiresAt: claimExpiresAtValue ?? null,
+    claimNumber: session.claimNumber ?? null,
+    sessionId: session.sessionId ?? null
+  });
+}
+
+export function claimStatusFields(claimStatus) {
+  return {
+    claimStatus,
+    claimState: claimStatus.claimState,
+    claimable: claimStatus.claimable,
+    currentWalletCanClaim: claimStatus.currentWalletCanClaim,
+    reason: claimStatus.reason,
+    retryLimit: claimStatus.retryLimit,
+    claimNumber: claimStatus.claimNumber ?? null,
+    claimedBy: claimStatus.claimedBy ?? null,
+    claimedAt: claimStatus.claimedAt ?? null,
+    claimExpiresAt: claimStatus.claimExpiresAt ?? null,
+    sessionId: claimStatus.sessionId ?? null,
+    state: claimStatus.claimState
+  };
+}
+
+function submittedLikeState(status) {
+  if (status === "submitted" || status === "disputed" || status === "rejected") {
+    return "submitted";
+  }
+  if (TERMINAL_SESSION_STATUSES.has(status)) {
+    return "exhausted";
+  }
+  return status ?? "open";
+}
+
+function normalizeWallet(wallet) {
+  if (typeof wallet !== "string" || !wallet.trim()) return undefined;
+  const trimmed = wallet.trim();
+  if (trimmed === ZERO_ADDRESS) return undefined;
+  return trimmed.toLowerCase();
+}
+
+function compact(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  );
+}

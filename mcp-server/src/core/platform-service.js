@@ -11,6 +11,7 @@ import {
   getSessionStateMachineDefinition
 } from "./session-state-machine.js";
 import { computeClaimEconomics, countClaimedSessions } from "./claim-economics.js";
+import { claimStatusFields, summarizeJobClaimState } from "./claim-state.js";
 
 const STARTER_REPUTATION = {
   skill: 0,
@@ -123,23 +124,10 @@ export class PlatformService {
    * visibility calls this method instead of `listJobs`.
    */
   async listJobsWithSessions(options = {}) {
-    const jobs = this.jobCatalogService.listJobs(options);
+    const { wallet, currentWallet, now = new Date(), ...catalogOptions } = options;
+    const jobs = this.jobCatalogService.listJobs({ ...catalogOptions, now });
     return Promise.all(
-      jobs.map(async (job) => {
-        const session = await this.stateStore.findSessionByJobId?.(job.id);
-        if (!session) return job;
-        return {
-          ...job,
-          state: typeof session.status === "string" ? session.status : job.state ?? null,
-          claimedBy: typeof session.wallet === "string" ? session.wallet : job.claimedBy ?? null,
-          sessionId: typeof session.sessionId === "string"
-            ? session.sessionId
-            : job.sessionId ?? null,
-          claimedAt: typeof session.claimedAt === "string"
-            ? session.claimedAt
-            : job.claimedAt ?? undefined
-        };
-      })
+      jobs.map((job) => this.attachClaimState(job, { wallet: currentWallet ?? wallet, now }))
     );
   }
 
@@ -423,8 +411,12 @@ export class PlatformService {
     return this.jobCatalogService.getJobDefinition(jobId);
   }
 
-  getPublicJobDefinition(jobId) {
-    return this.jobCatalogService.getPublicJobDefinition(jobId);
+  async getPublicJobDefinition(jobId, options = {}) {
+    const { wallet, currentWallet, now = new Date() } = options;
+    return this.attachClaimState(
+      this.jobCatalogService.getPublicJobDefinition(jobId),
+      { wallet: currentWallet ?? wallet, now }
+    );
   }
 
   getClaimableJobDefinition(jobId) {
@@ -440,7 +432,25 @@ export class PlatformService {
   }
 
   async preflightJob(wallet, jobId) {
-    return this.jobCatalogService.preflightJob(wallet, jobId);
+    const [preflight, job] = await Promise.all([
+      this.jobCatalogService.preflightJob(wallet, jobId),
+      this.getPublicJobDefinition(jobId, { wallet })
+    ]);
+    return {
+      ...preflight,
+      catalogEligible: preflight.eligible,
+      eligible: preflight.eligible && job.claimable === true && job.currentWalletCanClaim !== false,
+      claimStatus: job.claimStatus,
+      claimState: job.claimState,
+      claimable: job.claimable,
+      currentWalletCanClaim: job.currentWalletCanClaim,
+      reason: job.reason,
+      claimedBy: job.claimedBy,
+      claimedAt: job.claimedAt,
+      claimExpiresAt: job.claimExpiresAt,
+      retryLimit: job.retryLimit,
+      sessionId: job.sessionId
+    };
   }
 
   async explainEligibility(wallet, jobId) {
@@ -461,6 +471,23 @@ export class PlatformService {
 
   async resumeSession(sessionId) {
     return this.jobExecutionService.resumeSession(sessionId);
+  }
+
+  async attachClaimState(job, { wallet = undefined, now = new Date() } = {}) {
+    const session = await this.stateStore.findSessionByJobId?.(job.id);
+    const refreshedSession = session
+      ? await this.jobExecutionService.materializeExpiredClaim(session, job, now)
+      : undefined;
+    const claimStatus = summarizeJobClaimState({
+      job,
+      session: refreshedSession,
+      wallet,
+      now
+    });
+    return {
+      ...job,
+      ...claimStatusFields(claimStatus)
+    };
   }
 
   async listSessionHistory({ wallet = undefined, limit = 10, jobId = undefined } = {}) {

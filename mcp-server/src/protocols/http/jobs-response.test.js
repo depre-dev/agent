@@ -80,6 +80,16 @@ test("public jobs response filters and compacts agent-friendly queries", () => {
     "id",
     "title",
     "state",
+    "claimState",
+    "claimable",
+    "currentWalletCanClaim",
+    "reason",
+    "claimedBy",
+    "claimedAt",
+    "claimExpiresAt",
+    "retryLimit",
+    "claimNumber",
+    "sessionId",
     "source",
     "sourceType",
     "category",
@@ -93,6 +103,9 @@ test("public jobs response filters and compacts agent-friendly queries", () => {
     "sourceDetails"
   ]);
   assert.equal(response.jobs[0].id, "wiki-en-123-citation-repair-example");
+  assert.equal(response.jobs[0].state, "open");
+  assert.equal(response.jobs[0].claimState, "open");
+  assert.equal(response.jobs[0].claimable, true);
   assert.equal(response.jobs[0].source, "wikipedia");
   assert.equal(response.jobs[0].sourceType, "wikipedia_article");
   assert.equal(response.jobs[0].definitionUrl, "/jobs/definition?jobId=wiki-en-123-citation-repair-example");
@@ -107,6 +120,46 @@ test("public jobs response filters and compacts agent-friendly queries", () => {
     attributionPolicy: "Averray proposal only / no direct Wikipedia edit",
     outputSchemaUrl: "/schemas/jobs/wikipedia-citation-repair-output.json"
   });
+});
+
+test("public jobs response filters compact rows by claim state", () => {
+  const response = buildPublicJobsResponse(
+    [
+      {
+        ...JOBS[0],
+        claimState: "expired",
+        claimable: false,
+        currentWalletCanClaim: false,
+        reason: "retry_limit_exhausted",
+        claimedBy: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        claimedAt: "2026-05-01T11:18:03.973Z",
+        claimExpiresAt: "2026-05-01T12:18:03.973Z",
+        retryLimit: 1,
+        claimNumber: 1,
+        sessionId: "wiki-en-123-citation-repair-example:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    new URLSearchParams("state=expired&limit=25")
+  );
+
+  assert.equal(response.count, 1);
+  assert.equal(response.jobs[0].state, "expired");
+  assert.equal(response.jobs[0].claimState, "expired");
+  assert.equal(response.jobs[0].claimable, false);
+  assert.equal(response.jobs[0].currentWalletCanClaim, false);
+  assert.equal(response.jobs[0].reason, "retry_limit_exhausted");
+  assert.equal(response.jobs[0].claimExpiresAt, "2026-05-01T12:18:03.973Z");
+
+  const openResponse = buildPublicJobsResponse(
+    [
+      {
+        ...JOBS[0],
+        claimState: "expired"
+      }
+    ],
+    new URLSearchParams("state=open&limit=25")
+  );
+  assert.equal(openResponse.total, 0);
 });
 
 test("public jobs response supports category filters and pagination", () => {

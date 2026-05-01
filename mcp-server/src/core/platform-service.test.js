@@ -90,7 +90,9 @@ test("listJobsWithSessions joins active session state onto job rows", async () =
   assert.equal(before[0].id, "parent-job-001");
   assert.equal(before[0].claimedBy ?? null, null);
   assert.equal(before[0].sessionId ?? null, null);
-  assert.equal(before[0].state ?? null, null);
+  assert.equal(before[0].state, "open");
+  assert.equal(before[0].claimState, "open");
+  assert.equal(before[0].claimable, true);
 
   // After a claim — the row carries claim state read live from the
   // session store so the public /jobs feed and the operator queue
@@ -104,6 +106,51 @@ test("listJobsWithSessions joins active session state onto job rows", async () =
   assert.equal(after[0].sessionId, session.sessionId);
   assert.equal(typeof after[0].state, "string");
   assert.equal(after[0].state, session.status);
+  assert.equal(after[0].claimState, "claimed");
+  assert.equal(after[0].claimable, false);
+  assert.equal(after[0].currentWalletCanClaim, null);
+  assert.equal(after[0].claimExpiresAt, new Date(Date.parse(session.claimedAt) + 3600 * 1000).toISOString());
+});
+
+test("listJobsWithSessions and definition expose expired claim affordances", async () => {
+  const service = makePlatformService();
+  const session = await service.claimJob(WALLET, "parent-job-001", "http", "expired-claim-test");
+  await service.stateStore.upsertSession({
+    ...session,
+    claimedAt: "2026-05-01T11:18:03.973Z",
+    statusHistory: [
+      {
+        from: null,
+        to: "claimed",
+        reason: "job_claimed",
+        at: "2026-05-01T11:18:03.973Z"
+      }
+    ]
+  });
+
+  const now = new Date("2026-05-01T12:18:04.000Z");
+  const rows = await service.listJobsWithSessions({ wallet: WALLET, now });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].state, "expired");
+  assert.equal(rows[0].claimState, "expired");
+  assert.equal(rows[0].claimable, false);
+  assert.equal(rows[0].currentWalletCanClaim, false);
+  assert.equal(rows[0].reason, "retry_limit_exhausted");
+  assert.equal(rows[0].claimedBy, WALLET);
+  assert.equal(rows[0].claimedAt, "2026-05-01T11:18:03.973Z");
+  assert.equal(rows[0].claimExpiresAt, "2026-05-01T12:18:03.973Z");
+  assert.equal(rows[0].retryLimit, 1);
+  assert.equal(rows[0].sessionId, session.sessionId);
+
+  const stored = await service.resumeSession(session.sessionId);
+  assert.equal(stored.status, "expired");
+  assert.equal(stored.expiredAt, "2026-05-01T12:18:03.973Z");
+
+  const definition = await service.getPublicJobDefinition("parent-job-001", { wallet: WALLET, now });
+  assert.equal(definition.lifecycle.state, "open");
+  assert.equal(definition.claimState, "expired");
+  assert.equal(definition.claimStatus.claimExpiresAt, "2026-05-01T12:18:03.973Z");
+  assert.equal(definition.claimStatus.reason, "retry_limit_exhausted");
 });
 
 test("getSessionTimeline includes transitions and verification state", async () => {

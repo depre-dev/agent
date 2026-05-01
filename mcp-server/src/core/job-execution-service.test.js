@@ -142,6 +142,46 @@ test("submitWork rejects structured output when the schema ref is unknown", asyn
   );
 });
 
+test("submitWork rejects and materializes expired claims before mutation", async () => {
+  const stateStore = new MemoryStateStore();
+  const job = makeJob({
+    outputSchemaRef: "schema://jobs/coding-output",
+    claimTtlSeconds: 60
+  });
+  const service = new JobExecutionService(stateStore, undefined, () => job);
+
+  const claimed = await service.claimJob(WALLET, job.id, "http", "idemp-expired-submit");
+  await stateStore.upsertSession({
+    ...claimed,
+    claimedAt: "2026-05-01T10:00:00.000Z",
+    statusHistory: [
+      {
+        from: null,
+        to: "claimed",
+        reason: "job_claimed",
+        at: "2026-05-01T10:00:00.000Z"
+      }
+    ]
+  });
+
+  await assert.rejects(
+    () => service.submitWork(claimed.sessionId, "http", {
+      summary: "Parser fixed.",
+      output: "Added regression coverage.",
+      status: "complete"
+    }),
+    (error) => {
+      assert.equal(error.code, "claim_expired");
+      assert.equal(error.details.claimExpiresAt, "2026-05-01T10:01:00.000Z");
+      return true;
+    }
+  );
+
+  const stored = await stateStore.getSession(claimed.sessionId);
+  assert.equal(stored.status, "expired");
+  assert.equal(stored.expiredAt, "2026-05-01T10:01:00.000Z");
+});
+
 test("computeClaimEconomics waives first three claims and then applies stake plus fee", () => {
   const waived = computeClaimEconomics({
     rewardAmount: 5,

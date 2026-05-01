@@ -1361,7 +1361,9 @@ const server = createServer(async (request, response) => {
       // immutable; this endpoint reads the live join. Without it
       // browser agents would re-attempt already-claimed jobs and
       // operator UIs would show "Ready" forever.
-      const jobs = await service.listJobsWithSessions();
+      const jobs = await service.listJobsWithSessions({
+        wallet: url.searchParams.get("wallet") ?? undefined
+      });
       return respond(response, 200, buildPublicJobsResponse(jobs, url.searchParams));
     }
 
@@ -1373,6 +1375,7 @@ const server = createServer(async (request, response) => {
       // The public `/jobs` route filters those out by default.
       return respond(response, 200, {
         jobs: await service.listJobsWithSessions({
+          wallet: auth.wallet,
           includePaused: true,
           includeArchived: true,
           includeStale: true
@@ -1451,7 +1454,9 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && pathname === "/jobs/definition") {
-      return respond(response, 200, service.getPublicJobDefinition(url.searchParams.get("jobId") ?? ""));
+      return respond(response, 200, await service.getPublicJobDefinition(url.searchParams.get("jobId") ?? "", {
+        wallet: url.searchParams.get("wallet") ?? undefined
+      }));
     }
 
     if (request.method === "GET" && pathname === "/gas/health") {

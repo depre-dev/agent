@@ -76,9 +76,7 @@ function matchesFilters(job, filters) {
     return false;
   }
   if (filters.state) {
-    const lifecycle = job.lifecycle ?? {};
-    const state = normalizeToken(lifecycle.state ?? lifecycle.status ?? "open");
-    const status = normalizeToken(lifecycle.status ?? state);
+    const { state, status } = effectiveJobState(job);
     if (filters.state !== state && filters.state !== status) {
       return false;
     }
@@ -88,12 +86,22 @@ function matchesFilters(job, filters) {
 
 function toCompactJobRow(job) {
   const lifecycle = job.lifecycle ?? {};
-  const state = lifecycle.state ?? lifecycle.status ?? "open";
+  const { state } = effectiveJobState(job);
   const sourceDetails = compactSourceDetails(job);
   return {
     id: job.id,
     title: job.title,
     state,
+    claimState: job.claimState ?? state,
+    claimable: job.claimable ?? state === "open",
+    currentWalletCanClaim: job.currentWalletCanClaim ?? null,
+    reason: job.reason ?? null,
+    claimedBy: job.claimedBy ?? null,
+    claimedAt: job.claimedAt ?? null,
+    claimExpiresAt: job.claimExpiresAt ?? null,
+    retryLimit: job.retryLimit ?? null,
+    claimNumber: job.claimNumber ?? null,
+    sessionId: job.sessionId ?? null,
     source: publicSourceLabel(job),
     sourceType: job.source?.type ?? null,
     category: job.category ?? null,
@@ -109,6 +117,13 @@ function toCompactJobRow(job) {
     definitionUrl: `/jobs/definition?jobId=${encodeURIComponent(job.id)}`,
     ...(sourceDetails ? { sourceDetails } : {})
   };
+}
+
+function effectiveJobState(job) {
+  const lifecycle = job.lifecycle ?? {};
+  const state = normalizeToken(job.claimState ?? job.state ?? lifecycle.state ?? lifecycle.status ?? "open");
+  const status = normalizeToken(job.claimStatus?.claimState ?? job.state ?? state);
+  return { state, status };
 }
 
 function compactSourceDetails(job) {

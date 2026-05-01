@@ -17,6 +17,7 @@ import {
   DEFAULT_OPEN_PR_CAP_PER_REPO,
   countOpenGithubPullRequestsForRepo
 } from "./maintainer-surface-policy.js";
+import { claimExpiresAt, isExpiredClaim, isTerminalSession } from "./claim-state.js";
 
 export class JobExecutionService {
   constructor(
@@ -45,8 +46,12 @@ export class JobExecutionService {
 
   async claimJob(wallet, jobId, protocol, idempotencyKey) {
     const existing = await this.stateStore.findSessionByIdempotencyKey(idempotencyKey);
-    if (existing && !this.isTerminalSession(existing)) {
-      return existing;
+    if (existing) {
+      const existingJob = this.getJobDefinition(existing.jobId);
+      const refreshed = await this.materializeExpiredClaim(existing, existingJob);
+      if (!this.isTerminalSession(refreshed)) {
+        return refreshed;
+      }
     }
 
     const job = this.getClaimableJobDefinition(jobId);
@@ -69,24 +74,44 @@ export class JobExecutionService {
 
     try {
       const replay = await this.stateStore.findSessionByIdempotencyKey(idempotencyKey);
-      if (replay && !this.isTerminalSession(replay)) {
-        return replay;
+      if (replay) {
+        const replayJob = this.getJobDefinition(replay.jobId);
+        const refreshed = await this.materializeExpiredClaim(replay, replayJob);
+        if (!this.isTerminalSession(refreshed)) {
+          return refreshed;
+        }
       }
 
       const existingSession = await this.stateStore.getSession(sessionId);
       if (existingSession) {
-        if (this.isTerminalSession(existingSession)) {
+        const refreshed = await this.materializeExpiredClaim(existingSession, job);
+        if (this.isTerminalSession(refreshed)) {
           throw new ConflictError(
             `Job ${jobId} already has a completed session for this wallet. Create or select a different job to run again.`,
-            "job_session_completed"
+            refreshed.status === "expired" ? "retry_limit_exhausted" : "job_session_completed",
+            this.buildClaimExpiryDetails(refreshed, job)
           );
         }
-        return existingSession;
+        return refreshed;
       }
 
       const liveJobSession = await this.stateStore.findSessionByJobId(jobId);
       if (liveJobSession && liveJobSession.sessionId !== sessionId) {
-        throw new ConflictError(`Job ${jobId} is already claimed by another wallet.`, "job_already_claimed");
+        const refreshed = await this.materializeExpiredClaim(liveJobSession, job);
+        if (!this.isTerminalSession(refreshed)) {
+          throw new ConflictError(
+            `Job ${jobId} is already claimed by another wallet.`,
+            "job_already_claimed",
+            this.buildClaimExpiryDetails(refreshed, job)
+          );
+        }
+        if (refreshed.status === "expired") {
+          throw new ConflictError(
+            `Job ${jobId} has an expired claim that must be reopened before it can be claimed again.`,
+            "claim_expired_reopen_required",
+            this.buildClaimExpiryDetails(refreshed, job)
+          );
+        }
       }
 
       const chainJobId = this.blockchainGateway?.isEnabled()
@@ -150,6 +175,21 @@ export class JobExecutionService {
   async submitWork(sessionId, protocol, submissionInput = "submitted-via-service") {
     const session = await this.requireSession(sessionId);
     const job = this.getJobDefinition(session.jobId);
+    const refreshed = await this.materializeExpiredClaim(session, job);
+    if (refreshed.status === "expired") {
+      throw new ConflictError(
+        `Claim ${sessionId} expired before submission.`,
+        "claim_expired",
+        this.buildClaimExpiryDetails(refreshed, job)
+      );
+    }
+    if (this.isTerminalSession(refreshed)) {
+      throw new ConflictError(
+        `Session ${sessionId} is already complete and cannot be submitted.`,
+        "job_session_completed",
+        this.buildClaimExpiryDetails(refreshed, job)
+      );
+    }
     const submission = normalizeSubmission(normalizeSubmitPayloadShape(job.outputSchemaRef, submissionInput));
     if (submission.kind === "structured") {
       validateStructuredSubmission(job.outputSchemaRef, submission.structured, { path: "submission" });
@@ -158,9 +198,9 @@ export class JobExecutionService {
     if (this.blockchainGateway?.isEnabled()) {
       await this.blockchainGateway.submitWork(session.chainJobId ?? session.jobId, hashSubmission(submission));
     }
-    const protocolHistory = [...new Set([...session.protocolHistory, protocol])];
+    const protocolHistory = [...new Set([...refreshed.protocolHistory, protocol])];
     const transitioned = transitionSession({
-      ...session,
+      ...refreshed,
       protocolHistory,
       submission,
       outputSchemaBuiltin: Boolean(getBuiltinJobSchema(job.outputSchemaRef))
@@ -266,6 +306,40 @@ export class JobExecutionService {
     return session;
   }
 
+  async materializeExpiredClaim(session, job, now = new Date()) {
+    if (!isExpiredClaim(session, job, now)) {
+      return session;
+    }
+    const expiredAt = claimExpiresAt(session, job) ?? now.toISOString();
+    const transitioned = transitionSession(session, "expired", {
+      reason: "claim_ttl_expired",
+      timestamp: expiredAt,
+      metadata: {
+        claimExpiresAt: expiredAt,
+        claimTtlSeconds: job?.claimTtlSeconds
+      }
+    });
+    const persisted = await this.stateStore.upsertSession(transitioned);
+    const fundedJob = await this.stateStore.getFundedJob?.(persisted.jobId);
+    await this.stateStore.upsertFundedJob?.(updateFundedJobFromSession(fundedJob, { job, session: persisted }));
+    this.publishSessionEvent("session.expired", persisted, {
+      claimExpiresAt: expiredAt,
+      reason: "claim_ttl_expired"
+    });
+    return persisted;
+  }
+
+  buildClaimExpiryDetails(session, job) {
+    return {
+      sessionId: session?.sessionId,
+      jobId: session?.jobId,
+      claimedBy: session?.wallet,
+      claimedAt: session?.claimedAt,
+      claimExpiresAt: claimExpiresAt(session, job) ?? session?.expiredAt,
+      claimTtlSeconds: job?.claimTtlSeconds
+    };
+  }
+
   getClaimLockTtlSeconds(job) {
     return Math.max(60, Math.min(Number(job?.claimTtlSeconds ?? 300), 900));
   }
@@ -286,7 +360,7 @@ export class JobExecutionService {
   }
 
   isTerminalSession(session) {
-    return ["resolved", "rejected", "closed", "expired", "timed_out"].includes(session?.status);
+    return isTerminalSession(session);
   }
 
   publishSessionEvent(topic, session, data = {}) {
