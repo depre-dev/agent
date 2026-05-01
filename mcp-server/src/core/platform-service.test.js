@@ -131,11 +131,14 @@ test("listJobsWithSessions and definition expose expired claim affordances", asy
   const now = new Date("2026-05-01T12:18:04.000Z");
   const rows = await service.listJobsWithSessions({ wallet: WALLET, now });
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].state, "expired");
-  assert.equal(rows[0].claimState, "expired");
+  assert.equal(rows[0].state, "exhausted");
+  assert.equal(rows[0].claimState, "exhausted");
+  assert.equal(rows[0].effectiveState, "exhausted");
   assert.equal(rows[0].claimable, false);
   assert.equal(rows[0].currentWalletCanClaim, false);
   assert.equal(rows[0].reason, "retry_limit_exhausted");
+  assert.equal(rows[0].claimAttemptCount, 1);
+  assert.equal(rows[0].remainingClaimAttempts, 0);
   assert.equal(rows[0].claimedBy, WALLET);
   assert.equal(rows[0].claimedAt, "2026-05-01T11:18:03.973Z");
   assert.equal(rows[0].claimExpiresAt, "2026-05-01T12:18:03.973Z");
@@ -148,9 +151,14 @@ test("listJobsWithSessions and definition expose expired claim affordances", asy
 
   const definition = await service.getPublicJobDefinition("parent-job-001", { wallet: WALLET, now });
   assert.equal(definition.lifecycle.state, "open");
-  assert.equal(definition.claimState, "expired");
+  assert.equal(definition.claimabilitySource, "claimStatus");
+  assert.match(definition.lifecycleStatusMeaning, /check claimStatus/u);
+  assert.equal(definition.claimState, "exhausted");
+  assert.equal(definition.effectiveState, "exhausted");
   assert.equal(definition.claimStatus.claimExpiresAt, "2026-05-01T12:18:03.973Z");
   assert.equal(definition.claimStatus.reason, "retry_limit_exhausted");
+  assert.equal(definition.claimStatus.claimabilitySource, "claimStatus");
+  assert.match(definition.claimStatus.lifecycleStatusMeaning, /check claimStatus/u);
 });
 
 test("getSessionTimeline includes transitions and verification state", async () => {

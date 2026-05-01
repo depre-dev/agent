@@ -478,9 +478,13 @@ export class PlatformService {
     const refreshedSession = session
       ? await this.jobExecutionService.materializeExpiredClaim(session, job, now)
       : undefined;
+    const sessions = await this.stateStore.listSessionsByJob?.(job.id, 100) ?? (
+      refreshedSession ? [refreshedSession] : []
+    );
     const claimStatus = summarizeJobClaimState({
       job,
       session: refreshedSession,
+      sessions,
       wallet,
       now
     });

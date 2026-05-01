@@ -322,7 +322,8 @@ const BASE_MANIFEST = {
       "Keep private keys and seed phrases in local env or secret storage only; do not paste them into agent chat.",
       "Fund the Polkadot Hub TestNet wallet from https://faucet.polkadot.io/ unless the job is sponsored or stake-waived.",
       "Request a SIWE nonce, sign it with personal_sign, and exchange the signature for a bearer JWT.",
-      "Call /jobs/preflight before /jobs/claim to see tier, stake, fee, and waiver state."
+      "Call /jobs/preflight before /jobs/claim to see tier, stake, fee, and waiver state.",
+      "Treat claimStatus.claimable and claimStatus.reason as authoritative for whether a job may be claimed now; lifecycle.status describes the content/job lifecycle and can remain open when claimStatus says exhausted, claimed, or submitted."
     ]
   },
   auth: {

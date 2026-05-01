@@ -556,6 +556,14 @@ export class BlockchainGateway {
     });
   }
 
+  async handleClaimTimeout(jobId) {
+    return this.withGatewayError("handleClaimTimeout", async () => {
+      this.requireSigner("handleClaimTimeout");
+      const tx = await this.escrowContract.handleClaimTimeout(this.toJobId(jobId));
+      await tx.wait();
+    });
+  }
+
   async previewClaimEconomics(wallet, jobId) {
     return this.withGatewayError("previewClaimEconomics", async () => {
       const economics = await this.escrowContract.previewClaimEconomics(wallet, this.toJobId(jobId));

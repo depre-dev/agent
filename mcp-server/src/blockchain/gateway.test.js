@@ -76,6 +76,24 @@ test("autoDiscloseContent skips when the contract already recorded the hash", as
   );
 });
 
+test("handleClaimTimeout reopens the canonical chain job id", async () => {
+  const gateway = new BlockchainGateway({ enabled: false });
+  const calls = [];
+  gateway.signer = {};
+  gateway.escrowContract = {
+    async handleClaimTimeout(...args) {
+      calls.push(args);
+      return {
+        async wait() {}
+      };
+    }
+  };
+
+  await gateway.handleClaimTimeout("wiki-job");
+
+  assert.deepEqual(calls, [[gateway.toJobId("wiki-job")]]);
+});
+
 test("getJob falls back to the legacy escrow struct when rc1 decoding fails", async () => {
   const gateway = gatewayWithDot();
   gateway.escrowContract = {
