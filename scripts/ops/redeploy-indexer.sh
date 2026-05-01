@@ -20,6 +20,7 @@
 #   HEALTH_TIMEOUT_SEC    max seconds to wait for /health (default: 120)
 #   READY_TIMEOUT_SEC     max seconds to wait for /ready (default: 900)
 #   POLL_INTERVAL_SEC     seconds between polls (default: 5)
+#   INDEXER_LOG_TAIL      lines of indexer/Caddy logs to print on failure (default: 120)
 #   WAIT_FOR_READY=0      skip the /ready gate (useful during long backfills)
 #   SKIP_GIT_UPDATE=1     skip fetch/checkout/pull because caller already pinned the repo
 #   SKIP_ROLLBACK=1       disable auto-rollback
@@ -35,6 +36,7 @@ READY_URL=${READY_URL:-https://index.averray.com/ready}
 HEALTH_TIMEOUT_SEC=${HEALTH_TIMEOUT_SEC:-120}
 READY_TIMEOUT_SEC=${READY_TIMEOUT_SEC:-900}
 POLL_INTERVAL_SEC=${POLL_INTERVAL_SEC:-5}
+INDEXER_LOG_TAIL=${INDEXER_LOG_TAIL:-120}
 WAIT_FOR_READY=${WAIT_FOR_READY:-1}
 SKIP_GIT_UPDATE=${SKIP_GIT_UPDATE:-0}
 
@@ -63,6 +65,26 @@ compose_up() {
     --project-directory "$STACK_ROOT" \
     -f "$COMPOSE_FILE" \
     up -d --build indexer
+}
+
+dump_indexer_diagnostics() {
+  echo "Indexer diagnostics: docker compose ps indexer"
+  docker compose \
+    --project-directory "$STACK_ROOT" \
+    -f "$COMPOSE_FILE" \
+    ps indexer || true
+
+  echo "Indexer diagnostics: last ${INDEXER_LOG_TAIL} indexer log lines"
+  docker compose \
+    --project-directory "$STACK_ROOT" \
+    -f "$COMPOSE_FILE" \
+    logs --tail="$INDEXER_LOG_TAIL" indexer || true
+
+  echo "Indexer diagnostics: last ${INDEXER_LOG_TAIL} Caddy log lines"
+  docker compose \
+    --project-directory "$STACK_ROOT" \
+    -f "$COMPOSE_FILE" \
+    logs --tail="$INDEXER_LOG_TAIL" caddy || true
 }
 
 wait_for_ok() {
@@ -120,12 +142,14 @@ compose_up
 
 echo "Waiting for indexer health at $HEALTH_URL (timeout ${HEALTH_TIMEOUT_SEC}s)"
 if ! wait_for_ok "$HEALTH_URL" "$HEALTH_TIMEOUT_SEC" "Health check"; then
+  dump_indexer_diagnostics
   rollback
 fi
 
 if [[ "$WAIT_FOR_READY" == "1" ]]; then
   echo "Waiting for indexer readiness at $READY_URL (timeout ${READY_TIMEOUT_SEC}s)"
   if ! wait_for_ok "$READY_URL" "$READY_TIMEOUT_SEC" "Readiness check"; then
+    dump_indexer_diagnostics
     rollback
   fi
 else

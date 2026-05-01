@@ -325,6 +325,8 @@ The script:
 4. Polls `https://index.averray.com/health` until the process is listening.
 5. Polls `https://index.averray.com/ready` until historical indexing is complete.
 6. Automatically rolls back to the previous SHA if either gate fails.
+7. Prints `docker compose ps indexer` plus recent indexer and Caddy logs before
+   rollback when a gate fails.
 
 Useful overrides:
 
@@ -334,6 +336,9 @@ WAIT_FOR_READY=0 ./scripts/ops/redeploy-indexer.sh
 
 # Give a heavy backfill more time before rollback.
 READY_TIMEOUT_SEC=3600 ./scripts/ops/redeploy-indexer.sh
+
+# Include more log context in a failed deploy report.
+INDEXER_LOG_TAIL=300 ./scripts/ops/redeploy-indexer.sh
 ```
 
 ### Remote hosted-stack smoke test
