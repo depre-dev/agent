@@ -377,48 +377,59 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
             </div>
           )}
 
-          {/* Submit */}
-          <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--avy-line)] bg-[#fffdf7] px-3.5 py-3">
-            <p
-              className="m-0 flex-1 min-w-0 font-[family-name:var(--font-mono)] text-[11px] leading-[1.4] text-[var(--avy-muted)]"
-              style={{ letterSpacing: 0 }}
-            >
-              {props.submission.note}
-            </p>
-            <button
-              type="button"
-              disabled={
-                props.submission.submitting || Boolean(props.submission.disabledReason)
-              }
-              onClick={() => {
-                props.submission.onSubmit?.(evidenceValue);
-              }}
-              className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[8px] bg-[var(--avy-accent)] px-3.5 font-[family-name:var(--font-display)] text-[11.5px] font-bold uppercase text-[var(--fg-invert)] transition-transform hover:-translate-y-px hover:bg-[var(--avy-accent-2)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-[var(--avy-accent)]"
-              style={{ letterSpacing: "0.04em" }}
-              title={props.submission.disabledReason}
-            >
-              {props.submission.submitting ? "Submitting..." : props.submission.cta}
-              <span
-                className="rounded-[3px] bg-black/20 px-1.5 py-px font-[family-name:var(--font-mono)] text-[10.5px] font-medium text-white/70"
+          {/* Submit
+              ─────────────────────────────────────────────────
+              The note and the button live on row 1; the disabled
+              hint / error line sits on row 2 below them. The previous
+              layout flattened all three into a single flex row with
+              `justify-between`, which squashed the button between the
+              note (flex-1) and the disabledReason text whenever the
+              disabledReason was set — visible on signed-out viewers
+              loading a claimable run. Stacking keeps the button at
+              its natural width regardless of whether a hint is shown. */}
+          <div className="rounded-[8px] border border-[var(--avy-line)] bg-[#fffdf7] px-3.5 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p
+                className="m-0 min-w-0 flex-1 font-[family-name:var(--font-mono)] text-[11px] leading-[1.4] text-[var(--avy-muted)]"
                 style={{ letterSpacing: 0 }}
               >
-                ⏎
-              </span>
-            </button>
+                {props.submission.note}
+              </p>
+              <button
+                type="button"
+                disabled={
+                  props.submission.submitting || Boolean(props.submission.disabledReason)
+                }
+                onClick={() => {
+                  props.submission.onSubmit?.(evidenceValue);
+                }}
+                className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[8px] bg-[var(--avy-accent)] px-3.5 font-[family-name:var(--font-display)] text-[11.5px] font-bold uppercase text-[var(--fg-invert)] transition-transform hover:-translate-y-px hover:bg-[var(--avy-accent-2)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-[var(--avy-accent)]"
+                style={{ letterSpacing: "0.04em" }}
+                title={props.submission.disabledReason}
+              >
+                {props.submission.submitting ? "Submitting..." : props.submission.cta}
+                <span
+                  className="rounded-[3px] bg-black/20 px-1.5 py-px font-[family-name:var(--font-mono)] text-[10.5px] font-medium text-white/70"
+                  style={{ letterSpacing: 0 }}
+                >
+                  ⏎
+                </span>
+              </button>
+            </div>
             {props.submission.disabledReason ? (
-              <span
-                className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--avy-muted)]"
+              <p
+                className="m-0 mt-2 font-[family-name:var(--font-mono)] text-[11px] text-[var(--avy-muted)]"
                 style={{ letterSpacing: 0 }}
               >
                 {props.submission.disabledReason}
-              </span>
+              </p>
             ) : props.submission.error ? (
-              <span
-                className="font-[family-name:var(--font-mono)] text-[11px] text-[#8c2a17]"
+              <p
+                className="m-0 mt-2 font-[family-name:var(--font-mono)] text-[11px] text-[#8c2a17]"
                 style={{ letterSpacing: 0 }}
               >
                 {props.submission.error}
-              </span>
+              </p>
             ) : null}
           </div>
         </div>

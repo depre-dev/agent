@@ -193,7 +193,7 @@ function RunRowCard({
                     </span>
                   </span>
                   <span className="shrink-0 opacity-40">·</span>
-                  <span className="shrink-0 whitespace-nowrap">
+                  <span className="min-w-0 truncate whitespace-nowrap">
                     {row.jobMeta}
                   </span>
                 </>
@@ -207,7 +207,7 @@ function RunRowCard({
                     </span>
                   </span>
                   <span className="shrink-0 opacity-40">·</span>
-                  <span className="shrink-0 whitespace-nowrap">
+                  <span className="min-w-0 truncate whitespace-nowrap">
                     {row.jobMeta}
                   </span>
                 </>
@@ -227,7 +227,7 @@ function RunRowCard({
                     </span>
                   </span>
                   <span className="shrink-0 opacity-40">·</span>
-                  <span className="shrink-0 whitespace-nowrap">
+                  <span className="min-w-0 truncate whitespace-nowrap">
                     {row.jobMeta}
                   </span>
                 </>
@@ -238,7 +238,7 @@ function RunRowCard({
                     {row.source.datasetTitle}
                   </span>
                   <span className="shrink-0 opacity-40">·</span>
-                  <span className="shrink-0 truncate whitespace-nowrap">
+                  <span className="min-w-0 truncate whitespace-nowrap">
                     {row.jobMeta}
                   </span>
                 </>
@@ -252,7 +252,7 @@ function RunRowCard({
                     </span>
                   </span>
                   <span className="shrink-0 opacity-40">·</span>
-                  <span className="shrink-0 truncate whitespace-nowrap">
+                  <span className="min-w-0 truncate whitespace-nowrap">
                     {row.jobMeta}
                   </span>
                 </>
@@ -266,7 +266,7 @@ function RunRowCard({
                     </span>
                   </span>
                   <span className="shrink-0 opacity-40">·</span>
-                  <span className="shrink-0 truncate whitespace-nowrap">
+                  <span className="min-w-0 truncate whitespace-nowrap">
                     {row.jobMeta}
                   </span>
                 </>
