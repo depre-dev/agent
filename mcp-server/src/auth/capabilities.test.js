@@ -14,6 +14,7 @@ test("resolveCapabilities expands admin and verifier capabilities", () => {
   const capabilities = resolveCapabilities({ roles: ["admin", "verifier"] });
   assert.ok(capabilities.includes("jobs:create"));
   assert.ok(capabilities.includes("jobs:pause-recurring"));
+  assert.ok(capabilities.includes("jobs:timeline"));
   assert.ok(capabilities.includes("verifier:run"));
   assert.ok(capabilities.includes("subjobs:create"));
   assert.ok(capabilities.includes("xcm:observe"));
@@ -29,6 +30,7 @@ test("capabilityMatrix exposes base and role capability groups", () => {
   assert.ok(matrix.roles.admin.includes("xcm:finalize"));
   assert.ok(matrix.roles.verifier.includes("verifier:replay"));
   assert.deepEqual(matrix.routes["/admin/jobs/pause"], ["jobs:pause-recurring"]);
+  assert.deepEqual(matrix.routes["/admin/jobs/timeline"], ["jobs:timeline"]);
   assert.deepEqual(matrix.routes["/admin/xcm/observe"], ["xcm:observe"]);
   assert.deepEqual(matrix.routes["/admin/xcm/finalize"], ["xcm:finalize"]);
 });

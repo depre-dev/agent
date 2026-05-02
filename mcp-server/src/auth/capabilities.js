@@ -34,6 +34,7 @@ const ROLE_CAPABILITIES = {
     "jobs:fire-recurring",
     "jobs:pause-recurring",
     "jobs:resume-recurring",
+    "jobs:timeline",
     "subjobs:create",
     "xcm:observe",
     "xcm:finalize"
@@ -99,6 +100,7 @@ export function capabilityMatrix() {
       "/admin/jobs/fire": ["jobs:fire-recurring"],
       "/admin/jobs/pause": ["jobs:pause-recurring"],
       "/admin/jobs/resume": ["jobs:resume-recurring"],
+      "/admin/jobs/timeline": ["jobs:timeline"],
       "/admin/xcm/observe": ["xcm:observe"],
       "/admin/xcm/finalize": ["xcm:finalize"],
       "/verifier/handlers": ["verifier:handlers:read"],

@@ -980,6 +980,7 @@ function metricPathLabel(pathname) {
     "/session/state-machine",
     "/strategies",
     "/admin/jobs",
+    "/admin/jobs/timeline",
     "/admin/sessions",
     "/admin/jobs/ingest/github",
     "/admin/jobs/ingest/openapi",
@@ -1273,6 +1274,7 @@ const server = createServer(async (request, response) => {
           "/verifier/handlers",
           "/verifier/replay",
           "/admin/jobs",
+          "/admin/jobs/timeline",
           "/admin/sessions",
           "/admin/jobs/ingest/github",
           "/admin/jobs/ingest/openapi",
@@ -1384,6 +1386,23 @@ const server = createServer(async (request, response) => {
         }),
         jobLifecycle: service.getJobLifecycleSummary()
       });
+    }
+
+    if (request.method === "GET" && pathname === "/admin/jobs/timeline") {
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const jobId = url.searchParams.get("jobId") ?? "";
+      if (!jobId.trim()) {
+        throw new ValidationError("jobId is required.");
+      }
+      return respond(
+        response,
+        200,
+        await service.getJobTimeline(jobId.trim(), {
+          wallet: auth.wallet,
+          limit: parseLimit(url, 100, 250)
+        })
+      );
     }
 
     if (request.method === "GET" && pathname === "/admin/sessions") {

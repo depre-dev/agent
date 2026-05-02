@@ -11,7 +11,7 @@ import {
   getSessionStateMachineDefinition
 } from "./session-state-machine.js";
 import { computeClaimEconomics, countClaimedSessions } from "./claim-economics.js";
-import { claimStatusFields, summarizeJobClaimState } from "./claim-state.js";
+import { claimStatusFields, isTerminalSession, summarizeJobClaimState } from "./claim-state.js";
 
 const STARTER_REPUTATION = {
   skill: 0,
@@ -598,6 +598,99 @@ export class PlatformService {
     };
   }
 
+  async getJobTimeline(jobId, { wallet = undefined, now = new Date(), limit = 100 } = {}) {
+    const baseJob = this.jobCatalogService.getJobDefinition(jobId);
+    const [job, sessions] = await Promise.all([
+      this.attachClaimState(baseJob, { wallet, now }),
+      this.jobExecutionService.listSessionHistory({ jobId, limit })
+    ]);
+
+    const childRunsBySession = await Promise.all(
+      sessions.map(async (session) => {
+        const childJobs = this.jobCatalogService.listJobsByParentSession(session.sessionId);
+        const childRuns = await Promise.all(
+          childJobs.map(async (childJob) => ({
+            job: childJob,
+            sessions: await this.jobExecutionService.listSessionHistory({ jobId: childJob.id, limit: 10 })
+          }))
+        );
+        return { session, childRuns };
+      })
+    );
+    const childRuns = childRunsBySession.flatMap(({ childRuns: runs }) => runs);
+    const childJobs = childRuns.map(({ job }) => job);
+    const childSessions = childRuns.flatMap(({ sessions: childSessionRows }) => childSessionRows);
+    const derivativeJobs = job.recurring
+      ? this.jobCatalogService
+          .listJobs({ includePaused: true, includeArchived: true, includeStale: true, now })
+          .filter((candidate) => candidate.templateId === job.id)
+      : [];
+    const parentSession = job.parentSessionId
+      ? await this.stateStore.getSession?.(job.parentSessionId)
+      : undefined;
+    const eventBusReplay = this.eventBus?.replay?.({ jobId }, undefined) ?? { events: [], gap: false };
+
+    const sessionEvents = sessions.flatMap((session) => buildSessionTimelineEntries(session));
+    const verificationEvents = sessions
+      .map((session) => buildVerificationTimelineEntry(session))
+      .filter(Boolean);
+    const childEvents = childRuns.flatMap(({ job: childJob, sessions: childSessionRows }) => ([
+      buildChildJobTimelineEntry(childJob),
+      ...childSessionRows.map((childSession) => buildChildSessionTimelineEntry(childSession))
+    ]));
+    const derivativeEvents = derivativeJobs.map((derivative) => buildDerivativeJobTimelineEntry(derivative));
+    const eventBusEvents = eventBusReplay.events.map((event, index) => buildEventBusTimelineEntry(event, index));
+
+    const timeline = [
+      buildJobStateTimelineEntry(job, sessions),
+      ...sessionEvents,
+      ...verificationEvents,
+      ...childEvents,
+      ...derivativeEvents,
+      ...eventBusEvents
+    ]
+      .filter(Boolean)
+      .sort(compareTimelineEntries);
+
+    return {
+      timelineVersion: "v2",
+      job,
+      lineage: {
+        templateId: job.templateId ?? null,
+        recurringTemplate: Boolean(job.recurring),
+        derivativeJobIds: derivativeJobs.map((derivative) => derivative.id),
+        parentSessionId: job.parentSessionId ?? null,
+        parentSession: parentSession
+          ? {
+              sessionId: parentSession.sessionId,
+              jobId: parentSession.jobId,
+              wallet: parentSession.wallet,
+              status: parentSession.status,
+              updatedAt: parentSession.updatedAt
+            }
+          : null,
+        sessionIds: sessions.map((session) => session.sessionId),
+        childJobIds: childJobs.map((childJob) => childJob.id),
+        childSessionIds: childSessions.map((childSession) => childSession.sessionId)
+      },
+      summary: {
+        sessionCount: sessions.length,
+        activeSessionIds: sessions
+          .filter((session) => !isTerminalSession(session))
+          .map((session) => session.sessionId),
+        terminalSessionIds: sessions
+          .filter((session) => isTerminalSession(session))
+          .map((session) => session.sessionId),
+        childJobCount: childJobs.length,
+        derivativeJobCount: derivativeJobs.length,
+        eventCount: timeline.length,
+        eventBusGap: Boolean(eventBusReplay.gap),
+        latestSessionStatus: sessions[0]?.status ?? null
+      },
+      timeline
+    };
+  }
+
   async collectSessionHistory(wallet, options = {}) {
     return this.jobExecutionService.collectSessionHistory(wallet, options);
   }
@@ -820,6 +913,188 @@ export class PlatformService {
       providerOperations: sanitizeProviderOperations(providerOperations)
     };
   }
+}
+
+function buildJobStateTimelineEntry(job, sessions) {
+  return {
+    id: `${job.id}:job-state`,
+    type: "job_state",
+    at: firstDefined(job.lifecycle?.updatedAt, job.createdAt, job.firedAt, sessions[0]?.updatedAt),
+    correlationId: job.id,
+    phase: "job",
+    data: compactTimelineData({
+      jobId: job.id,
+      category: job.category,
+      tier: job.tier,
+      verifierMode: job.verifierMode,
+      lifecycle: job.lifecycle,
+      claimState: job.claimState,
+      effectiveState: job.effectiveState,
+      claimable: job.claimable,
+      reason: job.reason,
+      sessionId: job.sessionId,
+      claimedBy: job.claimedBy,
+      claimExpiresAt: job.claimExpiresAt
+    })
+  };
+}
+
+function buildSessionTimelineEntries(session) {
+  const history = Array.isArray(session.statusHistory) ? session.statusHistory : [];
+  if (!history.length) {
+    return [{
+      id: `${session.sessionId}:session-snapshot`,
+      type: "session_snapshot",
+      at: firstDefined(session.updatedAt, session.claimedAt),
+      correlationId: session.sessionId,
+      phase: describeSessionStatus(session.status).phase,
+      data: compactTimelineData({
+        sessionId: session.sessionId,
+        jobId: session.jobId,
+        wallet: session.wallet,
+        status: session.status
+      })
+    }];
+  }
+  return history.map((entry, index) => ({
+    id: `${session.sessionId}:transition:${index}`,
+    type: "session_transition",
+    at: entry.at,
+    correlationId: session.sessionId,
+    phase: describeSessionStatus(entry.to).phase,
+    data: {
+      sessionId: session.sessionId,
+      jobId: session.jobId,
+      wallet: session.wallet,
+      ...entry
+    }
+  }));
+}
+
+function buildVerificationTimelineEntry(session) {
+  const verification = session.verification ?? session.verificationSummary;
+  if (!verification) {
+    return undefined;
+  }
+  return {
+    id: `${session.sessionId}:verification`,
+    type: "verification",
+    at: firstDefined(
+      verification.session?.updatedAt,
+      verification.session?.resolvedAt,
+      session.resolvedAt,
+      session.updatedAt
+    ),
+    correlationId: session.sessionId,
+    phase: "verification",
+    data: compactTimelineData({
+      sessionId: session.sessionId,
+      jobId: session.jobId,
+      outcome: verification.outcome,
+      reasonCode: verification.reasonCode,
+      handler: verification.handler,
+      handlerVersion: verification.handlerVersion,
+      verifierConfigVersion: verification.verifierConfigVersion
+    })
+  };
+}
+
+function buildChildJobTimelineEntry(job) {
+  return {
+    id: `${job.id}:child-job`,
+    type: "child_job",
+    at: firstDefined(job.createdAt, job.firedAt, job.lifecycle?.updatedAt),
+    correlationId: job.parentSessionId ?? job.id,
+    phase: "child_job",
+    data: compactTimelineData({
+      jobId: job.id,
+      parentSessionId: job.parentSessionId,
+      category: job.category,
+      tier: job.tier,
+      verifierMode: job.verifierMode,
+      lifecycle: job.lifecycle
+    })
+  };
+}
+
+function buildChildSessionTimelineEntry(session) {
+  return {
+    id: `${session.sessionId}:child-session`,
+    type: "child_session",
+    at: firstDefined(session.updatedAt, session.claimedAt),
+    correlationId: session.sessionId,
+    phase: describeSessionStatus(session.status).phase,
+    data: compactTimelineData({
+      sessionId: session.sessionId,
+      jobId: session.jobId,
+      wallet: session.wallet,
+      status: session.status
+    })
+  };
+}
+
+function buildDerivativeJobTimelineEntry(job) {
+  return {
+    id: `${job.id}:derivative-job`,
+    type: "derivative_job",
+    at: firstDefined(job.firedAt, job.createdAt, job.lifecycle?.updatedAt),
+    correlationId: job.templateId ?? job.id,
+    phase: "recurring",
+    data: compactTimelineData({
+      jobId: job.id,
+      templateId: job.templateId,
+      firedAt: job.firedAt,
+      category: job.category,
+      tier: job.tier,
+      lifecycle: job.lifecycle
+    })
+  };
+}
+
+function buildEventBusTimelineEntry(event, index) {
+  return {
+    id: event.id ?? `event-bus:${index}`,
+    type: "event_bus",
+    at: event.timestamp,
+    correlationId: event.sessionId ?? event.jobId,
+    phase: event.topic,
+    data: compactTimelineData({
+      topic: event.topic,
+      jobId: event.jobId,
+      sessionId: event.sessionId,
+      wallet: event.wallet,
+      blockNumber: event.blockNumber,
+      txHash: event.txHash,
+      ...event.data
+    })
+  };
+}
+
+function compareTimelineEntries(left, right) {
+  const leftTime = timelineTime(left.at);
+  const rightTime = timelineTime(right.at);
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+  return String(left.id ?? "").localeCompare(String(right.id ?? ""));
+}
+
+function timelineTime(value) {
+  if (!value) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null) ?? null;
+}
+
+function compactTimelineData(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  );
 }
 
 /**
