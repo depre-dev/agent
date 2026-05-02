@@ -38,6 +38,20 @@ export interface FireRecurringJobOptions {
   idempotencyKey?: string;
 }
 
+export interface ListJobsOptions {
+  wallet?: string;
+  source?: string;
+  category?: string;
+  state?: string;
+  format?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface JobTimelineOptions {
+  limit?: number;
+}
+
 export class AgentPlatformClient {
   constructor(options?: AgentPlatformClientOptions);
 
@@ -78,7 +92,8 @@ export class AgentPlatformClient {
   deallocateIdleFunds(input: StrategyMutationInput): Promise<unknown>;
   sendToAgent(input: SendToAgentInput): Promise<unknown>;
 
-  listJobs(): Promise<unknown>;
+  listJobs(options?: ListJobsOptions): Promise<unknown>;
+  listClaimableJobs(options?: ListJobsOptions): Promise<unknown>;
   getJobDefinition(jobId: string): Promise<unknown>;
   getRecommendations(): Promise<unknown>;
   preflightJob(jobId: string): Promise<unknown>;
@@ -86,6 +101,7 @@ export class AgentPlatformClient {
   submitWork(sessionId: string, submission: string | unknown): Promise<unknown>;
   getSession(sessionId: string): Promise<unknown>;
   getSessionTimeline(sessionId: string): Promise<unknown>;
+  getJobTimeline(jobId: string, options?: JobTimelineOptions): Promise<unknown>;
   listSessions(options?: { limit?: number; jobId?: string }): Promise<unknown>;
   listSubJobs(parentSessionId: string): Promise<unknown>;
   createSubJob(payload: unknown): Promise<unknown>;
@@ -96,8 +112,8 @@ export class AgentPlatformClient {
 
   createJob(payload: unknown): Promise<unknown>;
   fireRecurringJob(templateId: string, options?: FireRecurringJobOptions): Promise<unknown>;
-  pauseRecurringJob(templateId: string): Promise<unknown>;
-  resumeRecurringJob(templateId: string): Promise<unknown>;
+  pauseRecurringJob(templateId: string, options?: { idempotencyKey?: string }): Promise<unknown>;
+  resumeRecurringJob(templateId: string, options?: { idempotencyKey?: string }): Promise<unknown>;
   getAdminStatus(): Promise<unknown>;
 
   request(path: string, options?: RequestOptions): Promise<unknown>;

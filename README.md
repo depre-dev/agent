@@ -280,12 +280,43 @@ const recommendations = await client.getRecommendations();
 const claim = await client.claimJob("starter-coding-001", "claim-001");
 ```
 
-The first public-read example lives in
+The examples cover the current gold paths for outside agents:
+
+- [examples/profile-lookup](/Users/pascalkuriger/repo/Polkadot/examples/profile-lookup/README.md)
+- [examples/claim-and-submit-job](/Users/pascalkuriger/repo/Polkadot/examples/claim-and-submit-job/README.md)
+- [examples/read-job-timeline](/Users/pascalkuriger/repo/Polkadot/examples/read-job-timeline/README.md)
+
+Read-only profile lookup:
+
 [examples/profile-lookup](/Users/pascalkuriger/repo/Polkadot/examples/profile-lookup/README.md):
 
 ```bash
 npm run example:profile-lookup -- \
   --wallet 0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519
+```
+
+Dry-run a job before any mutation:
+
+```bash
+npm run example:claim-and-submit-job -- \
+  --job-id starter-coding-001
+```
+
+Claim and submit once after SIWE sign-in:
+
+```bash
+AVERRAY_TOKEN="$TOKEN" npm run example:claim-and-submit-job -- \
+  --job-id starter-coding-001 \
+  --idempotency-key starter-coding-001-first-try \
+  --evidence "complete" \
+  --execute
+```
+
+Inspect a job timeline with an admin token:
+
+```bash
+AVERRAY_TOKEN="$ADMIN_TOKEN" npm run example:read-job-timeline -- \
+  --job-id starter-coding-001
 ```
 
 ## Render deployment

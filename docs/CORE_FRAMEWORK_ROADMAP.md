@@ -411,23 +411,27 @@ proves the need, but it is UI-focused rather than an external integration SDK.
 
 ### Gaps today
 
-- no shared typed client for jobs, sessions, auth, verifier, and admin flows
-- request shapes are duplicated across scripts, demos, and frontend code
-- no canonical integration surface for third-party builders
+- first-pass shared JS client exists, but the type surface is still broad
+  `unknown` responses rather than generated endpoint-specific models
+- some request shapes are still duplicated across scripts, demos, and frontend
+  code
+- canonical integration examples are young and should grow with real external
+  agent use
 
 ### Improve to
 
-- one small JS/TS SDK first
+- one small JS/TS SDK as the first integration path
 - generated types or hand-maintained types from the current API surface
 - stable helpers for auth, job posting, session operations, and admin actions
 
 ### Concrete next changes
 
-- create a lightweight `sdk/` package or `mcp-server/src/client/` module
-- wrap:
+- keep hardening `sdk/agent-platform-client.js`
+- ensure it wraps:
   - auth nonce + verify
   - list/recommend/preflight jobs
   - claim / submit / resume
+  - session and job timeline inspection
   - admin job create / recurring fire / status
 - share validation types with docs and scripts where possible
 

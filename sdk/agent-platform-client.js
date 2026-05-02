@@ -161,8 +161,32 @@ export class AgentPlatformClient {
     });
   }
 
-  async listJobs() {
-    return this.request("/jobs");
+  async listJobs({
+    wallet = undefined,
+    source = undefined,
+    category = undefined,
+    state = undefined,
+    format = undefined,
+    limit = undefined,
+    offset = undefined
+  } = {}) {
+    const params = new URLSearchParams();
+    if (wallet) params.set("wallet", wallet);
+    if (source) params.set("source", source);
+    if (category) params.set("category", category);
+    if (state) params.set("state", state);
+    if (format) params.set("format", format);
+    if (limit !== undefined) params.set("limit", String(limit));
+    if (offset !== undefined) params.set("offset", String(offset));
+    return this.request(`/jobs${params.size ? `?${params.toString()}` : ""}`);
+  }
+
+  async listClaimableJobs(options = {}) {
+    return this.listJobs({
+      format: "compact",
+      ...options,
+      state: options.state ?? "claimable"
+    });
   }
 
   async getJobDefinition(jobId) {
@@ -203,6 +227,12 @@ export class AgentPlatformClient {
 
   async getSessionTimeline(sessionId) {
     return this.request(`/session/timeline?sessionId=${encodeURIComponent(sessionId)}`);
+  }
+
+  async getJobTimeline(jobId, { limit = undefined } = {}) {
+    const params = new URLSearchParams({ jobId });
+    if (limit !== undefined) params.set("limit", String(limit));
+    return this.request(`/admin/jobs/timeline?${params.toString()}`);
   }
 
   async listSessions({ limit = undefined, jobId = undefined } = {}) {
@@ -283,17 +313,17 @@ export class AgentPlatformClient {
     });
   }
 
-  async pauseRecurringJob(templateId) {
+  async pauseRecurringJob(templateId, { idempotencyKey = undefined } = {}) {
     return this.request("/admin/jobs/pause", {
       method: "POST",
-      body: { templateId }
+      body: compact({ templateId, idempotencyKey })
     });
   }
 
-  async resumeRecurringJob(templateId) {
+  async resumeRecurringJob(templateId, { idempotencyKey = undefined } = {}) {
     return this.request("/admin/jobs/resume", {
       method: "POST",
-      body: { templateId }
+      body: compact({ templateId, idempotencyKey })
     });
   }
 
