@@ -88,6 +88,28 @@ test("listSessions builds optional query string without empty params", async () 
   assert.equal(calls[1].url, "https://api.example.test/sessions?limit=10&jobId=starter+job");
 });
 
+test("job helpers build compact filters and admin timeline URLs", async () => {
+  const calls = [];
+  const client = new AgentPlatformClient({
+    baseUrl: "https://api.example.test",
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse({ ok: true });
+    }
+  });
+
+  await client.listJobs({ source: "wikipedia", state: "claimable", limit: 5, offset: 10 });
+  await client.listClaimableJobs({ category: "coding", limit: 2 });
+  await client.getJobTimeline("job with space", { limit: 50 });
+
+  assert.equal(
+    calls[0].url,
+    "https://api.example.test/jobs?source=wikipedia&state=claimable&limit=5&offset=10"
+  );
+  assert.equal(calls[1].url, "https://api.example.test/jobs?category=coding&state=claimable&format=compact&limit=2");
+  assert.equal(calls[2].url, "https://api.example.test/admin/jobs/timeline?jobId=job+with+space&limit=50");
+});
+
 test("operator surface helpers call policy, audit, and alert endpoints", async () => {
   const calls = [];
   const client = new AgentPlatformClient({
@@ -103,6 +125,8 @@ test("operator surface helpers call policy, audit, and alert endpoints", async (
   await client.proposePolicy({ tag: "claim/new@v1" });
   await client.listAuditEvents({ limit: 25 });
   await client.listAlerts({ limit: 5 });
+  await client.pauseRecurringJob("weekly-digest", { idempotencyKey: "pause-1" });
+  await client.resumeRecurringJob("weekly-digest", { idempotencyKey: "resume-1" });
 
   assert.equal(calls[0].url, "https://api.example.test/policies");
   assert.equal(calls[1].url, "https://api.example.test/policies/claim%2Fdeps-sec-only%40v4");
@@ -111,6 +135,16 @@ test("operator surface helpers call policy, audit, and alert endpoints", async (
   assert.deepEqual(JSON.parse(calls[2].options.body), { tag: "claim/new@v1" });
   assert.equal(calls[3].url, "https://api.example.test/audit?limit=25");
   assert.equal(calls[4].url, "https://api.example.test/alerts?limit=5");
+  assert.equal(calls[5].url, "https://api.example.test/admin/jobs/pause");
+  assert.deepEqual(JSON.parse(calls[5].options.body), {
+    templateId: "weekly-digest",
+    idempotencyKey: "pause-1"
+  });
+  assert.equal(calls[6].url, "https://api.example.test/admin/jobs/resume");
+  assert.deepEqual(JSON.parse(calls[6].options.body), {
+    templateId: "weekly-digest",
+    idempotencyKey: "resume-1"
+  });
 });
 
 test("request throws server-provided error messages", async () => {
