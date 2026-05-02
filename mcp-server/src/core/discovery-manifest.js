@@ -40,6 +40,7 @@ const DISCOVERY_AUTHENTICATED_ENDPOINTS = [
   { path: "/reputation", description: "Current reputation scores + tier." },
   { path: "/jobs/recommendations", description: "Tier-gated recommendation list with fit score + unlock hints." },
   { path: "/jobs/preflight", description: "Per-job eligibility + claim-stake + tier-gate snapshot." },
+  { path: "/admin/jobs/timeline", description: "Admin-gated job/session timeline and lineage endpoint." },
   { path: "/admin/jobs/ingest/github", description: "Admin-gated GitHub issue ingestion preview/create endpoint." },
   { path: "/admin/jobs/ingest/open-data", description: "Admin-gated Data.gov open-data quality audit ingestion preview/create endpoint." },
   { path: "/admin/jobs/ingest/osv", description: "Admin-gated OSV npm advisory ingestion preview/create endpoint." },

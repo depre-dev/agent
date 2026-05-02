@@ -161,6 +161,38 @@ test("http smoke: /admin/jobs accepts admin-scoped token", { skip: !RUN }, async
   });
 });
 
+test("http smoke: /admin/jobs/timeline exposes job lineage", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const token = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+    const jobId = "smoke-job-timeline-001";
+    const create = await fetch(`${base}/admin/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        id: jobId,
+        category: "coding",
+        tier: "starter",
+        rewardAmount: 1,
+        verifierMode: "benchmark",
+        verifierTerms: ["complete"],
+        verifierMinimumMatches: 1,
+        outputSchemaRef: "schema://jobs/smoke-output"
+      })
+    });
+    assert.equal(create.status, 201);
+
+    const response = await fetch(`${base}/admin/jobs/timeline?jobId=${jobId}`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.timelineVersion, "v2");
+    assert.equal(payload.job.id, jobId);
+    assert.deepEqual(payload.lineage.sessionIds, []);
+    assert.ok(payload.timeline.some((entry) => entry.type === "job_state"));
+  });
+});
+
 test("http smoke: /admin/sessions exposes operator-wide session activity", { skip: !RUN }, async () => {
   await runWithServer(async (base) => {
     const adminToken = issueToken(ADMIN_WALLET, { roles: ["admin"] });

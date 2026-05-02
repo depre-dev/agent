@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { PlatformService } from "./platform-service.js";
+import { EventBus } from "./event-bus.js";
 
 const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-function makePlatformService(blockchainGateway = undefined) {
+function makePlatformService(blockchainGateway = undefined, eventBus = undefined) {
   const jobs = [
     {
       id: "parent-job-001",
@@ -53,7 +54,7 @@ function makePlatformService(blockchainGateway = undefined) {
   const reputations = new Map([
     [WALLET, { skill: 50, reliability: 50, economic: 50, tier: "starter" }]
   ]);
-  return new PlatformService(jobs, profiles, accounts, reputations, blockchainGateway);
+  return new PlatformService(jobs, profiles, accounts, reputations, blockchainGateway, undefined, eventBus);
 }
 
 test("createSubJob links the child job to the active parent session", async () => {
@@ -183,6 +184,48 @@ test("getSessionTimeline includes transitions and verification state", async () 
   assert.ok(timeline.timeline.some((entry) => entry.type === "session_transition"));
   assert.ok(timeline.timeline.some((entry) => entry.type === "verification"));
   assert.ok(timeline.timeline.every((entry) => entry.correlationId === submitted.sessionId));
+});
+
+test("getJobTimeline stitches sessions, verification, events, and child lineage", async () => {
+  const eventBus = new EventBus();
+  const service = makePlatformService(undefined, eventBus);
+  const session = await service.claimJob(WALLET, "parent-job-001", "http", "job-timeline-claim");
+  const subJob = await service.createSubJob(session.sessionId, WALLET, {
+    id: "timeline-child-job-001",
+    category: "review",
+    tier: "starter",
+    rewardAmount: 2,
+    verifierMode: "benchmark",
+    verifierTerms: ["summary"],
+    verifierMinimumMatches: 1,
+    inputSchemaRef: "schema://jobs/review-input",
+    outputSchemaRef: "schema://jobs/pr-review-findings-output",
+    claimTtlSeconds: 1800,
+    retryLimit: 1,
+    requiresSponsoredGas: true
+  });
+  const submitted = await service.submitWork(session.sessionId, "http", "complete");
+  await service.ingestVerification(submitted.sessionId, {
+    jobId: submitted.jobId,
+    handler: "benchmark",
+    handlerVersion: 1,
+    outcome: "approved",
+    reasonCode: "BENCHMARK_THRESHOLD_MET"
+  });
+
+  const timeline = await service.getJobTimeline("parent-job-001", { wallet: WALLET });
+  assert.equal(timeline.timelineVersion, "v2");
+  assert.equal(timeline.job.id, "parent-job-001");
+  assert.equal(timeline.job.claimState, "exhausted");
+  assert.equal(timeline.summary.sessionCount, 1);
+  assert.equal(timeline.summary.childJobCount, 1);
+  assert.deepEqual(timeline.lineage.sessionIds, [submitted.sessionId]);
+  assert.deepEqual(timeline.lineage.childJobIds, [subJob.id]);
+  assert.ok(timeline.timeline.some((entry) => entry.type === "job_state"));
+  assert.ok(timeline.timeline.some((entry) => entry.type === "session_transition" && entry.data.to === "submitted"));
+  assert.ok(timeline.timeline.some((entry) => entry.type === "verification"));
+  assert.ok(timeline.timeline.some((entry) => entry.type === "child_job"));
+  assert.ok(timeline.timeline.some((entry) => entry.type === "event_bus" && entry.data.topic === "session.claimed"));
 });
 
 test("getAdminStatus surfaces recurring scheduler anomalies", async () => {
