@@ -12,12 +12,13 @@ import {
 } from "./ReceiptPreviewDrawer";
 import {
   FIXTURE_JOB_DEFINITIONS,
-  FIXTURE_LIFECYCLE,
-  FIXTURE_LIFECYCLE_OPEN_DATA,
-  FIXTURE_LIFECYCLE_OSV,
-  FIXTURE_LIFECYCLE_WIKIPEDIA,
   FIXTURE_RUN_ROWS,
 } from "./fixtures";
+import {
+  buildLifecycleStages,
+  describeClaimer,
+  formatDeadline,
+} from "./buildLifecycleStages";
 import type { RunRow } from "./RunQueueTable";
 import { ApiError, swrFetcher } from "@/lib/api/client";
 import { useAdminJobs, useJobDefinition, useJobs } from "@/lib/api/hooks";
@@ -262,6 +263,24 @@ export function LoadedRunView({
           onSubmit: handleSubmit,
           submitting,
           error: submitError,
+          // Gate the button on the live claim state. A row that's not
+          // in `claimed` can't be submitted — either there's no claim
+          // (claimable / expired / exhausted) or someone already
+          // submitted (state: submitted). The string surfaces in the
+          // disabled-button title and replaces the error line, so a
+          // signed-out viewer sees "claim this run first" instead of
+          // a useless 401 after clicking.
+          disabledReason: !loadedRow.claim
+            ? undefined
+            : loadedRow.claim.state === "claimed"
+              ? undefined
+              : loadedRow.claim.state === "submitted"
+                ? "Already submitted — awaiting verifier"
+                : loadedRow.claim.state === "expired"
+                  ? "Claim expired — reopen before submitting"
+                  : loadedRow.claim.state === "exhausted"
+                    ? "No retries left on this row"
+                    : "Claim this run before submitting evidence",
         }}
         verifier={
           loadedOpenData
@@ -610,64 +629,47 @@ export function LoadedRunView({
       {showLifecycle ? (
         <LifecycleRail
           runId={loadedRow.id}
-          contextNote={
-            loadedWikipedia ? (
+          contextNote={(() => {
+            const verificationLabel =
+              loadedWikipedia?.verification.method ??
+              loadedOsv?.verification.method ??
+              loadedOpenData?.verification.method ??
+              "github_pr";
+            const claim = loadedRow.claim;
+            const deadlineLabel = claim?.claimExpiresAt
+              ? formatDeadline(claim.claimExpiresAt)
+              : "";
+            const stateLabel = claim
+              ? claim.state === "claimed"
+                ? `claimed${claim.claimedBy ? ` ${describeClaimer(claim.claimedBy, undefined)}` : ""}`
+                : claim.state === "submitted"
+                  ? "submitted, awaiting verifier"
+                  : claim.state === "expired"
+                    ? "claim expired — reopenable"
+                    : claim.state === "exhausted"
+                      ? "no retries left"
+                      : "ready to claim"
+              : "no claim state";
+            return (
               <>
-                Window closes in{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-                {" · "}verification{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">
-                  {loadedWikipedia.verification.method}
-                </b>
-                {" · "}proposal{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">submitted</b>{" "}
-                · pending Averray review
+                {deadlineLabel ? (
+                  <>
+                    Window{" "}
+                    <b className="font-semibold text-[var(--avy-ink)]">{deadlineLabel}</b>
+                    {" · "}
+                  </>
+                ) : null}
+                verification{" "}
+                <b className="font-semibold text-[var(--avy-ink)]">{verificationLabel}</b>
+                {" · "}
+                <b className="font-semibold text-[var(--avy-ink)]">{stateLabel}</b>
               </>
-            ) : loadedOsv ? (
-              <>
-                Window closes in{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-                {" · "}verification{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">
-                  {loadedOsv.verification.method}
-                </b>
-                {" · "}advisory{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">
-                  {loadedOsv.advisoryId}
-                </b>{" "}
-                · PR pending merge
-              </>
-            ) : loadedOpenData ? (
-              <>
-                Window closes in{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-                {" · "}verification{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">
-                  {loadedOpenData.verification.method}
-                </b>
-                {" · "}audit{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">submitted</b>
-              </>
-            ) : (
-              <>
-                Window closes in{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-                {" · "}verification{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">github_pr</b>
-                {" · "}PR{" "}
-                <b className="font-semibold text-[var(--avy-ink)]">#4931</b> opened
-              </>
-            )
-          }
-          stages={
-            loadedWikipedia
-              ? FIXTURE_LIFECYCLE_WIKIPEDIA
-              : loadedOsv
-                ? FIXTURE_LIFECYCLE_OSV
-                : loadedOpenData
-                  ? FIXTURE_LIFECYCLE_OPEN_DATA
-                  : FIXTURE_LIFECYCLE
-          }
+            );
+          })()}
+          stages={buildLifecycleStages({
+            claim: loadedRow.claim,
+            source: loadedRow.source,
+          })}
           next={{
             label: "Next",
             value: loadedWikipedia

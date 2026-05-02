@@ -103,6 +103,13 @@ export interface LoadedRunPanelProps {
     onSubmit?: (evidence: string) => void | Promise<void>;
     submitting?: boolean;
     error?: string | null;
+    /**
+     * When set, the submit button is rendered disabled and the string
+     * is shown instead of the submit-error line. Gates the button on
+     * claimable / wallet ownership / canSubmit so a signed-out viewer
+     * doesn't fire a useless 401.
+     */
+    disabledReason?: string;
   };
   verifier: {
     runner: string;
@@ -380,12 +387,15 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
             </p>
             <button
               type="button"
-              disabled={props.submission.submitting}
+              disabled={
+                props.submission.submitting || Boolean(props.submission.disabledReason)
+              }
               onClick={() => {
                 props.submission.onSubmit?.(evidenceValue);
               }}
-              className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[8px] bg-[var(--avy-accent)] px-3.5 font-[family-name:var(--font-display)] text-[11.5px] font-bold uppercase text-[var(--fg-invert)] transition-transform hover:-translate-y-px hover:bg-[var(--avy-accent-2)]"
+              className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[8px] bg-[var(--avy-accent)] px-3.5 font-[family-name:var(--font-display)] text-[11.5px] font-bold uppercase text-[var(--fg-invert)] transition-transform hover:-translate-y-px hover:bg-[var(--avy-accent-2)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-[var(--avy-accent)]"
               style={{ letterSpacing: "0.04em" }}
+              title={props.submission.disabledReason}
             >
               {props.submission.submitting ? "Submitting..." : props.submission.cta}
               <span
@@ -395,7 +405,14 @@ export function LoadedRunPanel(props: LoadedRunPanelProps) {
                 ⏎
               </span>
             </button>
-            {props.submission.error ? (
+            {props.submission.disabledReason ? (
+              <span
+                className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--avy-muted)]"
+                style={{ letterSpacing: 0 }}
+              >
+                {props.submission.disabledReason}
+              </span>
+            ) : props.submission.error ? (
               <span
                 className="font-[family-name:var(--font-mono)] text-[11px] text-[#8c2a17]"
                 style={{ letterSpacing: 0 }}

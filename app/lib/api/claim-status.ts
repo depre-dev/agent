@@ -56,6 +56,16 @@ export interface ClaimSummary {
   claimAttemptCount: number;
   /** What's left in the retry budget. 0 means exhausted. */
   remainingClaimAttempts: number;
+  /**
+   * Wallet that currently holds the claim, when one is active. Used by
+   * the loaded-run panel + lifecycle rail to render the real claimer
+   * (instead of the legacy "by you" fixture string).
+   */
+  claimedBy?: string;
+  /** ISO timestamp of when the active claim opened. */
+  claimedAt?: string;
+  /** ISO timestamp of when the active claim's TTL expires. */
+  claimExpiresAt?: string;
 }
 
 export interface ClaimStatusDetail extends ClaimSummary {
@@ -107,6 +117,11 @@ export function buildClaimSummary(raw: unknown): ClaimSummary | undefined {
     retryLimit: nonNegInt(record.retryLimit),
     claimAttemptCount: nonNegInt(record.claimAttemptCount),
     remainingClaimAttempts: nonNegInt(record.remainingClaimAttempts),
+    ...(text(record.claimedBy) ? { claimedBy: text(record.claimedBy) } : {}),
+    ...(text(record.claimedAt) ? { claimedAt: text(record.claimedAt) } : {}),
+    ...(text(record.claimExpiresAt)
+      ? { claimExpiresAt: text(record.claimExpiresAt) }
+      : {}),
   };
 }
 
