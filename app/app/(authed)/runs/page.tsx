@@ -20,13 +20,14 @@ import { LoadedRunView } from "@/components/runs/LoadedRunView";
 import { LifecycleRail } from "@/components/runs/LifecycleRail";
 import {
   FIXTURE_FILTERS,
-  FIXTURE_LIFECYCLE,
-  FIXTURE_LIFECYCLE_OPEN_DATA,
-  FIXTURE_LIFECYCLE_OSV,
-  FIXTURE_LIFECYCLE_WIKIPEDIA,
   FIXTURE_RECOMMENDATIONS,
   FIXTURE_RUN_ROWS,
 } from "@/components/runs/fixtures";
+import {
+  buildLifecycleStages,
+  describeClaimer,
+  formatDeadline,
+} from "@/components/runs/buildLifecycleStages";
 import { useAdminJobs, useJobs, useRecommendations } from "@/lib/api/hooks";
 import { freshnessFromRequests } from "@/components/shell/DataFreshnessPill";
 import {
@@ -192,52 +193,43 @@ function RunsPageInner() {
   // right per-source field set inside each branch — no per-source
   // intermediate variables needed.
   const selectedSource = selectedRow?.source;
-  const lifecycleContextNote =
-    selectedSource?.type === "wikipedia_article" ? (
-      <>
-        Window closes in{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-        {" · "}verification{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">
-          wikipedia_proposal_review
-        </b>
-        {" · "}proposal{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">submitted</b> ·
-        pending Averray review
-      </>
-    ) : selectedSource?.type === "osv_advisory" ? (
-      <>
-        Window closes in{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-        {" · "}verification{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">osv_dependency_pr</b>
-        {" · "}advisory{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">
-          {selectedSource.advisoryId}
-        </b>{" "}
-        · PR pending merge
-      </>
-    ) : selectedSource?.type === "open_data_dataset" ? (
-      <>
-        Window closes in{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-        {" · "}verification{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">
-          open_data_quality_audit
-        </b>
-        {" · "}audit{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">submitted</b>
-      </>
-    ) : (
-      <>
-        Window closes in{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">21m 46s</b>
-        {" · "}verification{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">github_pr</b>
-        {" · "}PR{" "}
-        <b className="font-semibold text-[var(--avy-ink)]">#4931</b> opened
-      </>
-    );
+  const verificationLabel =
+    selectedSource?.type === "wikipedia_article"
+      ? "wikipedia_proposal_review"
+      : selectedSource?.type === "osv_advisory"
+        ? "osv_dependency_pr"
+        : selectedSource?.type === "open_data_dataset"
+          ? "open_data_quality_audit"
+          : "github_pr";
+  const claim = selectedRow?.claim;
+  const deadlineLabel = claim?.claimExpiresAt
+    ? formatDeadline(claim.claimExpiresAt)
+    : "";
+  const stateLabel = claim
+    ? claim.state === "claimed"
+      ? `claimed${claim.claimedBy ? ` ${describeClaimer(claim.claimedBy, undefined)}` : ""}`
+      : claim.state === "submitted"
+        ? "submitted, awaiting verifier"
+        : claim.state === "expired"
+          ? "claim expired — reopenable"
+          : claim.state === "exhausted"
+            ? "no retries left"
+            : "ready to claim"
+    : "no claim state";
+  const lifecycleContextNote = (
+    <>
+      {deadlineLabel ? (
+        <>
+          Window <b className="font-semibold text-[var(--avy-ink)]">{deadlineLabel}</b>
+          {" · "}
+        </>
+      ) : null}
+      verification{" "}
+      <b className="font-semibold text-[var(--avy-ink)]">{verificationLabel}</b>
+      {" · "}
+      <b className="font-semibold text-[var(--avy-ink)]">{stateLabel}</b>
+    </>
+  );
   const lifecycleNext =
     selectedSource?.type === "wikipedia_article"
       ? {
@@ -335,15 +327,10 @@ function RunsPageInner() {
       <LifecycleRail
         runId={selectedId}
         contextNote={lifecycleContextNote}
-        stages={
-          selectedSource?.type === "wikipedia_article"
-            ? FIXTURE_LIFECYCLE_WIKIPEDIA
-            : selectedSource?.type === "osv_advisory"
-              ? FIXTURE_LIFECYCLE_OSV
-              : selectedSource?.type === "open_data_dataset"
-                ? FIXTURE_LIFECYCLE_OPEN_DATA
-                : FIXTURE_LIFECYCLE
-        }
+        stages={buildLifecycleStages({
+          claim: selectedRow?.claim,
+          source: selectedSource,
+        })}
         next={lifecycleNext}
       />
 
