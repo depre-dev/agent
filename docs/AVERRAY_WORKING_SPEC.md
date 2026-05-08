@@ -705,14 +705,14 @@ Before public v1.0.0-rc1 launch:
 
 **Contract surface:**
 - [x] `DiscoveryRegistry` deployed, CI publishing on directory updates
-- [ ] Verifier mapping extended with `wasAuthorizedAt` (no new contract)
-- [ ] `ReputationSBT` non-transferable at contract level
-- [ ] Hash fields live on `JobCreated` / `Submitted` / `Verified`
-- [ ] `Disclosed` / `AutoDisclosed` events live on session lifecycle contract
-- [ ] `EscrowCore.openDispute` enforces deadline window (`block.timestamp <= rejectedAt + DISPUTE_WINDOW`)
-- [ ] `DISPUTE_WINDOW` bumped from 1 day to 7 days
-- [ ] `EscrowCore.autoResolveOnTimeout(jobId)` shipped with `ARBITRATOR_SLA = 14 days`
-- [ ] `disputedAt` timestamp present on job state and emitted in `Disputed` event
+- [x] Verifier mapping extended with `wasAuthorizedAt` (no new contract)
+- [x] `ReputationSBT` non-transferable at contract level
+- [x] Hash fields live on `JobCreated` / `Submitted` / `Verified`
+- [x] `Disclosed` / `AutoDisclosed` events live on session lifecycle contract
+- [x] `EscrowCore.openDispute` enforces deadline window (`block.timestamp <= rejectedAt + DISPUTE_WINDOW`)
+- [x] `DISPUTE_WINDOW` bumped from 1 day to 7 days
+- [x] `EscrowCore.autoResolveOnTimeout(jobId)` shipped with `ARBITRATOR_SLA = 14 days`
+- [x] `disputedAt` timestamp present on job state and emitted in `DisputeOpened` event
 
 **Content storage:**
 - [ ] `/content/:hash` serving with visibility-resolved-at-read-time
