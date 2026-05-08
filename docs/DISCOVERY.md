@@ -60,6 +60,11 @@ secrets are configured: `DISCOVERY_REGISTRY_ADDRESS`,
 `POLKADOT_RPC_URL`, or `RPC_URL`. Missing secrets produce a no-op skip so
 deployment is not blocked before the registry is deployed.
 
+Current Polkadot Hub TestNet registry: `0x9B1aDD0Dcd0AF57d8549307C27fc24555F8E293d`.
+The first production workflow publish was run `25546750360`, which wrote
+manifest hash `0xddded191d8d70f5a3033d54d94165bee1a6e4f63d8cf52d667f54a6bf8`
+as registry version `1`.
+
 To rehearse locally without a transaction:
 
 ```bash
