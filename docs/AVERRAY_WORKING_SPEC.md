@@ -704,7 +704,7 @@ Before public v1.0.0-rc1 launch:
 - [ ] Weekly self-report email scheduled
 
 **Contract surface:**
-- [ ] `DiscoveryRegistry` deployed, CI publishing on directory updates
+- [x] `DiscoveryRegistry` deployed, CI publishing on directory updates
 - [ ] Verifier mapping extended with `wasAuthorizedAt` (no new contract)
 - [ ] `ReputationSBT` non-transferable at contract level
 - [ ] Hash fields live on `JobCreated` / `Submitted` / `Verified`
@@ -949,7 +949,7 @@ For traceability.
 
 1. **Canonical manifest publisher added:** `scripts/ops/publish-discovery-manifest.mjs` loads the served or local discovery manifest, canonicalizes JSON with sorted keys, computes the keccak256 hash, checks `DiscoveryRegistry.currentManifestHash()`, and only calls `publish(bytes32)` when the chain hash is stale.
 2. **Production workflow added:** `.github/workflows/publish-discovery-manifest.yml` runs after successful production deploys and can also be dispatched manually. It is safe before registry rollout: missing registry/RPC/publisher secrets produce an explicit skip, not a failed deploy.
-3. **Launch checklist remains deployment-gated:** the workflow exists, but `DiscoveryRegistry deployed, CI publishing on directory updates` should only be marked complete after the registry address and publisher key are configured in production and a real publish or already-current check is observed.
+3. **Launch checklist gate cleared:** `DiscoveryRegistry` is deployed on Polkadot Hub TestNet at `0x9B1aDD0Dcd0AF57d8549307C27fc24555F8E293d`, GitHub production secrets are configured, and workflow run `25546750360` published manifest hash `0xddded191d8d70f5a3033d54d94165bee1a613e1a6e4f63d8cf52d667f54a6bf8` at registry version `1`.
 
 ### v2.5 (bootstrap self-report scheduler)
 
