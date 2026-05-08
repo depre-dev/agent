@@ -11,7 +11,13 @@ import {EscrowCore} from "../contracts/EscrowCore.sol";
 import {ReputationSBT} from "../contracts/ReputationSBT.sol";
 import {MockVDotAdapter} from "../contracts/strategies/MockVDotAdapter.sol";
 
+interface VmEvent {
+    function expectEmit(bool checkTopic1, bool checkTopic2, bool checkTopic3, bool checkData, address emitter) external;
+}
+
 contract AgentPlatformTest is Test {
+    VmEvent internal constant vmEvent = VmEvent(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     TreasuryPolicy internal policy;
     StrategyAdapterRegistry internal registry;
     AgentAccountCore internal accounts;
@@ -28,6 +34,8 @@ contract AgentPlatformTest is Test {
     uint256 internal constant WORKER_DEPOSIT = 200 ether;
     bytes32 internal constant SPEC_HASH = bytes32("SPEC_HASH");
     bytes32 internal constant REASONING_HASH = bytes32("REASONING_HASH");
+
+    event DisputeOpened(bytes32 indexed jobId, address indexed opener, uint256 disputedAt);
 
     function setUp() public {
         policy = new TreasuryPolicy();
@@ -94,6 +102,11 @@ contract AgentPlatformTest is Test {
         assertEq(workerJobStake, 0);
         assertEq(dot.balanceOf(worker), startingWorkerBalance + 100 ether);
         assertEq(reputation.balanceOf(worker), 1);
+    }
+
+    function testDisputeWindowAndArbitratorSlaMatchSpec() public view {
+        assertEq(escrow.DISPUTE_WINDOW(), 7 days);
+        assertEq(escrow.ARBITRATOR_SLA(), 14 days);
     }
 
     function testRecurringTemplateReserveFundsDerivativeWithoutFreshPosterLiquid() public {
@@ -458,6 +471,8 @@ contract AgentPlatformTest is Test {
         vm.prank(verifier);
         escrow.resolveSinglePayout(jobId, false, bytes32("REJECTED"), "ipfs://badge/rejected", REASONING_HASH);
 
+        vmEvent.expectEmit(true, true, false, true, address(escrow));
+        emit DisputeOpened(jobId, worker, block.timestamp);
         vm.prank(worker);
         escrow.openDispute(jobId);
         EscrowCore.JobEscrow memory disputedJob = escrow.jobs(jobId);
