@@ -315,11 +315,11 @@ test("http smoke: /jobs/sub lets active workers create funded child jobs", { ski
         verifierTerms: ["complete"],
         verifierMinimumMatches: 1,
         outputSchemaRef: "schema://jobs/subjob-parent-smoke-output",
-        delegationPolicy: { budgetAmount: 3, budgetAsset: "DOT", maxSubJobs: 2, maxDepth: 1 }
+        delegationPolicy: { budgetAmount: 3, budgetAsset: "USDC", maxSubJobs: 2, maxDepth: 1 }
       })
     });
 
-    await fetch(`${base}/account/fund?asset=DOT&amount=10`, {
+    await fetch(`${base}/account/fund?asset=USDC&amount=10`, {
       method: "POST",
       headers: { authorization: `Bearer ${workerToken}` }
     });
@@ -368,7 +368,7 @@ test("http smoke: /jobs/sub lets active workers create funded child jobs", { ski
       headers: { authorization: `Bearer ${workerToken}` }
     });
     const balances = await account.json();
-    assert.equal(balances.reserved.DOT, 2);
+    assert.equal(balances.reserved.USDC, 2);
   });
 });
 
