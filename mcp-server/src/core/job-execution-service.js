@@ -21,6 +21,7 @@ import {
 import { computeClaimEconomics, countClaimedSessions } from "./claim-economics.js";
 import {
   DEFAULT_OPEN_PR_CAP_PER_REPO,
+  appendAverrayDisclosureFooter,
   countOpenGithubPullRequestsForRepo
 } from "./maintainer-surface-policy.js";
 import { claimExpiresAt, countClaimAttempts, isExpiredClaim, isTerminalSession } from "./claim-state.js";
@@ -235,14 +236,16 @@ export class JobExecutionService {
     const submission = normalizeSubmission(normalizeSubmitPayloadShape(job.outputSchemaRef, submissionInput));
     validateSubmissionContract(job.outputSchemaRef, submission);
     await this.enforceMaintainerOpenPrCap(job, submission);
+    const guardedSubmission = this.applyMaintainerSubmissionGuards(job, refreshed, submission);
+    validateSubmissionContract(job.outputSchemaRef, guardedSubmission);
     if (this.blockchainGateway?.isEnabled()) {
-      await this.blockchainGateway.submitWork(session.chainJobId ?? session.jobId, hashSubmission(submission));
+      await this.blockchainGateway.submitWork(session.chainJobId ?? session.jobId, hashSubmission(guardedSubmission));
     }
     const protocolHistory = [...new Set([...refreshed.protocolHistory, protocol])];
     const transitioned = transitionSession({
       ...refreshed,
       protocolHistory,
-      submission,
+      submission: guardedSubmission,
       outputSchemaBuiltin: Boolean(getBuiltinJobSchema(job.outputSchemaRef))
     }, "submitted", {
       reason: "work_submitted",
@@ -427,6 +430,29 @@ export class JobExecutionService {
         { repo, openCount, openPrCap: this.openPrCap }
       );
     }
+  }
+
+  applyMaintainerSubmissionGuards(job, session, submission) {
+    if (job?.source?.type !== "github_issue" || submission.kind !== "structured") {
+      return submission;
+    }
+    if (job.source?.maintainerPolicy?.disclosureRequired === false) {
+      return submission;
+    }
+    const prUrl = submission.structured?.prUrl ?? submission.structured?.pullRequestUrl;
+    if (!parseGithubPullRequestUrl(prUrl)) {
+      return submission;
+    }
+    return {
+      ...submission,
+      structured: {
+        ...submission.structured,
+        prBody: appendAverrayDisclosureFooter(submission.structured.prBody, {
+          agentWallet: session.wallet,
+          jobSpecUrl: job.definitionUrl ?? `https://api.averray.com/jobs/${encodeURIComponent(job.id ?? session.jobId)}`
+        })
+      }
+    };
   }
 
   isTerminalSession(session) {
