@@ -93,6 +93,31 @@ test("ingestGithubIssues skips denylisted repos", async () => {
   assert.equal(payload.skippedDetails[0].reason, "repo_denylisted");
 });
 
+test("ingestGithubIssues skips default security and standards denylist repos", async () => {
+  const payload = await ingestGithubIssues({
+    query: "is:issue is:open label:good-first-issue",
+    limit: 5,
+    minScore: 55,
+    fetchImpl: async () => ({
+      ok: true,
+      async json() {
+        return {
+          items: [{
+            ...GOOD_ISSUE,
+            html_url: "https://github.com/w3c/csswg-drafts/issues/42",
+            repository_url: "https://api.github.com/repos/w3c/csswg-drafts"
+          }]
+        };
+      }
+    })
+  });
+
+  assert.equal(payload.count, 0);
+  assert.equal(payload.jobs.length, 0);
+  assert.equal(payload.skippedDetails[0].repo, "w3c/csswg-drafts");
+  assert.equal(payload.skippedDetails[0].reason, "repo_denylisted");
+});
+
 test("ingestGithubIssues scans repository policy files when enabled", async () => {
   const payload = await ingestGithubIssues({
     query: "is:issue is:open label:good-first-issue",

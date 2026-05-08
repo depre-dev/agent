@@ -5,6 +5,7 @@ import { ValidationError } from "./errors.js";
 import { JobExecutionService } from "./job-execution-service.js";
 import { MemoryStateStore } from "./state-store.js";
 import { computeClaimEconomics } from "./claim-economics.js";
+import { buildAverrayDisclosureFooter } from "./maintainer-surface-policy.js";
 
 const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const WALLET_2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -397,4 +398,63 @@ test("submitWork enforces per-repo open PR cap for GitHub issue jobs", async () 
     }),
     (error) => error.code === "maintainer_open_pr_cap_reached"
   );
+});
+
+test("submitWork injects Averray disclosure footer into GitHub PR evidence", async () => {
+  const stateStore = new MemoryStateStore();
+  const job = makeJob({
+    id: "github-issue-job-disclosure",
+    outputSchemaRef: "schema://jobs/github-pr-evidence-output",
+    source: {
+      type: "github_issue",
+      repo: "example/project",
+      issueNumber: 42,
+      maintainerPolicy: {
+        disclosureRequired: true,
+        openPrCap: 3
+      }
+    }
+  });
+  const service = new JobExecutionService(stateStore, undefined, () => job);
+  const claimed = await service.claimJob(WALLET, job.id, "http", "idemp-disclosure");
+
+  const submitted = await service.submitWork(claimed.sessionId, "http", {
+    prUrl: "https://github.com/example/project/pull/7",
+    summary: "Adds the requested parser regression test.",
+    tests: "npm test"
+  });
+
+  assert.match(submitted.submission.structured.prBody, /This contribution was prepared by an autonomous agent/u);
+  assert.match(submitted.submission.structured.prBody, /Averray platform/u);
+  assert.match(submitted.submission.structured.prBody, new RegExp(WALLET, "u"));
+  assert.match(submitted.submission.structured.prBody, /https:\/\/api\.averray\.com\/jobs\/github-issue-job-disclosure/u);
+});
+
+test("submitWork does not duplicate an existing Averray disclosure footer", async () => {
+  const stateStore = new MemoryStateStore();
+  const footer = buildAverrayDisclosureFooter({
+    agentWallet: WALLET,
+    jobSpecUrl: "https://api.averray.com/jobs/github-issue-job-disclosure-once"
+  });
+  const prBody = `Fixes #42\n\n${footer}`;
+  const job = makeJob({
+    id: "github-issue-job-disclosure-once",
+    outputSchemaRef: "schema://jobs/github-pr-evidence-output",
+    source: {
+      type: "github_issue",
+      repo: "example/project",
+      issueNumber: 42
+    }
+  });
+  const service = new JobExecutionService(stateStore, undefined, () => job);
+  const claimed = await service.claimJob(WALLET, job.id, "http", "idemp-disclosure-once");
+
+  const submitted = await service.submitWork(claimed.sessionId, "http", {
+    prUrl: "https://github.com/example/project/pull/8",
+    summary: "Adds the requested parser regression test.",
+    tests: "npm test",
+    prBody
+  });
+
+  assert.equal(submitted.submission.structured.prBody, prBody);
 });

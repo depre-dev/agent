@@ -719,9 +719,9 @@ Before public v1.0.0-rc1 launch:
 - [x] Append-only recovery log writing to object storage
 
 **Agent/maintainer surface:**
-- [ ] Disclosure footer auto-injected into every PR/edit
-- [ ] Per-repo 3-PR cap enforced at platform layer
-- [ ] Denylist live, with security/standards repos pre-populated
+- [x] Disclosure footer auto-injected into every PR/edit
+- [x] Per-repo 3-PR cap enforced at platform layer
+- [x] Denylist live, with security/standards repos pre-populated
 
 **Multisig and ops (per `MULTISIG_SETUP.md`):**
 - [ ] All three signer keys generated, backups in distinct locations per `SIGNER_POLICY.md`
