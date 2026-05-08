@@ -109,6 +109,10 @@ relay that accepts JSON POSTs.
    cd /srv/agent-stack/app
    ./scripts/ops/check-hosted-stack.sh
 
+   # If the operator app is deliberately behind browser auth and no app-shell
+   # credentials are available in this shell:
+   APP_ALLOW_PROTECTED_SHELL=1 ./scripts/ops/check-hosted-stack.sh
+
    # If an admin JWT is available, include async XCM operator status too:
    ADMIN_JWT='<admin-jwt>' ./scripts/ops/check-hosted-stack.sh
    ```

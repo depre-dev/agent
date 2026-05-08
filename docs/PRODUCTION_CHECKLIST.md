@@ -64,6 +64,11 @@ Run:
 ```bash
 ./scripts/ops/check-hosted-stack.sh
 
+# If the operator app is intentionally protected by Caddy, Cloudflare Access,
+# or another browser auth layer and you do not have app-shell credentials in the
+# current shell:
+APP_ALLOW_PROTECTED_SHELL=1 ./scripts/ops/check-hosted-stack.sh
+
 # Optional: include the async XCM operator lane in the smoke check
 ADMIN_JWT='<admin-jwt>' ./scripts/ops/check-hosted-stack.sh
 
@@ -71,6 +76,10 @@ ADMIN_JWT='<admin-jwt>' ./scripts/ops/check-hosted-stack.sh
 # touched, while scheduled/full-stack smoke should keep the default.
 CHECK_INDEXER=0 ./scripts/ops/check-hosted-stack.sh
 ```
+
+For the GitHub production deploy workflow, set the repository/environment secret
+`APP_ALLOW_PROTECTED_SHELL=1` when `app.averray.com` should return an auth
+challenge instead of the public operator shell.
 
 ---
 

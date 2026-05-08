@@ -19,6 +19,8 @@ TIMEOUT_SEC=${TIMEOUT_SEC:-20}
 APP_BASIC_AUTH_USER=${APP_BASIC_AUTH_USER:-}
 APP_BASIC_AUTH_PASSWORD=${APP_BASIC_AUTH_PASSWORD:-}
 APP_EXPECTED_MARKER=${APP_EXPECTED_MARKER:-Opening the operator control room.}
+APP_ALLOW_PROTECTED_SHELL=${APP_ALLOW_PROTECTED_SHELL:-0}
+APP_PROTECTED_STATUS_CODES=${APP_PROTECTED_STATUS_CODES:-401}
 ADMIN_JWT=${ADMIN_JWT:-}
 
 require_command() {
@@ -78,6 +80,43 @@ enabled() {
   esac
 }
 
+status_allowed() {
+  local status="$1"
+  local allowed
+  IFS=',' read -ra allowed <<<"$APP_PROTECTED_STATUS_CODES"
+  for code in "${allowed[@]}"; do
+    if [[ "$status" == "${code//[[:space:]]/}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+check_operator_app_shell() {
+  if app_html="$(fetch "$APP_URL" 2>/dev/null)" && grep -Fq "$APP_EXPECTED_MARKER" <<<"$app_html"; then
+    return 0
+  fi
+
+  if ! enabled "$APP_ALLOW_PROTECTED_SHELL"; then
+    echo "Operator app did not return the expected shell" >&2
+    exit 1
+  fi
+
+  local curl_args=(-sS --max-time "$TIMEOUT_SEC" -o /dev/null -w "%{http_code}")
+  if [[ -n "$APP_BASIC_AUTH_USER" && -n "$APP_BASIC_AUTH_PASSWORD" ]]; then
+    curl_args+=(-u "$APP_BASIC_AUTH_USER:$APP_BASIC_AUTH_PASSWORD")
+  fi
+  local status
+  status="$(curl "${curl_args[@]}" "$APP_URL")"
+  if status_allowed "$status"; then
+    echo "Operator app returned protected status $status as expected."
+    return 0
+  fi
+
+  echo "Operator app did not return the expected shell or an allowed protected status (got HTTP $status)." >&2
+  exit 1
+}
+
 echo "Checking public site"
 public_html="$(fetch "$PUBLIC_SITE_URL")"
 grep -q "<title>Averray" <<<"$public_html" || {
@@ -91,11 +130,7 @@ jq -e '.discoveryUrl == "https://averray.com/.well-known/agent-tools.json"' >/de
 jq -e '.baseUrl == "https://api.averray.com"' >/dev/null <<<"$discovery_json"
 
 echo "Checking operator app shell"
-app_html="$(fetch "$APP_URL")"
-grep -Fq "$APP_EXPECTED_MARKER" <<<"$app_html" || {
-  echo "Operator app did not return the expected shell" >&2
-  exit 1
-}
+check_operator_app_shell
 
 echo "Checking API health"
 api_health_json="$(fetch "$API_HEALTH_URL")"
