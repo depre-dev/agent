@@ -5,6 +5,7 @@ import { mutate } from "swr";
 import { LoadedRunPanel } from "./LoadedRunPanel";
 import { LifecycleRail } from "./LifecycleRail";
 import { JobTimelinePanel } from "./JobTimelinePanel";
+import { JobLineagePanel } from "./JobLineagePanel";
 import { LifecycleActionBar } from "./LifecycleActionBar";
 import { RunSemanticBlock } from "./RunSemanticBlock";
 import {
@@ -781,6 +782,14 @@ export function LoadedRunView({
           }}
         />
       ) : null}
+
+      {/* Sub-job lineage panel — closes CORE_FRAMEWORK_ROADMAP §8.
+       *  Reads the same /admin/jobs/timeline payload the timeline
+       *  panel uses (SWR dedupes), so this is a free second
+       *  consumer. Sits above the timeline so the operator sees
+       *  parent / children / recurring relationships before the
+       *  full chronological log. */}
+      {showLifecycle ? <JobLineagePanel jobId={loadedRow.id} /> : null}
 
       {/* Job timeline (PR #149) — full chronological log of every
        *  event the backend has stitched for this job: state
