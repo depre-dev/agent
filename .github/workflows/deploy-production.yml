@@ -74,6 +74,7 @@ jobs:
       APP_BASIC_AUTH_USER: ${{ secrets.APP_BASIC_AUTH_USER }}
       APP_BASIC_AUTH_PASSWORD: ${{ secrets.APP_BASIC_AUTH_PASSWORD }}
       APP_BASIC_AUTH_PASSWORD_HASH: ${{ secrets.APP_BASIC_AUTH_PASSWORD_HASH }}
+      APP_ALLOW_PROTECTED_SHELL: ${{ secrets.APP_ALLOW_PROTECTED_SHELL }}
       ADMIN_JWT: ${{ secrets.ADMIN_JWT }}
       DEPLOY_RUN_INDEXER: ${{ github.event_name == 'workflow_dispatch' && inputs.run_indexer || 'auto' }}
       DEPLOY_WAIT_FOR_READY: ${{ github.event_name == 'workflow_dispatch' && inputs.wait_for_ready || '1' }}
@@ -103,10 +104,11 @@ jobs:
       - name: Deploy production
         run: |
           remote_env=$(
-            printf 'APP_BASIC_AUTH_USER=%q APP_BASIC_AUTH_PASSWORD=%q APP_BASIC_AUTH_PASSWORD_HASH=%q ADMIN_JWT=%q RUN_INDEXER=%q WAIT_FOR_READY=%q HEALTH_STABILITY_SEC=%q INDEXER_LOG_TAIL=%q SMOKE_CHECK_INDEXER=%q INDEXER_DATABASE_SCHEMA=%q INDEXER_FRESH_SCHEMA=%q ' \
+            printf 'APP_BASIC_AUTH_USER=%q APP_BASIC_AUTH_PASSWORD=%q APP_BASIC_AUTH_PASSWORD_HASH=%q APP_ALLOW_PROTECTED_SHELL=%q ADMIN_JWT=%q RUN_INDEXER=%q WAIT_FOR_READY=%q HEALTH_STABILITY_SEC=%q INDEXER_LOG_TAIL=%q SMOKE_CHECK_INDEXER=%q INDEXER_DATABASE_SCHEMA=%q INDEXER_FRESH_SCHEMA=%q ' \
               "$APP_BASIC_AUTH_USER" \
               "$APP_BASIC_AUTH_PASSWORD" \
               "$APP_BASIC_AUTH_PASSWORD_HASH" \
+              "$APP_ALLOW_PROTECTED_SHELL" \
               "$ADMIN_JWT" \
               "$DEPLOY_RUN_INDEXER" \
               "$DEPLOY_WAIT_FOR_READY" \
