@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { AgentPlatformClient } from "../../sdk/agent-platform-client.js";
 
 const DEFAULT_API_BASE_URL = "https://api.averray.com";
+const DEFAULT_REWARD_AMOUNT = 0.000001;
 
 export async function runHostedWorkerLoop({
   env = process.env,
@@ -23,6 +24,7 @@ export async function runHostedWorkerLoop({
   const jobId = env.PRODUCT_PROOF_JOB_ID || `product-proof-worker-loop-${timestamp}`;
   const idempotencyKey = env.PRODUCT_PROOF_IDEMPOTENCY_KEY || `product-proof:${jobId}`;
   const evidence = env.PRODUCT_PROOF_SUBMISSION || `complete verified output for ${jobId}`;
+  const rewardAmount = parsePositiveNumber(env.PRODUCT_PROOF_REWARD_AMOUNT, DEFAULT_REWARD_AMOUNT);
 
   const authSession = await platform.getAuthSession();
   const wallet = authSession?.wallet;
@@ -36,7 +38,7 @@ export async function runHostedWorkerLoop({
     category: "coding",
     tier: "starter",
     rewardAsset: env.PRODUCT_PROOF_REWARD_ASSET || "DOT",
-    rewardAmount: 1,
+    rewardAmount,
     verifierMode: "benchmark",
     verifierTerms: ["complete", "verified", "output"],
     verifierMinimumMatches: 2,
@@ -111,6 +113,17 @@ export async function runHostedWorkerLoop({
 
 function stripTrailingSlash(value) {
   return String(value).replace(/\/+$/u, "");
+}
+
+function parsePositiveNumber(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`PRODUCT_PROOF_REWARD_AMOUNT must be greater than zero; got ${JSON.stringify(value)}.`);
+  }
+  return parsed;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
