@@ -39,6 +39,15 @@ const REQUEST_STATUS_LABELS = ["unknown", "pending", "succeeded", "failed", "can
 const abiCoder = AbiCoder.defaultAbiCoder();
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
+function summarizeSupportedAssets(assets = []) {
+  return assets.map((asset) => ({
+    symbol: asset.symbol,
+    address: asset.address,
+    assetClass: asset.assetClass ?? "custom",
+    decimals: asset.decimals
+  }));
+}
+
 export class BlockchainGateway {
   constructor(config = loadBlockchainConfig()) {
     this.config = config;
@@ -269,14 +278,36 @@ export class BlockchainGateway {
           paused: undefined,
           owner: undefined,
           pauser: undefined,
+          settlementReady: false,
+          contracts: {
+            escrowCoreAddress: this.config.escrowCoreAddress || undefined,
+            agentAccountAddress: this.config.agentAccountAddress || undefined,
+            reputationSbtAddress: this.config.reputationSbtAddress || undefined,
+            supportedAssets: summarizeSupportedAssets(this.config.supportedAssets)
+          },
+          roles: {
+            signerAddress: undefined,
+            signerIsVerifier: false,
+            escrowIsServiceOperator: false
+          },
           risk: {}
         };
       }
 
+      const signerAddress = await this.signer?.getAddress?.();
+      const optionalBool = async (promise, fallback = false) => {
+        try {
+          return Boolean(await promise);
+        } catch {
+          return fallback;
+        }
+      };
       const [
         owner,
         pauser,
         paused,
+        signerIsVerifier,
+        escrowIsServiceOperator,
         dailyOutflowCap,
         perAccountBorrowCap,
         minimumCollateralRatioBps,
@@ -292,6 +323,10 @@ export class BlockchainGateway {
         this.policyContract.owner(),
         this.policyContract.pauser(),
         this.policyContract.paused(),
+        signerAddress ? optionalBool(this.policyContract.verifiers(signerAddress)) : false,
+        this.config.escrowCoreAddress
+          ? optionalBool(this.policyContract.serviceOperators(this.config.escrowCoreAddress))
+          : false,
         this.policyContract.dailyOutflowCap(),
         this.policyContract.perAccountBorrowCap(),
         this.policyContract.minimumCollateralRatioBps(),
@@ -311,6 +346,18 @@ export class BlockchainGateway {
         paused: Boolean(paused),
         owner,
         pauser,
+        settlementReady: Boolean(signerIsVerifier && escrowIsServiceOperator && !paused),
+        contracts: {
+          escrowCoreAddress: this.config.escrowCoreAddress,
+          agentAccountAddress: this.config.agentAccountAddress,
+          reputationSbtAddress: this.config.reputationSbtAddress,
+          supportedAssets: summarizeSupportedAssets(this.config.supportedAssets)
+        },
+        roles: {
+          signerAddress,
+          signerIsVerifier,
+          escrowIsServiceOperator
+        },
         risk: {
           dailyOutflowCap: Number(dailyOutflowCap),
           perAccountBorrowCap: Number(perAccountBorrowCap),

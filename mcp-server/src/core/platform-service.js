@@ -46,6 +46,18 @@ const DEFAULT_TREASURY_POLICY_STATUS = {
   paused: undefined,
   owner: undefined,
   pauser: undefined,
+  settlementReady: false,
+  contracts: {
+    escrowCoreAddress: undefined,
+    agentAccountAddress: undefined,
+    reputationSbtAddress: undefined,
+    supportedAssets: []
+  },
+  roles: {
+    signerAddress: undefined,
+    signerIsVerifier: false,
+    escrowIsServiceOperator: false
+  },
   risk: {}
 };
 

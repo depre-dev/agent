@@ -18,6 +18,10 @@ test("runHostedWorkerLoop creates, claims, submits, verifies, and writes evidenc
       calls.push(["getAuthSession"]);
       return { wallet };
     },
+    async getAdminStatus() {
+      calls.push(["getAdminStatus"]);
+      return settlementReadyStatus();
+    },
     async createJob(payload) {
       calls.push(["createJob", payload]);
       return { id: payload.id };
@@ -66,6 +70,7 @@ test("runHostedWorkerLoop creates, claims, submits, verifies, and writes evidenc
   assert.equal(result.profileUrl, `https://api.example.test/agents/${wallet}`);
   assert.deepEqual(calls.map(([name]) => name), [
     "getAuthSession",
+    "getAdminStatus",
     "createJob",
     "claimJob",
     "submitWork",
@@ -74,15 +79,16 @@ test("runHostedWorkerLoop creates, claims, submits, verifies, and writes evidenc
     "getAgentBadge",
     "getAgentProfile"
   ]);
-  assert.equal(calls[1][1].verifierMode, "benchmark");
-  assert.equal(calls[1][1].rewardAsset, "DOT");
-  assert.equal(calls[1][1].rewardAmount, 0.000001);
-  assert.equal(calls[2][2], `product-proof:${jobId}`);
+  assert.equal(calls[2][1].verifierMode, "benchmark");
+  assert.equal(calls[2][1].rewardAsset, "DOT");
+  assert.equal(calls[2][1].rewardAmount, 0.000001);
+  assert.equal(calls[3][2], `product-proof:${jobId}`);
 
   const written = JSON.parse(await readFile(evidenceFile, "utf8"));
   assert.equal(written.jobId, jobId);
   assert.equal(written.sessionId, sessionId);
   assert.equal(written.verificationOutcome, "approved");
+  assert.equal(written.settlementReadiness.settlementReady, true);
 });
 
 test("runHostedWorkerLoop fails closed without a token", async () => {
@@ -97,6 +103,9 @@ test("runHostedWorkerLoop accepts an explicit positive reward amount", async () 
   const client = {
     async getAuthSession() {
       return { wallet: "0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519" };
+    },
+    async getAdminStatus() {
+      return settlementReadyStatus();
     },
     async createJob(payload) {
       calls.push(["createJob", payload]);
@@ -135,6 +144,41 @@ test("runHostedWorkerLoop accepts an explicit positive reward amount", async () 
   assert.equal(calls[0][1].rewardAmount, 0.01);
 });
 
+test("runHostedWorkerLoop fails closed before mutation when settlement is not ready", async () => {
+  const calls = [];
+  await assert.rejects(
+    runHostedWorkerLoop({
+      client: {
+        async getAuthSession() {
+          calls.push(["getAuthSession"]);
+          return { wallet: "0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519" };
+        },
+        async getAdminStatus() {
+          calls.push(["getAdminStatus"]);
+          return settlementReadyStatus({
+            settlementReady: false,
+            roles: {
+              signerAddress: "0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519",
+              signerIsVerifier: false,
+              escrowIsServiceOperator: true
+            }
+          });
+        },
+        async createJob() {
+          calls.push(["createJob"]);
+          throw new Error("should not mutate when settlement is not ready");
+        }
+      },
+      now: () => 1700000000000,
+      log: () => {},
+      env: { ADMIN_JWT: "token" }
+    }),
+    /signerIsVerifier=false/u
+  );
+
+  assert.deepEqual(calls.map(([name]) => name), ["getAuthSession", "getAdminStatus"]);
+});
+
 test("runHostedWorkerLoop rejects invalid reward amounts", async () => {
   await assert.rejects(
     runHostedWorkerLoop({
@@ -149,3 +193,47 @@ test("runHostedWorkerLoop rejects invalid reward amounts", async () => {
     /PRODUCT_PROOF_REWARD_AMOUNT must be greater than zero/u
   );
 });
+
+function settlementReadyStatus(overrides = {}) {
+  const base = {
+    maintenance: {
+      policy: {
+        enabled: true,
+        policyAddress: "0x1111111111111111111111111111111111111111",
+        paused: false,
+        settlementReady: true,
+        roles: {
+          signerAddress: "0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519",
+          signerIsVerifier: true,
+          escrowIsServiceOperator: true
+        },
+        contracts: {
+          escrowCoreAddress: "0x2222222222222222222222222222222222222222",
+          agentAccountAddress: "0x3333333333333333333333333333333333333333",
+          reputationSbtAddress: "0x4444444444444444444444444444444444444444",
+          supportedAssets: [{ symbol: "DOT", address: "0x5555555555555555555555555555555555555555" }]
+        }
+      }
+    }
+  };
+
+  return {
+    ...base,
+    maintenance: {
+      ...base.maintenance,
+      ...(overrides.maintenance ?? {}),
+      policy: {
+        ...base.maintenance.policy,
+        ...(overrides.maintenance?.policy ?? overrides),
+        roles: {
+          ...base.maintenance.policy.roles,
+          ...((overrides.maintenance?.policy ?? overrides).roles ?? {})
+        },
+        contracts: {
+          ...base.maintenance.policy.contracts,
+          ...((overrides.maintenance?.policy ?? overrides).contracts ?? {})
+        }
+      }
+    }
+  };
+}

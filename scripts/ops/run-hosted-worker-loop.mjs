@@ -32,6 +32,8 @@ export async function runHostedWorkerLoop({
     throw new Error("/auth/session did not return a wallet for the worker token.");
   }
 
+  const settlementReadiness = await assertSettlementReadiness(platform);
+
   log(`Creating hosted product-proof job ${jobId}`);
   const created = await platform.createJob({
     id: jobId,
@@ -98,6 +100,7 @@ export async function runHostedWorkerLoop({
     profileUrl,
     verificationOutcome: verification.outcome,
     verificationReasonCode: verification.reasonCode ?? null,
+    settlementReadiness,
     sessionStatus: session.status,
     completedAt: new Date(timestamp).toISOString()
   };
@@ -124,6 +127,40 @@ function parsePositiveNumber(value, fallback) {
     throw new Error(`PRODUCT_PROOF_REWARD_AMOUNT must be greater than zero; got ${JSON.stringify(value)}.`);
   }
   return parsed;
+}
+
+async function assertSettlementReadiness(platform) {
+  if (typeof platform.getAdminStatus !== "function") {
+    throw new Error("Hosted product-proof worker loop requires /admin/status settlement readiness.");
+  }
+  const status = await platform.getAdminStatus();
+  const policy = status?.maintenance?.policy;
+  if (!policy?.enabled) {
+    throw new Error("Hosted product-proof worker loop requires blockchain policy status to be enabled.");
+  }
+  if (policy.settlementReady !== true) {
+    throw new Error(`Hosted product-proof worker loop requires on-chain settlement readiness; ${formatSettlementReadiness(policy)}`);
+  }
+  return {
+    policyAddress: policy.policyAddress,
+    paused: Boolean(policy.paused),
+    settlementReady: true,
+    roles: {
+      signerAddress: policy.roles?.signerAddress,
+      signerIsVerifier: Boolean(policy.roles?.signerIsVerifier),
+      escrowIsServiceOperator: Boolean(policy.roles?.escrowIsServiceOperator)
+    },
+    contracts: policy.contracts
+  };
+}
+
+function formatSettlementReadiness(policy) {
+  const reasons = [];
+  if (policy?.paused) reasons.push("policyPaused=true");
+  if (!policy?.roles?.signerIsVerifier) reasons.push("signerIsVerifier=false");
+  if (!policy?.roles?.escrowIsServiceOperator) reasons.push("escrowIsServiceOperator=false");
+  if (policy?.error?.message) reasons.push(`policyError=${policy.error.message}`);
+  return reasons.length ? reasons.join(", ") : "settlementReady=false";
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
