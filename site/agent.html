@@ -199,6 +199,30 @@
             </div>
           </section>
 
+          <!--
+            Dispute history — surfaces every session this wallet had
+            arbitrated, hydrated from `profile.disputes` (slim shape:
+            id, sessionId, jobId, status, openedAt, windowEndsAt,
+            verdict, reasonCode, workerPayout, txHash). Stays empty
+            (with an honest note) until at least one session has been
+            disputed. See AVERRAY_WORKING_SPEC §3 (verifier and
+            arbitrator model) and §10 (reputation deepening).
+          -->
+          <section class="profile-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Dispute history</p>
+                <h2>Arbitration outcomes</h2>
+              </div>
+              <span id="profile-dispute-count" class="profile-summary-source">no disputes yet</span>
+            </div>
+
+            <div id="profile-dispute-outcomes" class="dispute-outcomes" hidden></div>
+            <div id="profile-disputes" class="dispute-list">
+              <p class="profile-empty">No arbitrated sessions on this wallet yet.</p>
+            </div>
+          </section>
+
           <section class="profile-panel">
             <div class="section-heading">
               <div>

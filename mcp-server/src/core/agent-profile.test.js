@@ -392,3 +392,106 @@ test("buildAgentProfile omits the verification block when nothing is computable"
   assert.equal(profile.badges.length, 1);
   assert.ok(!("verification" in profile.badges[0]));
 });
+
+test("buildAgentProfile surfaces dispute history with verdict outcomes", () => {
+  // Three sessions:
+  //   - one currently disputed with no verdict yet (open)
+  //   - one disputed with an "upheld" verdict (worker lost)
+  //   - one disputed with a "dismissed" verdict (worker won)
+  const sessions = [
+    {
+      sessionId: "s-open",
+      wallet: WALLET,
+      jobId: "starter-coding-001",
+      status: "disputed",
+      disputedAt: "2026-05-08T10:00:00Z",
+      updatedAt: "2026-05-08T10:00:00Z",
+      verification: { outcome: "rejected", reasonCode: "REJECTED" },
+    },
+    {
+      sessionId: "s-lost",
+      wallet: WALLET,
+      jobId: "starter-coding-001",
+      status: "rejected",
+      disputedAt: "2026-04-30T10:00:00Z",
+      updatedAt: "2026-05-02T12:00:00Z",
+      verification: { outcome: "rejected", reasonCode: "DISPUTE_LOST" },
+    },
+    {
+      sessionId: "s-won",
+      wallet: WALLET,
+      jobId: "governance-pro-001",
+      status: "resolved",
+      disputedAt: "2026-04-20T10:00:00Z",
+      updatedAt: "2026-04-22T12:00:00Z",
+      verification: { outcome: "approved", reasonCode: "DISPUTE_OVERTURNED" },
+    },
+  ];
+  const receiptsBySession = new Map([
+    ["s-lost", {
+      verdict: { verdict: "upheld", reasonCode: "DISPUTE_LOST", txHash: "0xab" },
+    }],
+    ["s-won", {
+      verdict: { verdict: "dismissed", reasonCode: "DISPUTE_OVERTURNED", workerPayout: "5000000" },
+    }],
+  ]);
+
+  const profile = buildAgentProfile({
+    wallet: WALLET,
+    reputation: { skill: 200, reliability: 200, economic: 200, tier: "pro" },
+    sessions,
+    getJobDefinition: makeGetJob(),
+    getDisputeReceipts: (sessionId) => receiptsBySession.get(sessionId),
+  });
+
+  assert.equal(profile.disputes.length, 3);
+  // Newest-first ordering by openedAt.
+  assert.equal(profile.disputes[0].sessionId, "s-open");
+  assert.equal(profile.disputes[0].status, "open");
+  assert.ok(!("verdict" in profile.disputes[0]));
+  assert.equal(profile.disputes[1].sessionId, "s-lost");
+  assert.equal(profile.disputes[1].status, "resolved");
+  assert.equal(profile.disputes[1].verdict, "upheld");
+  assert.equal(profile.disputes[1].reasonCode, "DISPUTE_LOST");
+  assert.equal(profile.disputes[2].verdict, "dismissed");
+  assert.equal(profile.disputes[2].workerPayout, "5000000");
+
+  // Outcome counts surface on stats.disputes for the strip view.
+  assert.equal(profile.stats.disputes.total, 3);
+  assert.equal(profile.stats.disputes.open, 1);
+  assert.equal(profile.stats.disputes.lost, 1);
+  assert.equal(profile.stats.disputes.won, 1);
+  assert.equal(profile.stats.disputes.split, 0);
+  assert.equal(profile.stats.disputes.timeout, 0);
+
+  // Each dispute carries a stable id derived from the session id.
+  for (const dispute of profile.disputes) {
+    assert.match(dispute.id, /^dispute-[a-f0-9]{12}$/u);
+    assert.equal(typeof dispute.openedAt, "string");
+    assert.equal(typeof dispute.windowEndsAt, "string");
+    assert.equal(dispute.slaSeconds, 14 * 24 * 60 * 60);
+  }
+});
+
+test("buildAgentProfile leaves disputes empty when no contested sessions exist", () => {
+  const sessions = [
+    approvedSession({ jobId: "starter-coding-001", sessionId: "s1", updatedAt: "2026-04-10T10:00:00Z" }),
+    rejectedSession({ jobId: "starter-coding-001", sessionId: "s2", updatedAt: "2026-04-12T10:00:00Z" }),
+  ];
+  const profile = buildAgentProfile({
+    wallet: WALLET,
+    reputation: { skill: 100, reliability: 100, economic: 100, tier: "pro" },
+    sessions,
+    getJobDefinition: makeGetJob(),
+  });
+  assert.deepEqual(profile.disputes, []);
+  assert.deepEqual(profile.stats.disputes, {
+    total: 0,
+    open: 0,
+    lost: 0,
+    won: 0,
+    split: 0,
+    timeout: 0,
+    resolved: 0,
+  });
+});

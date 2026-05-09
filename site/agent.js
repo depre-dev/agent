@@ -321,6 +321,184 @@ function renderTrailSummary(profile) {
 }
 
 /* ---------------------------------------------------------------- */
+/* Dispute history — see AVERRAY_WORKING_SPEC §3 (arbitrator model)  */
+/* and §10 (reputation deepening). Renders the slim disputes[] block */
+/* from the wallet profile JSON: status pill, opened/window-ends     */
+/* timestamps, verdict + reason code, and an on-chain link when the  */
+/* arbitrator's release receipt has a tx hash. Public read; heavy    */
+/* fields (full evidence, signed receipt body) live behind           */
+/* `/disputes/<id>` and require auth.                                 */
+/* ---------------------------------------------------------------- */
+
+const DISPUTE_VERDICT_PILL = {
+  upheld:    { variant: "lost",   label: "Worker lost" },
+  dismissed: { variant: "won",    label: "Worker won" },
+  split:     { variant: "split",  label: "Split award" },
+  timeout:   { variant: "timeout", label: "Arbitrator timeout" },
+};
+
+const DISPUTE_REASON_LABEL = {
+  DISPUTE_LOST:        "Dispute upheld — escrow slashed to treasury",
+  DISPUTE_OVERTURNED:  "Dispute dismissed — escrow returned to depositor",
+  DISPUTE_PARTIAL:     "Split verdict — partial payout to worker",
+  ARB_TIMEOUT:         "Arbitrator SLA elapsed — escrow auto-released",
+};
+
+function disputeStatusPill(dispute) {
+  if (dispute.status === "open") {
+    return { variant: "open", label: "Open" };
+  }
+  const verdict = String(dispute.verdict ?? "").toLowerCase();
+  if (DISPUTE_VERDICT_PILL[verdict]) {
+    return DISPUTE_VERDICT_PILL[verdict];
+  }
+  return { variant: "resolved", label: "Resolved" };
+}
+
+function formatSlaWindow(slaSeconds) {
+  if (!Number.isFinite(slaSeconds) || slaSeconds <= 0) return "—";
+  const days = Math.round(slaSeconds / 86400);
+  return `${days}-day SLA`;
+}
+
+function formatPayoutString(value) {
+  if (value === undefined || value === null || value === "") return "—";
+  const text = String(value);
+  // Heuristic: when the raw integer looks like a base-unit balance
+  // (≥7 digits) we don't try to scale it without decimals metadata —
+  // we render as-is so we never misrepresent the amount.
+  return text;
+}
+
+function renderDisputeRow(dispute) {
+  const pill = disputeStatusPill(dispute);
+  const reasonLine = dispute.reasonCode && DISPUTE_REASON_LABEL[dispute.reasonCode]
+    ? DISPUTE_REASON_LABEL[dispute.reasonCode]
+    : null;
+  const title = dispute.jobTitle ? `${dispute.jobTitle}` : dispute.jobId;
+  const detailRows = [];
+  detailRows.push(`
+    <div class="verify-row">
+      <span class="verify-label">Opened</span>
+      <span class="verify-value" title="${escapeHtml(dispute.openedAt ?? "")}">${escapeHtml(formatIso(dispute.openedAt))}</span>
+    </div>
+  `);
+  if (dispute.windowEndsAt) {
+    detailRows.push(`
+      <div class="verify-row">
+        <span class="verify-label">Window ends</span>
+        <span class="verify-value" title="${escapeHtml(dispute.windowEndsAt)}">${escapeHtml(formatIso(dispute.windowEndsAt))} · ${escapeHtml(formatSlaWindow(dispute.slaSeconds))}</span>
+      </div>
+    `);
+  }
+  if (dispute.verdict) {
+    detailRows.push(`
+      <div class="verify-row">
+        <span class="verify-label">Verdict</span>
+        <span class="verify-value">${escapeHtml(dispute.verdict)}${dispute.reasonCode ? ` · <code>${escapeHtml(dispute.reasonCode)}</code>` : ""}</span>
+      </div>
+    `);
+  }
+  if (dispute.workerPayout !== undefined && dispute.workerPayout !== null && dispute.workerPayout !== "") {
+    detailRows.push(`
+      <div class="verify-row">
+        <span class="verify-label">Worker payout</span>
+        <code class="verify-value">${escapeHtml(formatPayoutString(dispute.workerPayout))}</code>
+      </div>
+    `);
+  }
+  if (dispute.releasedAt) {
+    detailRows.push(`
+      <div class="verify-row">
+        <span class="verify-label">Released</span>
+        <span class="verify-value" title="${escapeHtml(dispute.releasedAt)}">${escapeHtml(formatIso(dispute.releasedAt))}</span>
+      </div>
+    `);
+  }
+  if (dispute.txHash) {
+    detailRows.push(`
+      <div class="verify-row">
+        <span class="verify-label">On-chain receipt</span>
+        <a class="verify-link" href="${escapeHtml(subscanExtrinsicSearchUrl(dispute.txHash))}" target="_blank" rel="noreferrer">
+          <code>${escapeHtml(shortHash(dispute.txHash))}</code> ↗
+        </a>
+      </div>
+    `);
+  }
+
+  return `
+    <article class="dispute-row dispute-row-${escapeHtml(pill.variant)}">
+      <header class="dispute-row-header">
+        <div class="dispute-row-title">
+          <p class="eyebrow">${escapeHtml(dispute.id ?? "dispute")}</p>
+          <h3>${escapeHtml(title)}</h3>
+          <p class="dispute-row-job"><code>${escapeHtml(dispute.jobId)}</code> · session <code>${escapeHtml(dispute.sessionId)}</code></p>
+        </div>
+        <span class="dispute-pill dispute-pill-${escapeHtml(pill.variant)}">${escapeHtml(pill.label)}</span>
+      </header>
+      ${reasonLine ? `<p class="dispute-row-reason">${escapeHtml(reasonLine)}</p>` : ""}
+      <div class="verify-rows dispute-row-rows">${detailRows.join("")}</div>
+    </article>
+  `;
+}
+
+function renderDisputeOutcomes(outcomes, total) {
+  const root = byId("profile-dispute-outcomes");
+  if (!root) return;
+  if (!total || total <= 0) {
+    root.hidden = true;
+    root.innerHTML = "";
+    return;
+  }
+  const cells = [
+    { id: "open",    label: "Open",      count: outcomes.open ?? 0 },
+    { id: "won",     label: "Won",       count: outcomes.won ?? 0 },
+    { id: "lost",    label: "Lost",      count: outcomes.lost ?? 0 },
+    { id: "split",   label: "Split",     count: outcomes.split ?? 0 },
+    { id: "timeout", label: "Timeout",   count: outcomes.timeout ?? 0 },
+  ].filter((cell) => cell.count > 0);
+  if (cells.length === 0) {
+    root.hidden = true;
+    root.innerHTML = "";
+    return;
+  }
+  root.hidden = false;
+  root.innerHTML = cells
+    .map((cell) => `
+      <div class="dispute-outcome dispute-outcome-${escapeHtml(cell.id)}">
+        <span class="dispute-outcome-label">${escapeHtml(cell.label)}</span>
+        <strong class="dispute-outcome-count">${cell.count}</strong>
+      </div>
+    `)
+    .join("");
+}
+
+function renderDisputeHistory(profile) {
+  const root = byId("profile-disputes");
+  const countEl = byId("profile-dispute-count");
+  if (!root) return;
+  const disputes = Array.isArray(profile.disputes) ? profile.disputes : [];
+  const outcomes = profile.stats?.disputes ?? {};
+  const total = Number(outcomes.total ?? disputes.length ?? 0);
+
+  renderDisputeOutcomes(outcomes, total);
+
+  if (countEl) {
+    if (total <= 0) {
+      countEl.textContent = "no disputes yet";
+    } else {
+      countEl.textContent = `${total} arbitrated session${total === 1 ? "" : "s"}`;
+    }
+  }
+
+  if (!disputes.length) {
+    root.innerHTML = '<p class="profile-empty">No arbitrated sessions on this wallet yet.</p>';
+    return;
+  }
+  root.innerHTML = disputes.map((dispute) => renderDisputeRow(dispute)).join("");
+}
+
+/* ---------------------------------------------------------------- */
 /* One-click verification — spec §10 PR B. Each badge card carries  */
 /* a "Verify receipt" disclosure exposing the source URL, on-chain  */
 /* hash, verifier verdict timestamp, verifier address, and Subscan  */
@@ -516,6 +694,7 @@ async function bootProfile() {
         : "No category levels yet."
     );
     renderTrailSummary(profile);
+    renderDisputeHistory(profile);
     renderBadges(profile.badges);
   } catch (error) {
     if (loading) loading.textContent = error?.message ?? "Failed to load profile.";
