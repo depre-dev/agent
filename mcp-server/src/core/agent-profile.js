@@ -4,6 +4,11 @@ import {
   DEFAULT_ESCROW_ASSET_SYMBOL,
   decimalsForAssetSymbol
 } from "./assets.js";
+import {
+  ARBITRATOR_SLA_SECONDS,
+  addSecondsIso,
+  disputeIdForSession,
+} from "./dispute-resolution.js";
 
 /**
  * Build a v1 agent profile document from in-memory platform state.
@@ -28,7 +33,23 @@ import {
  */
 export const AGENT_PROFILE_SCHEMA_VERSION = "v1";
 
-export function buildAgentProfile({ wallet, reputation, sessions, getJobDefinition, publicBaseUrl, fetchedAt }) {
+export function buildAgentProfile({
+  wallet,
+  reputation,
+  sessions,
+  getJobDefinition,
+  publicBaseUrl,
+  fetchedAt,
+  // Optional dispute-receipt lookup. The HTTP layer pre-fetches
+  // `dispute_verdict` + `dispute_release` mutation receipts for every
+  // session that's flagged as disputed (status === "disputed" or
+  // disputedAt set), then passes a sync `(sessionId) → { verdict?,
+  // release? } | undefined` so this builder can emit the
+  // `disputes[]` block + dispute counts on the profile without
+  // reaching into the store itself. Callers that don't need
+  // dispute history can omit it.
+  getDisputeReceipts,
+} = {}) {
   requireAddress(wallet, "wallet");
   const normalizedWallet = wallet.toLowerCase();
   const rep = normaliseReputation(reputation);
@@ -122,6 +143,34 @@ export function buildAgentProfile({ wallet, reputation, sessions, getJobDefiniti
   const totalTerminal = approved.length + rejected.length;
   const completionRate = totalTerminal === 0 ? null : approved.length / totalTerminal;
 
+  // Dispute history. Walks every session (not just approved /
+  // rejected) so we surface in-flight disputes too. Sessions are
+  // candidates for the disputes[] list when:
+  //   - status === "disputed" (active dispute), or
+  //   - they have any kind of dispute receipt registered against
+  //     them (resolved or stake-released)
+  // Sessions that are merely rejected without a contest don't
+  // become disputes; the spec treats arbitration as the
+  // contested-rejection path.
+  const disputes = buildDisputeHistory(
+    safeSessions,
+    definitionOf,
+    typeof getDisputeReceipts === "function" ? getDisputeReceipts : () => undefined
+  );
+  const disputeOutcomes = disputes.reduce(
+    (acc, dispute) => {
+      acc.total += 1;
+      if (dispute.status === "open") acc.open += 1;
+      else if (dispute.verdict === "upheld") acc.lost += 1;
+      else if (dispute.verdict === "dismissed") acc.won += 1;
+      else if (dispute.verdict === "split") acc.split += 1;
+      else if (dispute.verdict === "timeout") acc.timeout += 1;
+      else acc.resolved += 1;
+      return acc;
+    },
+    { total: 0, open: 0, lost: 0, won: 0, split: 0, timeout: 0, resolved: 0 }
+  );
+
   return {
     schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
     wallet: normalizedWallet,
@@ -140,11 +189,13 @@ export function buildAgentProfile({ wallet, reputation, sessions, getJobDefiniti
       githubSignals,
       activeSince: activeSinceMs ? new Date(activeSinceMs).toISOString() : null,
       lastActive: lastActiveMs ? new Date(lastActiveMs).toISOString() : null,
-      preferredCategories
+      preferredCategories,
+      disputes: disputeOutcomes,
     },
     ...(currentActivity ? { currentActivity } : {}),
     categoryLevels,
-    badges
+    badges,
+    disputes,
   };
 }
 
@@ -344,4 +395,80 @@ function stringOrUndefined(value) {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Walk session history and emit a slim dispute record per session
+ * that's either currently disputed or has a verdict / release
+ * receipt against it. Newest-first, capped at 25 entries to keep
+ * the public profile payload bounded — the frontend's "Open full
+ * dispute log" link routes to /disputes for the unbounded view.
+ */
+function buildDisputeHistory(sessions, definitionOf, getDisputeReceipts) {
+  if (!Array.isArray(sessions) || sessions.length === 0) return [];
+  const candidates = [];
+  for (const session of sessions) {
+    if (!session || typeof session !== "object") continue;
+    const status = String(session.status ?? "").toLowerCase();
+    const receipts = getDisputeReceipts(session.sessionId) ?? {};
+    const verdictReceipt = receipts.verdict ?? receipts.verdictReceipt;
+    const releaseReceipt = receipts.release ?? receipts.releaseReceipt;
+    const hasDisputeMarker =
+      status === "disputed" ||
+      Boolean(session.disputedAt) ||
+      Boolean(verdictReceipt) ||
+      Boolean(releaseReceipt);
+    if (!hasDisputeMarker) continue;
+    candidates.push(buildProfileDispute(session, definitionOf, verdictReceipt, releaseReceipt));
+  }
+  candidates.sort((a, b) => Date.parse(b.openedAt) - Date.parse(a.openedAt));
+  return candidates.slice(0, 25);
+}
+
+/**
+ * Slim dispute record for the public profile. Mirrors the shape
+ * `/disputes/<id>` returns but trimmed to the fields a profile
+ * reader cares about — id, sessionId, jobId, status, openedAt,
+ * windowEndsAt, verdict, reasonCode, workerPayout, txHash. Heavy
+ * fields (full evidence blob, signed receipt body) live behind
+ * `/disputes/<id>` and require auth.
+ */
+function buildProfileDispute(session, definitionOf, verdictReceipt, releaseReceipt) {
+  const sessionId = String(session.sessionId ?? "");
+  const id = sessionId ? disputeIdForSession(sessionId) : undefined;
+  const openedAt = stringOrUndefined(session.disputedAt)
+    ?? stringOrUndefined(session.updatedAt)
+    ?? new Date().toISOString();
+  const windowEndsAt = addSecondsIso(openedAt, ARBITRATOR_SLA_SECONDS) ?? openedAt;
+  const status = verdictReceipt || releaseReceipt ? "resolved" : "open";
+  const job = (() => {
+    try {
+      return definitionOf(session.jobId);
+    } catch {
+      return undefined;
+    }
+  })();
+  const verdict = stringOrUndefined(verdictReceipt?.verdict);
+  const reasonCode = stringOrUndefined(verdictReceipt?.reasonCode);
+  const workerPayout = verdictReceipt?.workerPayout;
+  const txHash = stringOrUndefined(verdictReceipt?.txHash);
+  return {
+    ...(id ? { id } : {}),
+    sessionId,
+    jobId: stringOrUndefined(session.jobId) ?? "unknown-job",
+    ...(stringOrUndefined(job?.title) ? { jobTitle: job.title } : {}),
+    status,
+    openedAt,
+    windowEndsAt,
+    slaSeconds: ARBITRATOR_SLA_SECONDS,
+    ...(verdict ? { verdict } : {}),
+    ...(reasonCode ? { reasonCode } : {}),
+    ...(workerPayout !== undefined && workerPayout !== null
+      ? { workerPayout: String(workerPayout) }
+      : {}),
+    ...(txHash ? { txHash } : {}),
+    ...(stringOrUndefined(releaseReceipt?.releasedAt)
+      ? { releasedAt: releaseReceipt.releasedAt }
+      : {}),
+  };
 }

@@ -18,7 +18,11 @@ import { getAddress, keccak256, toUtf8Bytes } from "ethers";
 import { buildBadgeFromSession } from "../../core/badge-metadata.js";
 import { buildAgentProfile } from "../../core/agent-profile.js";
 import { buildDiscoveryManifest } from "../../core/discovery-manifest.js";
-import { buildDisputeResolution, ARBITRATOR_SLA_SECONDS } from "../../core/dispute-resolution.js";
+import {
+  ARBITRATOR_SLA_SECONDS,
+  buildDisputeResolution,
+  disputeIdForSession,
+} from "../../core/dispute-resolution.js";
 import {
   assertContentHashMatches,
   buildContentRecord,
@@ -238,6 +242,20 @@ function buildAgentDirectoryRow(profile) {
   const approvedCount = Number(profile.stats?.approvedCount ?? 0);
   const rejectedCount = Number(profile.stats?.rejectedCount ?? 0);
   const totalJobs = approvedCount + rejectedCount;
+  // Slash events are upheld disputes — the verdict went against the
+  // worker. Map straight off the profile's dispute history so the
+  // agents directory exposes the same slashed-state the operator
+  // app rail already gates on.
+  const slashEvents = (profile.disputes ?? [])
+    .filter((dispute) => dispute.verdict === "upheld")
+    .map((dispute) => ({
+      disputeId: dispute.id ?? null,
+      jobId: dispute.jobId,
+      sessionId: dispute.sessionId,
+      reasonCode: dispute.reasonCode ?? null,
+      txHash: dispute.txHash ?? null,
+      at: dispute.openedAt,
+    }));
   return {
     wallet: profile.wallet,
     handle: handleForWallet(profile.wallet),
@@ -251,8 +269,51 @@ function buildAgentDirectoryRow(profile) {
     currentActivity: profile.currentActivity ?? null,
     activeStake: 0,
     badges: profile.badges ?? [],
-    slashEvents: []
+    slashEvents,
   };
+}
+
+/**
+ * For each session in the history, fetch any dispute receipts the
+ * state store carries against it. Builds the sync lookup
+ * `buildAgentProfile` expects via its `getDisputeReceipts` arg so
+ * the profile can emit dispute history without reaching into the
+ * store itself. Skips sessions that aren't dispute candidates
+ * (status !== "disputed" and no disputedAt) so the average wallet
+ * with no contested submissions pays no extra fetches.
+ */
+async function preloadDisputeReceipts(sessions) {
+  if (!Array.isArray(sessions) || sessions.length === 0) {
+    return () => undefined;
+  }
+  const candidates = sessions.filter((session) => {
+    if (!session || typeof session !== "object") return false;
+    const status = String(session.status ?? "").toLowerCase();
+    return status === "disputed" || Boolean(session.disputedAt);
+  });
+  if (candidates.length === 0) return () => undefined;
+  const receiptsBySession = new Map();
+  await Promise.all(
+    candidates.map(async (session) => {
+      const id = disputeIdForSession(session.sessionId);
+      const [verdict, release] = await Promise.all([
+        stateStore.getMutationReceipt?.("dispute_verdict", id),
+        stateStore.getMutationReceipt?.("dispute_release", id),
+      ]);
+      if (verdict || release) {
+        receiptsBySession.set(session.sessionId, {
+          ...(verdict ? { verdict } : {}),
+          ...(release ? { release } : {}),
+        });
+      } else {
+        // Session is in the disputed state but no receipt landed
+        // yet. Still register it so buildAgentProfile picks it up
+        // as an "open" dispute.
+        receiptsBySession.set(session.sessionId, {});
+      }
+    })
+  );
+  return (sessionId) => receiptsBySession.get(sessionId);
 }
 
 async function buildAgentDirectory(limit = 50) {
@@ -264,6 +325,10 @@ async function buildAgentDirectory(limit = 50) {
       service.getReputation(checksummed),
       service.collectSessionHistory(checksummed, { logger })
     ]);
+    // Pre-fetch dispute receipts so directory rows correctly mark
+    // slashed (upheld-verdict) wallets. Skips wallets with no
+    // disputed sessions, so this is free in the common case.
+    const getDisputeReceipts = await preloadDisputeReceipts(history);
     const profile = buildAgentProfile({
       wallet: wallet.toLowerCase(),
       reputation,
@@ -275,7 +340,8 @@ async function buildAgentDirectory(limit = 50) {
           return undefined;
         }
       },
-      publicBaseUrl: process.env.PUBLIC_BASE_URL
+      publicBaseUrl: process.env.PUBLIC_BASE_URL,
+      getDisputeReceipts,
     });
     return buildAgentDirectoryRow(profile);
   }));
@@ -327,10 +393,6 @@ async function listBadgeReceipts(limit = 100) {
     receipts.push(buildBadgeReceipt(badge));
   }
   return receipts;
-}
-
-function disputeIdForSession(sessionId) {
-  return `dispute-${keccak256(toUtf8Bytes(String(sessionId))).slice(2, 14)}`;
 }
 
 function compactObject(value) {
@@ -1625,6 +1687,12 @@ const server = createServer(async (request, response) => {
         service.getReputation(checksummed),
         service.collectSessionHistory(checksummed, { logger: requestLogger })
       ]);
+      // Pre-fetch dispute receipts so the public profile carries
+      // dispute history (status, verdict, reasonCode) without the
+      // frontend needing a separate /disputes call. Free for wallets
+      // with no contested sessions — `preloadDisputeReceipts` short-
+      // circuits when there's nothing to fetch.
+      const getDisputeReceipts = await preloadDisputeReceipts(sessions);
       const profile = buildAgentProfile({
         wallet: rawWallet.toLowerCase(),
         reputation,
@@ -1636,7 +1704,8 @@ const server = createServer(async (request, response) => {
             return undefined;
           }
         },
-        publicBaseUrl: process.env.PUBLIC_BASE_URL
+        publicBaseUrl: process.env.PUBLIC_BASE_URL,
+        getDisputeReceipts,
       });
       return respond(response, 200, profile, { "cache-control": "public, max-age=30" });
     }

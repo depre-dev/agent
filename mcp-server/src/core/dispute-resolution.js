@@ -1,6 +1,31 @@
+import { keccak256, toUtf8Bytes } from "ethers";
 import { ValidationError } from "./errors.js";
 
 export const ARBITRATOR_SLA_SECONDS = 14 * 24 * 60 * 60;
+
+/**
+ * Stable id for the dispute associated with a session. Hashed from
+ * the session id so the same dispute id is computed everywhere
+ * (HTTP route, state-store mutation receipts, profile dispute
+ * history). Stays usable as a public identifier without leaking the
+ * raw session id.
+ */
+export function disputeIdForSession(sessionId) {
+  return `dispute-${keccak256(toUtf8Bytes(String(sessionId))).slice(2, 14)}`;
+}
+
+/**
+ * Add a fixed seconds offset to an ISO timestamp, returning the
+ * same ISO format. Used to derive the SLA window end for a dispute
+ * (`openedAt + ARBITRATOR_SLA_SECONDS`). Treats unparseable inputs
+ * as undefined so the caller can render `—` rather than `NaN`.
+ */
+export function addSecondsIso(iso, seconds) {
+  if (typeof iso !== "string") return undefined;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return undefined;
+  return new Date(t + seconds * 1000).toISOString();
+}
 
 export const DISPUTE_REASON_CODES = Object.freeze({
   upheld: "DISPUTE_LOST",
