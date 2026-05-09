@@ -76,6 +76,7 @@ test("runHostedWorkerLoop creates, claims, submits, verifies, and writes evidenc
   ]);
   assert.equal(calls[1][1].verifierMode, "benchmark");
   assert.equal(calls[1][1].rewardAsset, "DOT");
+  assert.equal(calls[1][1].rewardAmount, 0.000001);
   assert.equal(calls[2][2], `product-proof:${jobId}`);
 
   const written = JSON.parse(await readFile(evidenceFile, "utf8"));
@@ -88,5 +89,63 @@ test("runHostedWorkerLoop fails closed without a token", async () => {
   await assert.rejects(
     runHostedWorkerLoop({ env: {}, log: () => {} }),
     /PRODUCT_PROOF_WORKER_TOKEN, AVERRAY_TOKEN, or ADMIN_JWT is required/u
+  );
+});
+
+test("runHostedWorkerLoop accepts an explicit positive reward amount", async () => {
+  const calls = [];
+  const client = {
+    async getAuthSession() {
+      return { wallet: "0xFd2EAE2043243fDdD2721C0b42aF1b8284Fd6519" };
+    },
+    async createJob(payload) {
+      calls.push(["createJob", payload]);
+      return { id: payload.id };
+    },
+    async claimJob(id) {
+      return { status: "claimed", sessionId: `${id}:wallet` };
+    },
+    async submitWork(id) {
+      return { status: "submitted", sessionId: id };
+    },
+    async runVerifier() {
+      return { outcome: "approved" };
+    },
+    async getSession(id) {
+      return { status: "resolved", sessionId: id };
+    },
+    async getAgentBadge(id) {
+      return { averray: { sessionId: id, jobId: "product-proof-worker-loop-1700000000000" } };
+    },
+    async getAgentProfile() {
+      return { badges: [{ sessionId: "product-proof-worker-loop-1700000000000:wallet", jobId: "product-proof-worker-loop-1700000000000" }] };
+    }
+  };
+
+  await runHostedWorkerLoop({
+    client,
+    now: () => 1700000000000,
+    log: () => {},
+    env: {
+      ADMIN_JWT: "token",
+      PRODUCT_PROOF_REWARD_AMOUNT: "0.01"
+    }
+  });
+
+  assert.equal(calls[0][1].rewardAmount, 0.01);
+});
+
+test("runHostedWorkerLoop rejects invalid reward amounts", async () => {
+  await assert.rejects(
+    runHostedWorkerLoop({
+      client: {
+        async getAuthSession() {
+          throw new Error("should not authenticate after invalid reward amount");
+        }
+      },
+      env: { ADMIN_JWT: "token", PRODUCT_PROOF_REWARD_AMOUNT: "0" },
+      log: () => {}
+    }),
+    /PRODUCT_PROOF_REWARD_AMOUNT must be greater than zero/u
   );
 });
