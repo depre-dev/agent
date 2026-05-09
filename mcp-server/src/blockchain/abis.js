@@ -98,6 +98,7 @@ export const TREASURY_POLICY_ABI = [
   "function rejectionReliabilityPenalty() view returns (uint256)",
   "function disputeLossSkillPenalty() view returns (uint256)",
   "function disputeLossReliabilityPenalty() view returns (uint256)",
+  "function serviceOperators(address operator) view returns (bool)",
   "function verifiers(address verifier) view returns (bool)",
   "function authorizedSince(address verifier) view returns (uint64)",
   "function authorizedUntil(address verifier) view returns (uint64)",
