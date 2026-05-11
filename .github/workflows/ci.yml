@@ -126,3 +126,25 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck:indexer
+
+  env-template-structure:
+    name: Phase 2 — env template structural lint
+    runs-on: ubuntu-latest
+    # Structural check only: validates that every op:// reference in
+    # deploy/*.env.template matches a row in deploy/secrets-inventory.md,
+    # uses a known vault, and is read by a service-account that has access.
+    # Does NOT call `op inject` — that requires a real 1Password session
+    # and lands in PR 2.1 once the CI service-account token is wired up.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Structural lint
+        run: node scripts/ops/check-env-template-structure.mjs
