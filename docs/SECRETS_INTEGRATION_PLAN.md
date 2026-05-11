@@ -1,7 +1,8 @@
 # Secrets Integration Plan — Security Review Document
 
-> **Status**: v2 — incorporates external security review feedback.
-> See [Revision history](#revision-history) at the bottom.
+> **Status**: v3 — incorporates a SECOND external security review
+> pass on top of v2. See [Revision history](#revision-history) at
+> the bottom.
 
 This is the security-review-grade companion to
 [`SECRETS_MIGRATION.md`](SECRETS_MIGRATION.md). Where the migration doc
@@ -147,25 +148,43 @@ Hardware wallets: multisig Hot/Warm/Cold seeds.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ 1Password Business                                              │
-│   Averray/Production/Backend       ← runtime secrets only       │
-│   Averray/Production/Indexer       ← indexer-only secrets       │
-│   Averray/Production/CI            ← deploy creds (SSH keys)    │
-│   Averray/Production/External      ← vendor API tokens          │
-│   Averray/Production/Critical      ← AWS root creds, etc.       │
-│   Averray/Testnet/{Backend,Indexer,CI,External,Critical}        │
-│   Averray/Multisig                 ← signer ADDRESSES only,     │
-│                                       never seeds               │
-│   Averray/Operators/<name>         ← per-operator personal      │
-│   Averray/Archive                  ← decommissioned secrets     │
+│   Averray/Production/Backend         ← backend runtime secrets  │
+│   Averray/Production/BackendExternal ← vendor tokens used by    │
+│                                         backend (Pimlico,       │
+│                                         Subscan, RPC, Sentry,   │
+│                                         Resend backend key)     │
+│   Averray/Production/Indexer         ← indexer-only secrets     │
+│   Averray/Production/CI              ← deploy creds (SSH key,   │
+│                                         basic-auth HASH)        │
+│   Averray/Production/CIExternal      ← vendor tokens used only  │
+│                                         in CI (GitHub PAT for   │
+│                                         issue ingestion, CI-    │
+│                                         scoped Resend key)      │
+│   Averray/Production/Smoke           ← admin-jwt + smoke-only   │
+│                                         credentials             │
+│   Averray/Production/Critical        ← human-only: service-     │
+│                                         account tokens, AWS     │
+│                                         root, Roles Anywhere    │
+│                                         cert metadata, basic-   │
+│                                         auth RAW password,      │
+│                                         pauser EOA seed         │
+│   Averray/Production/Observability   ← OPTIONAL: dashboards     │
+│                                         and metrics tokens      │
+│   Averray/Testnet/* (same shape, separate vaults)               │
+│   Averray/Multisig                   ← signer ADDRESSES only,   │
+│                                         never seeds             │
+│   Averray/Operators/<name>           ← per-operator personal    │
+│   Averray/Archive                    ← REVOKED/EXPIRED ONLY —   │
+│                                         retained 90d for        │
+│                                         forensics, then deleted │
 │                                                                 │
 │  Read access via FOUR distinct service accounts                 │
-│  (each scoped to one vault):                                    │
-│    prod-ci-deploy   → only Averray/Production/CI                │
-│    prod-vps-backend → only Averray/Production/Backend +         │
-│                              Averray/Production/External        │
-│    prod-vps-indexer → only Averray/Production/Indexer           │
-│    prod-smoke-tests → only Averray/Production/CI (admin JWT)    │
-│  (plus testnet equivalents)                                     │
+│  (each scoped to its minimum vault set):                        │
+│    prod-ci-deploy   → CI + CIExternal                           │
+│    prod-vps-backend → Backend + BackendExternal                 │
+│    prod-vps-indexer → Indexer                                   │
+│    prod-smoke-tests → Smoke                                     │
+│  (plus testnet equivalents; NONE can read Critical)             │
 └─────────────────────────────────────────────────────────────────┘
             │                          │
             │ op:// URI                │ 1password/load-secrets-action
@@ -218,7 +237,7 @@ Hardware wallets — UNCHANGED. Multisig signer seeds NEVER touch
 |---|---|---|
 | 1Password vault ↔ runtime | Vault stores plain values; runtime fetches via per-runtime scoped service tokens | A scoped token leak = read access to ONE vault scope only (e.g., prod-ci-deploy token leak ≠ access to Backend secrets) |
 | AWS KMS ↔ backend | KMS holds private key bytes; backend gets temporary creds via Roles Anywhere | Compromise of running backend = ability to sign for ≤1h until temp creds expire; CANNOT export key |
-| GitHub Actions ↔ AWS | GitHub OIDC → AssumeRole; no long-lived AWS creds in GitHub | Compromise of GitHub workflow = ability to assume role only while exploit is active; revoking trust relationship in IAM stops it |
+| GitHub Actions ↔ AWS | GitHub OIDC → AssumeRole. Separate `averray-ci-deploy-role` (NO `kms:Sign`) from `averray-signer-prod-role` (Roles Anywhere only). | Compromise of CI workflow can NOT assume the signer role — the signer role's trust policy doesn't include GitHub OIDC. Workflow-level compromise gets at most CI-scoped permissions (read-only ECR/S3, optionally `kms:GetPublicKey`). Revoke trust relationship in IAM to stop. |
 | GitHub Actions ↔ VPS | Production deploy gated by GitHub Environment with required reviewers + restricted branches | Compromised workflow PR cannot deploy without a human approval gate |
 
 ### 4c. What attacks this defends against (vs current state)
@@ -251,11 +270,19 @@ multiple scoped service accounts. No runtime changes yet.
 
 | Service account | Read access | Used by |
 |---|---|---|
-| `prod-ci-deploy` | `Averray/Production/CI` | GitHub Actions deploy workflow |
-| `prod-vps-backend` | `Averray/Production/Backend` + `External` | Backend VPS at deploy time (`op inject`) |
+| `prod-ci-deploy` | `Averray/Production/CI` + `Averray/Production/CIExternal` | GitHub Actions deploy workflow |
+| `prod-vps-backend` | `Averray/Production/Backend` + `Averray/Production/BackendExternal` | Backend VPS at deploy time (`op inject`) |
 | `prod-vps-indexer` | `Averray/Production/Indexer` | Indexer VPS at deploy time |
-| `prod-smoke-tests` | `Averray/Production/CI/admin-jwt` only | Hosted product-proof smoke runs |
+| `prod-smoke-tests` | `Averray/Production/Smoke` (dedicated vault) | Hosted product-proof smoke runs |
 | (testnet equivalents) | corresponding `Averray/Testnet/*` | testnet workflows |
+
+**None of these tokens can read `Averray/Production/Critical`** —
+the Critical vault holds the service-account tokens themselves,
+the AWS root, the Roles Anywhere cert metadata, the basic-auth
+RAW password, and the pauser EOA seed. Critical is human-only.
+This is the firebreak: a leaked runtime token cannot read its own
+replacement, cannot read the next layer of credentials, cannot
+escalate.
 
 **Service account access and vault permissions are effectively
 immutable after creation** — design scopes correctly up front. If
@@ -328,8 +355,17 @@ files. CI workflows reference `op://` URIs instead of `${{ secrets.* }}`.
 - Disable core dumps for the backend process (`prlimit --core=0`)
 - Backend process drops privileges to a non-root user after reading
   env at startup
-- Audit: `journalctl`, `docker inspect`, `/proc/$pid/environ` should
-  show no plaintext secrets after a deploy
+- Audit scope after Phase 2 (honest framing): runtime secrets
+  **will** appear in the container environment and in
+  `docker inspect` / `/proc/$pid/environ` for the backend and
+  indexer processes — that's how Docker Compose's `env_file`
+  works, and it's expected. The Phase-2 check is therefore
+  narrower: confirm that **deploy logs** never print rendered
+  values, that the **rendered env files live on tmpfs** with
+  mode 0400 (not on a persistent disk), and that
+  **`journalctl -u agent-stack`** doesn't echo env values at
+  service start. Eliminating the in-container plaintext for the
+  **signer key specifically** is Phase 3's job, not Phase 2's.
 
 **New attack surfaces**:
 - Each per-runtime service-account token on its target host
@@ -365,10 +401,21 @@ files. CI workflows reference `op://` URIs instead of `${{ secrets.* }}`.
   unexpected differences
 - [ ] Deploy logs contain no secret values (grep for first 8 chars of
   any sensitive value: expect zero hits)
-- [ ] `journalctl -u agent-stack`, `docker inspect agent-stack`,
-  `cat /proc/$(pgrep -f backend)/environ | tr '\0' '\n'` — zero
-  plaintext secret hits (not just hex-pattern matches; check for
-  symbol-named env vars too)
+- [ ] Rendered env files live on tmpfs at `/run/agent-stack/*.env`
+  (verify with `findmnt /run/agent-stack` → `tmpfs`), mode 0400,
+  owned by `root:agent-stack-service`
+- [ ] `/run/agent-stack/*` is excluded from every backup / snapshot
+  / image-export job (grep the backup config; do a test restore
+  and confirm the path is missing)
+- [ ] `journalctl -u agent-stack` from a fresh deploy does **not**
+  print env values (start-up config dump is scrubbed or
+  disabled)
+- [ ] **Note (not a pass/fail)**: `docker inspect agent-stack` and
+  `cat /proc/$(pgrep -f backend)/environ` **will** show runtime
+  secrets after Phase 2 — that's expected behaviour for
+  `env_file`-style Compose. The matching Phase-3 verification
+  re-checks these and requires `SIGNER_PRIVATE_KEY` (specifically)
+  to be absent.
 - [ ] Test rotation: change a secret in 1Password → redeploy → new
   value reaches running backend (confirm via `/health` or
   `/admin/status` where exposed)
@@ -411,15 +458,28 @@ single-region is fine.
   (otherwise KMS hashes the input again and recovery breaks)
 - `SigningAlgorithm`: `ECDSA_SHA_256` (the only secp256k1 algo supported)
 
-**IAM policy** (the principal that calls Sign):
-- Actions: `kms:Sign` + `kms:GetPublicKey` ONLY
-- Resource: the specific Key ARN
-- Conditions:
-  - `kms:SigningAlgorithm = ECDSA_SHA_256`
-  - `kms:MessageType = DIGEST`
-- Explicit deny on `kms:ScheduleKeyDeletion`, `kms:DisableKey`,
+**IAM policy** (the principal that calls Sign). The policy MUST split
+`Sign` and `GetPublicKey` into separate statements — the condition
+keys `kms:SigningAlgorithm` and `kms:MessageType` only apply to
+`Sign`/`Verify`, and AWS IAM treats absent condition keys in a
+request context as "no match" unless `IfExists` is used. A combined
+statement implicitly denies `GetPublicKey` (revised in v3):
+
+- Statement 1 — `AllowGetPublicKey`: action `kms:GetPublicKey` on the
+  specific key ARN(s). No conditions.
+- Statement 2 — `AllowSignDigestOnly`: action `kms:Sign` on the
+  specific key ARN(s), with `kms:SigningAlgorithm = ECDSA_SHA_256`
+  AND `kms:MessageType = DIGEST` as `StringEquals` conditions.
+- Statement 3 — `ExplicitDenyDangerousOpsForSignerRole`: explicit
+  `Deny` for `kms:ScheduleKeyDeletion`, `kms:DisableKey`,
   `kms:PutKeyPolicy`, `kms:CreateGrant`, `kms:ReplicateKey`,
-  `kms:UpdatePrimaryRegion` for this principal
+  `kms:UpdatePrimaryRegion` on the same ARN(s).
+
+The explicit deny applies to the signer role only. It does NOT
+constrain AWS root or admin principals — admin-path protection
+requires key-policy constraints, SCPs, permission boundaries, an
+approval process, and CloudTrail monitoring. See `SECRETS_MIGRATION.md`
+§3a for the full JSON policy.
 
 **Temporary credentials, not long-lived IAM keys** (corrected from v1):
 - **VPS**: IAM Roles Anywhere. Provision a private CA (AWS ACM-PCA or
@@ -513,8 +573,12 @@ before going to mainnet):
 - [ ] Process listing on VPS contains no `0x[a-f0-9]{60}` signer key
   patterns AND no env var with name matching `*PRIVATE*` /
   `*SECRET*` referencing the signer key
-- [ ] Synthetic CloudWatch alarm fires (e.g., temporarily call
-  `DisableKey` from an admin session and confirm the alarm notifies)
+- [ ] Synthetic CloudWatch alarm fires — tested via EventBridge
+  `PutEvents` for CloudTrail-driven rules, and via a dedicated
+  non-production KMS key for destructive-API rules. **Do NOT** call
+  `DisableKey` / `ScheduleKeyDeletion` against the live production
+  signer key as a test (see `SECRETS_MIGRATION.md` §3b-2 for the
+  full safe-test procedure)
 - [ ] Hosted product-proof smoke passes end-to-end via KMS signer
 - [ ] Revoking the IAM principal's session (or the Roles Anywhere
   trust anchor's profile) breaks signing as expected — proves the
@@ -895,7 +959,93 @@ days spread over a few weeks).
 
 ## Revision history
 
-**v2** — Security review pass (this version)
+**v3** — Second security review pass (this version)
+
+Substantive changes from v2 (all driven by external review):
+
+1. **IAM policy for the signer role split into three statements**
+   (Phase 3a). The combined-statement form in v2 would have
+   implicitly denied `kms:GetPublicKey` because the
+   `kms:SigningAlgorithm` / `kms:MessageType` condition keys only
+   apply to Sign/Verify. New shape:
+   `AllowGetPublicKey` (no conditions) + `AllowSignDigestOnly`
+   (with conditions) + `ExplicitDenyDangerousOpsForSignerRole`
+   (covers ScheduleKeyDeletion, DisableKey, PutKeyPolicy,
+   CreateGrant, ReplicateKey, UpdatePrimaryRegion).
+2. **Roles Anywhere client cert / private key removed from any
+   service-account-readable vault** (Phase 3a + SECRETS_CALENDAR).
+   Private key is now generated **on the VPS**, never copied
+   anywhere; only public cert metadata lives in
+   `Averray/Production/Critical` (human-only) for expiry tracking.
+   The v2 wording would have allowed a leaked `prod-vps-backend`
+   token to retrieve AWS temp creds with `kms:Sign` capability —
+   the entire point of the migration.
+3. **Vault structure split per-runtime**: added `BackendExternal`,
+   `CIExternal`, dedicated `Smoke`, dedicated `Critical`
+   (human-only), optional `Observability`. The single `External`
+   vault from v2 was too coarse; one leaked CI token could read
+   all vendor keys.
+4. **Phase 2 "runtime plaintext" verification softened** to match
+   reality. Once `env_file` is wired, runtime secrets live in
+   container env by design; `docker inspect` / `/proc/$pid/environ`
+   will show them. Phase 2 now checks tmpfs + backup exclusion +
+   deploy-log scrubbing only. The aggressive
+   `SIGNER_PRIVATE_KEY`-must-be-absent-everywhere check is Phase 3's
+   exit criterion (where it correctly applies).
+5. **ADMIN_JWT runbook** updated: mint with `--profile production`
+   (not testnet); store back into 1Password via `op item edit`
+   (not `gh secret set`); reference
+   `op://Averray/Production/Smoke/admin-jwt` (correct vault, correct
+   casing); flagged as transitional until Phase 4b makes it
+   obsolete.
+6. **Mainnet KMS wording** corrected — there is no "generate fresh
+   SIGNER_PRIVATE_KEY" step on mainnet. KMS key material is created
+   inside the HSM (`Origin=AWS_KMS`) and never exists as raw bytes
+   anywhere. Mainnet builds set
+   `config.allowLocalKeyFallback = false`.
+7. **Roles Anywhere session duration tightened**: ≤1h enforced at
+   Profile + CreateSession + MaxSessionDuration; production signer
+   prefers 15–30 min. Trust policy adds cert identity constraints
+   (`aws:PrincipalTag` / `aws:SourceIdentity`) so only the expected
+   VPS cert can assume the role.
+8. **GitHub OIDC role separated from the production signer role**.
+   `averray-ci-deploy-role` (for Actions) has NO `kms:Sign` by
+   default; only the Roles-Anywhere-trusting
+   `averray-signer-prod-role` does. A compromised workflow cannot
+   pivot to signing capability.
+9. **Alarm testing procedure rewritten** to not call `DisableKey`
+   on production. Use EventBridge `PutEvents` for CloudTrail-driven
+   rules, and a dedicated non-production KMS key for destructive-API
+   rules.
+10. **Cost summary corrected**: multi-region KMS is "primary + 1
+    replica = 2 keys total" (not "2 replicas of one key").
+    Added ACM-PCA short-lived certificate mode at ~$50/mo as the
+    recommended Roles Anywhere CA option.
+
+Smaller v3 edits:
+- KMS public-key derivation uses a real DER/ASN.1 SPKI parser
+  (`@peculiar/asn1-x509`) instead of byte-offset arithmetic.
+- npm dependency pinning clarified: exact version + lockfile +
+  provenance, NOT git-SHA pins (which bypass registry integrity).
+- GitHub PAT for issue ingestion: require fine-grained PAT (or
+  GitHub App installation token) restricted to one repo with
+  minimum permissions; classic PATs are out.
+- Archive vault explicitly restricted to revoked/expired values
+  only.
+- Mainnet pauser must be a separate multisig (or hardware-protected
+  separate EOA), NOT the verifier key.
+- Mainnet verifier and arbitrator must be split into two distinct
+  KMS keys; reusing one key for both is testnet-only.
+- Named 1Password users (not shared logins); the
+  `secrets@averray.com` mailbox is the account-owner address, not
+  a daily sign-in identity.
+- `APP_BASIC_AUTH_PASSWORD` raw password moves to
+  `Averray/Production/Critical` (human-only); only the bcrypt hash
+  lives in CI-readable vaults.
+
+---
+
+**v2** — Security review pass
 
 Substantive changes from v1:
 1. **Split 1Password service accounts by runtime** (Section 4a, 4b,
