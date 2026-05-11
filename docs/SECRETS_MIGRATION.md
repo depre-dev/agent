@@ -11,9 +11,13 @@ security-review-grade design rationale, threat model, and mainnet
 sign-off bar.
 
 This doc assumes you're convinced *what* needs to move and just need
-the *how*. The phase structure has been revised in response to an
-external security review — significant changes vs. the v1 draft are
-flagged in context.
+the *how*. The phase structure has been revised in response to **two
+rounds** of external security review; v2 deltas are flagged
+"(revised in v2)" and v3 deltas are flagged "(revised in v3)" in
+context. The companion
+[`SECRETS_INTEGRATION_PLAN.md`](SECRETS_INTEGRATION_PLAN.md)
+revision history at the bottom is the canonical list of substantive
+changes.
 
 The migration breaks into **5 phases** that can land independently. Each
 phase is mergeable on its own and reversible if something breaks. You
@@ -23,7 +27,7 @@ can pause between any of them.
 |---|---|---|---|
 | 1 | 1Password Business setup + secret inventory loaded into vault | ~1 day | Yes — old env files still authoritative |
 | 2 | Sync vault → runtime (CI + VPS) | ~1 day | Yes — fall back to GitHub UI / direct env edit |
-| 3 | AWS KMS for the backend signer | ~2 days | Yes — keep `SIGNER_PRIVATE_KEY` env path until cutover |
+| 3 | AWS KMS for the backend signer | ~2 days | **Testnet only**: yes — keep `SIGNER_PRIVATE_KEY` env path until cutover. **Mainnet**: no raw-key fallback. Rollback = multisig-controlled signer migration. |
 | 4 | Hardening (CI secret scanning, short-lived JWTs, expiry alarms) | ~1 day | Yes — purely additive |
 | 5 | Mainnet cutover | ~1 day | No — new addresses are fresh; testnet stays as testnet |
 
@@ -39,34 +43,90 @@ can pause between any of them.
 - Use a dedicated email for the team account (e.g. `secrets@averray.com`),
   not your personal one. This makes future ownership transfers
   painless.
+- **Each human gets their own named 1Password user account**, NOT a
+  shared login. Audit logs must attribute every action to a real
+  person. A shared login is incompatible with the
+  "named-individual rotation cadence" the calendar assumes, and
+  with any future SOC 2 / external-audit posture. The dedicated
+  `secrets@averray.com` mailbox is only the ACCOUNT owner address
+  used for billing and recovery — it is not a sign-in identity for
+  daily use. Day-to-day work is done as
+  `pascal@averray.com`, `<second-operator>@averray.com`, etc.,
+  each with their own hardware MFA and recovery kit.
 
 ### 1b. Create the vault structure
 
 Build these vaults in 1Password. Each is a separate access boundary.
+**Revised in v3** to split `External` per-runtime and add dedicated
+`Smoke` and `Critical` vaults (1Password's service-account scoping
+is whole-vault, not item-level).
 
 ```
 Averray/
 ├── Production/
-│   ├── Backend           # AUTH_JWT_SECRETS, RPC URLs, external API keys
+│   ├── Backend           # Runtime backend secrets ONLY:
+│   │                     #   AUTH_JWT_SECRETS, RPC URLs, KMS_KEY_ID,
+│   │                     #   AWS_REGION, blockchain config
+│   ├── BackendExternal   # Vendor keys the backend needs at runtime:
+│   │                     #   Pimlico bundler/paymaster, RPC provider
+│   │                     #   creds, Sentry DSN, XCM observer auth.
+│   │                     #   Splitting from CI-side vendor keys
+│   │                     #   prevents one leaked token from reaching
+│   │                     #   all vendor accounts.
 │   ├── Indexer           # DATABASE_URL, PONDER_RPC_URL_*
-│   ├── CI                # VPS_SSH_KEY, ADMIN_JWT, APP_BASIC_AUTH_*
-│   └── External          # Pimlico, Sentry, Subscan, GitHub PAT, Resend, RPC provider
-├── Testnet/              # Mirrors Production/ but for testnet keys
-│   ├── Backend
-│   ├── Indexer
-│   ├── CI
-│   └── External
-├── Multisig/             # Signer reference info ONLY — never the seeds themselves
-│   └── Signer addresses, public keys, SS58 forms
-├── Operators/            # Per-operator personal vaults (auto-created by 1Password)
+│   ├── CI                # Deploy-time creds:
+│   │                     #   VPS_SSH_KEY, APP_BASIC_AUTH_PASSWORD_HASH
+│   │                     #   (note: the bcrypt HASH only; raw password
+│   │                     #   lives in an operator vault)
+│   ├── CIExternal        # Vendor keys CI needs at deploy time:
+│   │                     #   Resend (alert emails), webhooks
+│   ├── Smoke             # Hosted product-proof smoke test secrets:
+│   │                     #   admin-jwt only. Dedicated vault because
+│   │                     #   1Password doesn't support item-level
+│   │                     #   service-account scoping — must be whole
+│   │                     #   vault.
+│   ├── Critical          # Human-only, NOT readable by any runtime
+│   │                     # service account. Holds:
+│   │                     #   - OP service-account tokens themselves
+│   │                     #   - AWS root account recovery
+│   │                     #   - 1Password account recovery kit
+│   │                     #   - Roles Anywhere cert metadata (public)
+│   │                     #   - Optional Roles Anywhere private-key
+│   │                     #     escrow (documented as residual risk)
+│   └── Observability     # Optional: dedicated vault for monitoring
+│                         # secrets if you want even tighter blast
+│                         # radius. Otherwise rolls into BackendExternal.
+├── Testnet/              # Mirrors Production/ structure for testnet
+│   ├── Backend, BackendExternal, Indexer, CI, CIExternal, Smoke, Critical
+├── Multisig/             # Signer ADDRESSES + public-key reference info
+│                         # ONLY. Multisig seeds NEVER enter 1Password.
+├── Operators/            # Per-operator personal vaults
 │   ├── Pascal
 │   └── …
-└── Archive/              # Decommissioned secrets, kept for audit
+└── Archive/              # ONLY revoked / expired / cryptographically
+                          # unusable values. Never archive a still-valid
+                          # reusable secret. Metadata + dead values for
+                          # audit trail.
 ```
 
-Why split testnet and production: re-using testnet secrets on mainnet
-is the most common pre-launch mistake. Separate vaults make accidental
-cross-contamination structurally impossible.
+Why each separation matters:
+- **Testnet vs Production**: re-using testnet secrets on mainnet is
+  the most common pre-launch mistake. Separate vaults make accidental
+  cross-contamination structurally impossible.
+- **Backend vs BackendExternal**: limits which secrets one leaked
+  runtime token can reach. Backend runtime token compromised? Vendor
+  keys for CIExternal (Resend, webhooks) are not in scope.
+- **Smoke vault**: dedicated so the smoke-test token can be scoped
+  there with smallest blast radius. 1Password doesn't allow item-
+  level service-account scoping, so the smallest scope IS a vault.
+- **Critical**: holds the OP service-account tokens themselves +
+  account-recovery material. Human-only by design; no service
+  account ever reads Critical. If it did, a service-account
+  compromise would yield other service-account tokens — bootstrapped
+  privilege escalation.
+- **Archive**: ONLY for revoked or expired values. Storing
+  still-valid values here defeats the purpose; they're still in
+  scope of any vault search and any vault-level access grant.
 
 ### 1c. Migrate secrets
 
@@ -104,10 +164,10 @@ protection of the token is the customer's responsibility.
 
 | Service account | Read access | Used by |
 |---|---|---|
-| `prod-ci-deploy` | only `Averray/Production/CI` | GitHub Actions deploy workflow |
-| `prod-vps-backend` | only `Averray/Production/Backend` + `Averray/Production/External` | Backend VPS `op inject` at deploy time |
-| `prod-vps-indexer` | only `Averray/Production/Indexer` | Indexer VPS `op inject` at deploy time |
-| `prod-smoke-tests` | only `Averray/Production/CI/admin-jwt` | Hosted product-proof smoke |
+| `prod-ci-deploy` | `Averray/Production/CI` + `Averray/Production/CIExternal` | GitHub Actions deploy workflow |
+| `prod-vps-backend` | `Averray/Production/Backend` + `Averray/Production/BackendExternal` | Backend VPS `op inject` at deploy time |
+| `prod-vps-indexer` | `Averray/Production/Indexer` | Indexer VPS `op inject` at deploy time |
+| `prod-smoke-tests` | `Averray/Production/Smoke` (dedicated vault — currently holds only `admin-jwt`) | Hosted product-proof smoke |
 
 #### Testnet equivalents
 
@@ -230,7 +290,7 @@ as `/srv/agent-stack/backend.env.template`.
 # /srv/agent-stack/backend.env.template (AFTER)
 + AUTH_JWT_SECRETS=op://Averray/Production/Backend/auth-jwt-secrets/credential
 + SIGNER_PRIVATE_KEY=op://Averray/Production/Backend/signer-private-key/credential
-+ PIMLICO_BUNDLER_URL=op://Averray/Production/External/pimlico-bundler-url/credential
++ PIMLICO_BUNDLER_URL=op://Averray/Production/BackendExternal/pimlico-bundler-url/credential
 ```
 
 ### 2d. Render at deploy time (with hardening)
@@ -282,6 +342,18 @@ After deploy, the rendered `backend.env` is on tmpfs, never written
 to disk. A reboot clears it. A `docker compose up` re-renders it
 from 1Password.
 
+**What Phase 2 does NOT remove** (honest framing, revised in v3 per
+security review): once Docker Compose reads `backend.env` via
+`env_file`, the values live in the container's process environment
+and are visible to anyone with root on the host through
+`docker inspect <container>` and `cat /proc/$(pgrep -f backend)/environ`.
+That is **expected** — not a Phase 2 failure. The signer key
+specifically is removed from this surface in **Phase 3** (KMS); the
+other runtime secrets (DB URL, API keys, etc.) remain in container
+env throughout the platform's life unless the application is
+refactored to fetch them dynamically. The Phase 2 verification
+checklist below is calibrated against this reality.
+
 ### 2e. Convert GitHub Actions secrets (with environment protection)
 
 **Revised in v2.** Wrap the deploy in a GitHub **Environment** with
@@ -310,7 +382,7 @@ jobs:
           # environment-gated job sees it.
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN_PROD_CI }}
           VPS_SSH_KEY:                  op://Averray/Production/CI/vps-ssh-key/credential
-          ADMIN_JWT:                    op://Averray/Production/CI/admin-jwt/credential
+          ADMIN_JWT:                    op://Averray/Production/Smoke/admin-jwt/credential
           APP_BASIC_AUTH_PASSWORD_HASH: op://Averray/Production/CI/app-basic-auth-password-hash/credential
           RESEND_API_KEY:               op://Averray/Production/CI/resend-api-key/credential
 ```
@@ -354,6 +426,18 @@ gains access to the action's repo.
 - [ ] Old plain-text secrets are removed from GitHub Actions / VPS
 - [ ] Test rotation: change one secret in 1Password → redeploy → new
   value reaches runtime
+- [ ] **Tmpfs check**: `findmnt /run/agent-stack` reports `tmpfs`;
+  rendered env files are mode `0400`, owner `root:agent-stack-service`
+- [ ] **Backup check**: `/run/agent-stack/*` and any
+  `/srv/agent-stack/*.env*` are excluded from every backup /
+  snapshot / image-export job (grep the backup config to confirm)
+- [ ] **Deploy-log check**: a fresh deploy log contains no rendered
+  values (grep the deploy log + `journalctl -u agent-stack` for
+  the first 8 chars of one known secret → zero hits)
+- [ ] **Acknowledged residual** (not pass/fail): runtime secrets
+  remain visible inside the container via `docker inspect` and
+  `/proc/$pid/environ`. This is expected; eliminating that surface
+  for the signer key is Phase 3's job.
 
 ### Rollback
 
@@ -385,16 +469,33 @@ automatically.
    - Use root only for billing + initial IAM setup; never daily
    - Print recovery info offline
 2. Create the IAM **role** `averray-signer-prod-role` (not user!) with
-   only these permissions on the KMS key:
+   only these permissions on the KMS key. **The Sign statement and
+   the GetPublicKey statement must be separate** — `kms:SigningAlgorithm`
+   and `kms:MessageType` are condition keys for `Sign`/`Verify` only,
+   not `GetPublicKey`. Combining them in one statement implicitly
+   denies `GetPublicKey` because the condition keys are absent from
+   its request context (revised in v3 per security review):
    ```json
    {
      "Version": "2012-10-17",
      "Statement": [
        {
-         "Sid": "AllowSignWithCanonicalConditions",
+         "Sid": "AllowGetPublicKey",
          "Effect": "Allow",
-         "Action": ["kms:Sign", "kms:GetPublicKey"],
-         "Resource": "arn:aws:kms:<region>:<account>:key/<key-id>",
+         "Action": "kms:GetPublicKey",
+         "Resource": [
+           "arn:aws:kms:<primary-region>:<account>:key/<key-id>",
+           "arn:aws:kms:<replica-region>:<account>:key/<key-id>"
+         ]
+       },
+       {
+         "Sid": "AllowSignDigestOnly",
+         "Effect": "Allow",
+         "Action": "kms:Sign",
+         "Resource": [
+           "arn:aws:kms:<primary-region>:<account>:key/<key-id>",
+           "arn:aws:kms:<replica-region>:<account>:key/<key-id>"
+         ],
          "Condition": {
            "StringEquals": {
              "kms:SigningAlgorithm": "ECDSA_SHA_256",
@@ -403,7 +504,7 @@ automatically.
          }
        },
        {
-         "Sid": "ExplicitDenyDangerousOps",
+         "Sid": "ExplicitDenyDangerousOpsForSignerRole",
          "Effect": "Deny",
          "Action": [
            "kms:ScheduleKeyDeletion",
@@ -413,37 +514,99 @@ automatically.
            "kms:ReplicateKey",
            "kms:UpdatePrimaryRegion"
          ],
-         "Resource": "arn:aws:kms:<region>:<account>:key/<key-id>"
+         "Resource": [
+           "arn:aws:kms:<primary-region>:<account>:key/<key-id>",
+           "arn:aws:kms:<replica-region>:<account>:key/<key-id>"
+         ]
        }
      ]
    }
    ```
+
+   **Scope of the explicit deny**: it applies to the signer role
+   only. It does NOT constrain AWS root or admin principals on this
+   account. Admin-path protection requires key-policy constraints
+   (on the KMS key itself), SCPs at the organization level,
+   permission boundaries, an approval process for IAM admin
+   actions, and CloudTrail monitoring — covered in the
+   `ExplicitDenyDangerousOps` discussion under "CloudWatch alarms"
+   below.
+
    The condition keys (`kms:SigningAlgorithm`, `kms:MessageType`)
-   bind the role to one signing algorithm + digest mode. Even with
+   bind the Sign action to one signing algorithm + digest mode.
+   Even with
    the credentials, an attacker cannot ask for a different algorithm
    or sign a raw message instead of a digest.
 
 3. **VPS access**: configure IAM Roles Anywhere
-   - Provision a private CA (AWS ACM-PCA for ~$400/month, OR
-     self-managed CA with the private key stored in an HSM)
+   - Provision a private CA. AWS Private CA offers two modes:
+     - **General-purpose mode**: ~$400/month (cert lifetimes up to
+       any duration the CA supports). Easiest to operate.
+     - **Short-lived certificate mode**: ~$50/month (cert validity
+       ≤7 days). Requires automated cert renewal but cuts cost ~8x.
+     - Or self-managed CA with the private key in an HSM
+       (CloudHSM, YubiHSM, hardware-backed TPM). Lower vendor cost,
+       more ops burden.
    - Create a Trust Anchor in IAM referencing the CA
    - Create a Profile referencing `averray-signer-prod-role`
-   - Issue an X.509 client cert to the VPS
-   - Store the client cert + private key on the VPS at
-     `/etc/agent-stack/roles-anywhere/`, mode 0400
-   - The backend uses the cert to call STS and obtain temporary
-     credentials (≤1h lifetime); rotates automatically
+   - **Issue the client cert + key directly on the VPS** (revised in
+     v3): generate the cert keypair on the host, submit the CSR to
+     the CA, install the issued cert. Do NOT generate the private
+     key on a workstation and copy it to the VPS.
+   - Store client cert + private key at
+     `/etc/agent-stack/roles-anywhere/{cert.pem,key.pem}`,
+     mode 0400, owner root.
+   - **Do NOT store the client private key in any 1Password vault
+     that a service account can read.** That would defeat the
+     architecture: `prod-vps-backend` token + Roles Anywhere key =
+     AWS temp creds = `kms:Sign` capability. Optional emergency
+     escrow only in `Averray/Production/Critical` (human-only,
+     never service-readable), documented as explicit residual
+     risk.
+   - **Roles Anywhere session duration must be enforced** at three
+     places, not just policy: (a) the Profile's `durationSeconds`,
+     (b) the `CreateSession` request's `durationSeconds`, (c) the
+     target IAM role's `MaxSessionDuration`. Set all three to ≤1h.
+     For production signer access, prefer 15–30 minutes unless
+     operationally painful — sessions cap at 12h by default if
+     unconfigured.
+   - **Add certificate identity constraints to the trust policy**.
+     AWS Roles Anywhere exposes X.509 subject / issuer / SAN
+     attributes as source identity and principal tags. Use
+     `aws:PrincipalTag/...` or `aws:SourceIdentity` conditions on
+     the trust policy so only the expected VPS cert can assume
+     this role, not any cert issued by the trust anchor.
 
 4. **GitHub Actions access** (if any workflow needs to call AWS):
-   configure GitHub as an OIDC provider in IAM
+   configure GitHub as an OIDC provider in IAM, and **use a
+   separate role from the production signer role**. (Revised in v3
+   per security review — the previous wording reused
+   `averray-signer-prod-role` for OIDC, which would have given any
+   workflow that can assume it the same `kms:Sign` capability as
+   the backend. That's an unacceptable blast radius for CI.)
    - In IAM: add `token.actions.githubusercontent.com` as an
      identity provider
-   - Trust policy on `averray-signer-prod-role` allows
-     `sts:AssumeRoleWithWebIdentity` from workflows in
-     `repo:<your-org>/<your-repo>:environment:production`
+   - Create `averray-ci-deploy-role` (separate from
+     `averray-signer-prod-role`). Default attached permissions
+     should NOT include `kms:Sign`. Grant only what the CI job
+     actually needs (e.g. read-only ECR, read-only S3 for build
+     artifacts). If a workflow legitimately needs the signer's
+     public key (e.g. to verify deployment metadata), grant
+     **`kms:GetPublicKey`** on the specific key ARN only — not
+     `kms:Sign`.
+   - Trust policy on `averray-ci-deploy-role` allows
+     `sts:AssumeRoleWithWebIdentity` only from
+     `repo:<your-org>/<your-repo>:environment:production` (use the
+     `environment:` claim, not just `ref:` — a fork PR can't set
+     the environment claim).
+   - The production signer role
+     (`averray-signer-prod-role`) trusts ONLY the Roles Anywhere
+     trust anchor + the production VPS cert identity — no GitHub
+     OIDC trust on that role.
    - Workflow uses `aws-actions/configure-aws-credentials` with
-     `role-to-assume:` and `aws-region:`; gets ≤1h credentials per
-     job; no AWS keys ever stored in GitHub
+     `role-to-assume: arn:aws:iam::<acct>:role/averray-ci-deploy-role`
+     and `aws-region:`; gets ≤1h credentials per job; no AWS keys
+     ever stored in GitHub.
 
 5. **Do NOT store static IAM access keys for the signer principal
    anywhere.** If you must start with static keys during early
@@ -516,10 +679,36 @@ PagerDuty):
 - Sign requests from unusual source IPs / ASNs
 - Any activity by root or admin IAM principals on this key
 
-**Test each alarm with a synthetic event** before going to mainnet
-(e.g., temporarily call `DisableKey` from an admin session and
-confirm the alarm notifies). Untested alarms have a habit of being
-silently broken.
+**Test each alarm with a synthetic event** before going to mainnet.
+Untested alarms have a habit of being silently broken.
+
+**How to test safely** (revised in v3 per security review — do
+**not** call `DisableKey` / `ScheduleKeyDeletion` / `PutKeyPolicy`
+against a live production key just to verify alarms; the cure
+becomes worse than the disease):
+
+1. **Preferred**: create a **dedicated non-production test KMS key**
+   in the same account/region with the same tag, policy, and
+   CloudWatch alarm wiring. Trigger the destructive APIs against
+   that key. The alarm rules can be written against either a tag
+   selector that covers both, or a duplicate alarm scoped to the
+   test key — choose the form that exercises the same notification
+   path you rely on in prod.
+2. **EventBridge `PutEvents` test events**: most of these alarms
+   are CloudTrail-driven EventBridge rules. Use
+   `aws events put-events` to inject a synthetic event matching
+   the rule pattern (e.g., a `DisableKey` event for the prod key
+   ARN). This validates routing → SNS → PagerDuty without ever
+   calling the destructive API.
+3. **Unusual-`kms:Sign`-volume / source-IP alarms**: drive these
+   from synthetic CloudWatch metric data points
+   (`aws cloudwatch put-metric-data`) or by running a controlled
+   load test against the test key.
+4. **Never** call `DisableKey`, `ScheduleKeyDeletion`,
+   `PutKeyPolicy`, or `CreateGrant` against the production signer
+   key as a test. The blast radius (signing pauses → user
+   payouts stall) is the exact failure mode the alarm is supposed
+   to warn you about — don't trigger it on purpose.
 
 ### 3c. Derive the EVM address
 
@@ -528,17 +717,45 @@ The EVM address is the keccak256 of the public key, last 20 bytes:
 ```js
 import { KMSClient, GetPublicKeyCommand } from "@aws-sdk/client-kms";
 import { keccak256 } from "ethers";
-import { secp256k1 } from "@noble/curves/secp256k1";
+import { AsnParser } from "@peculiar/asn1-schema";
+import { SubjectPublicKeyInfo } from "@peculiar/asn1-x509";
 
 const kms = new KMSClient({ region: "eu-central-1" });
 const { PublicKey } = await kms.send(new GetPublicKeyCommand({ KeyId: "<uuid>" }));
-// PublicKey is DER-encoded; extract the 64-byte uncompressed point
-const point = PublicKey.subarray(PublicKey.length - 64);
+
+// PublicKey is a DER-encoded SubjectPublicKeyInfo (SPKI).
+// Parse the structure properly — DO NOT slice the last 64 bytes;
+// SPKI length varies with the algorithm OID + parameter encoding,
+// and a fixed-offset slice will silently produce wrong addresses
+// for some keys. Parse SPKI, read the BIT STRING contents, then
+// strip the leading 0x04 uncompressed-point marker to get the
+// 64-byte (x || y) coordinate pair.
+const spki = AsnParser.parse(PublicKey, SubjectPublicKeyInfo);
+const bitString = new Uint8Array(spki.subjectPublicKey);
+if (bitString[0] !== 0x04) {
+  throw new Error(
+    `Expected uncompressed EC point (0x04 prefix), got 0x${bitString[0].toString(16)}`,
+  );
+}
+const point = bitString.subarray(1); // 64 bytes: x (32) || y (32)
+if (point.length !== 64) {
+  throw new Error(`Expected 64-byte EC point, got ${point.length}`);
+}
 const address = "0x" + keccak256(point).slice(-40);
 console.log("EVM address:", address);
 ```
 
-This becomes the new on-chain verifier address.
+This becomes the new on-chain verifier address. **Revised in v3 per
+security review**: the earlier code used `PublicKey.subarray(length - 64)`
+which works on the common-case AWS KMS output but is fragile —
+if AWS ever changes the SPKI encoding (e.g., different OID
+parameters), the slice would silently produce a wrong address.
+Use a real DER/ASN.1 parser, not byte-offset arithmetic.
+
+**Pin the parser dependency** to an exact version with a lockfile
+entry and (where available) npm provenance attestation enabled —
+a malicious DER parser update is a credible supply-chain risk
+specifically against this code path.
 
 ### 3d. Wire the backend
 
@@ -595,7 +812,25 @@ that prove:
 
 Don't write your own KMS adapter; pick a vetted one
 (`@rumblefishdev/eth-signer-kms` or `ethers-aws-kms-signer`) and
-pin to a specific commit SHA.
+**pin to an exact npm version** with:
+
+- a `package-lock.json` (or pnpm/yarn equivalent) committed to the
+  repo so the integrity hash is part of the supply-chain audit
+- the package version pinned as `"X.Y.Z"` (no `^` / `~` ranges)
+- npm provenance attestations enabled for any first-party package
+  that wraps this adapter (`npm publish --provenance`)
+- a Renovate/Dependabot rule that **requires manual review** for
+  upgrades to any package in the signing path — auto-merging
+  patch updates is not acceptable for code that handles signer
+  capability
+
+Earlier guidance to "pin to a specific commit SHA" referred to
+GitHub Actions workflow steps (where SHA pinning IS the
+recommended practice). For npm dependencies, version-pin +
+lockfile + provenance is the correct mechanism. SHA-pinning npm
+packages via git refs in `package.json` works but bypasses the
+registry-level integrity hash and provenance checks, so it's
+weaker, not stronger, supply-chain-wise.
 
 ### 3d-2. Domain separation for backend-signed messages
 
@@ -622,16 +857,29 @@ in `mcp-server/src/blockchain/`.
    the verifier (multisig signs the `setVerifier` call)
 3. Run the full hosted product-proof smoke loop end-to-end with the
    KMS path
-4. Confirm:
-   - `journalctl -u agent-stack`, `docker inspect agent-stack`,
-     `cat /proc/$(pgrep -f backend)/environ | tr '\0' '\n'` — no
-     plaintext private key (search for `0x[a-f0-9]{60,}` patterns
-     AND for env vars named `*PRIVATE*` / `*SECRET*` referencing
-     the signer key)
-   - CloudTrail shows the `kms:Sign` calls and no `Decrypt` /
-     `Export` ever
+4. Confirm (Phase 3 = the **signer key specifically** is gone from
+   every surface; other runtime secrets remain in env_file by
+   design):
+   - `SIGNER_PRIVATE_KEY` is absent from:
+     - every env-file template in the repo (`grep -R SIGNER_PRIVATE_KEY
+       . --include='*.env*' --include='*.template'` → zero hits)
+     - the rendered `/run/agent-stack/backend.env`
+     - `docker inspect agent-stack` (container env)
+     - `cat /proc/$(pgrep -f backend)/environ | tr '\0' '\n'`
+     - process command-line args (`ps -ef | grep backend`)
+     - container image layers (`docker history` for any baked-in
+       env)
+     - `journalctl -u agent-stack` from the last 7 days
+     - every 1Password vault (search by item name AND by value
+       pattern `0x[a-f0-9]{63,64}`)
+     - every operator's password manager / shell history
+     - every backup or snapshot
+   - CloudTrail shows the `kms:Sign` calls and **no** `Decrypt` /
+     `GetParametersForImport` / cross-account export events
    - Revoking the Roles Anywhere profile temporarily breaks signing
      — proves the backend really uses temp creds, not a stashed key
+   - The legacy `SIGNER_PRIVATE_KEY` value (testnet) has been
+     **rotated and discarded** so it can't be reactivated later
 
 ### 3f. Cutover and key rotation
 
@@ -910,12 +1158,17 @@ The day before:
   of expiry
 - [ ] Hosted product-proof smoke passes end-to-end 3 consecutive
   runs on mainnet
-- [ ] No secret in any log file, process listing, or env file dump
-  on the mainnet VPS (test: search for `0x[a-f0-9]{60,}` AND env
-  vars named `*PRIVATE*` / `*SECRET*` / `*KEY*` referencing the
-  signer key)
-- [ ] **No raw `SIGNER_PRIVATE_KEY` value exists anywhere** in any
-  mainnet vault, env file, backup, or operator's machine
+- [ ] **No raw `SIGNER_PRIVATE_KEY` value exists anywhere** for
+  mainnet — env file, container env, `docker inspect` output,
+  `/proc/$pid/environ`, process args, logs, backups, 1Password
+  vault, or operator machine. (Other runtime secrets — DB URL,
+  vendor API keys — remain in `env_file` by design; this check
+  is signer-key-specific.)
+- [ ] Deploy logs (CI + VPS `journalctl`) contain no rendered
+  values from the mainnet vault (grep first 8 chars of one known
+  secret → zero hits)
+- [ ] Rendered env files on the mainnet VPS are on tmpfs, mode
+  0400, excluded from backups
 - [ ] On-call rotation is live and first responder has been paged
   with a synthetic test alert successfully
 - [ ] All Phase 4 hardening verified active on mainnet (push
@@ -930,19 +1183,39 @@ The day before:
 | 1Password Business (1 user) | $7.99 |
 | 1Password Business (3 users, post second-operator) | $23.97 |
 | AWS KMS testnet key (single region) | ~$1.05 (1 key + ~$0.15 per 10k sigs) |
-| AWS KMS mainnet key (multi-region, 2 replicas) | ~$2.05 (2 replica keys + signing fees) |
+| AWS KMS mainnet key (multi-region: 1 primary + 1 replica = 2 keys total) | ~$2.05 (2 keys × ~$1/mo + signing fees) |
 | AWS Roles Anywhere | $0 (no per-request fee) |
-| AWS ACM-PCA (if used for Roles Anywhere CA) | ~$400 — **consider self-managed CA + HSM** for lower cost |
+| AWS ACM-PCA — **general-purpose mode** (long-lived certs) | ~$400/mo while the CA is active |
+| AWS ACM-PCA — **short-lived certificate mode** (≤7 day certs) | **~$50/mo** while the CA is active — recommended if Roles Anywhere is the only use case |
+| AWS ACM-PCA — **self-managed CA alternative** (CA private key in HSM) | $0 AWS recurring + operator time + HSM cost |
 | AWS CloudTrail (for KMS audit) | $0 (first management trail free) |
 | AWS CloudWatch (for KMS alarms) | < $5 |
-| **Total at 1 user, testnet** | **~$9/mo** (or ~$409/mo if ACM-PCA used) |
-| **Total at 3 users, mainnet** | **~$26/mo** (or ~$426/mo if ACM-PCA used) |
+| **Total at 1 user, testnet, ACM-PCA short-lived mode** | **~$59/mo** |
+| **Total at 3 users, mainnet, ACM-PCA short-lived mode** | **~$76/mo** |
+| **Total at 1 user, testnet, ACM-PCA general-purpose mode** | **~$409/mo** |
+| **Total at 3 users, mainnet, ACM-PCA general-purpose mode** | **~$426/mo** |
 | **YubiKey hardware keys** (one-time) | ~$50 × number of operators |
 
-The recurring cost is rounding error vs. the security improvement.
-The **ACM-PCA decision is the one to think about** — $400/mo is
-real money at our scale; self-managed CA with the private key in
-an HSM is the cheaper alternative if the operator can run one.
+The recurring cost is rounding error vs. the security improvement
+**unless** you pick general-purpose ACM-PCA. The **ACM-PCA mode
+decision is the one to think about**:
+
+- **Short-lived certificate mode** ($50/mo) issues certs with a
+  maximum 7-day validity. That fits Roles Anywhere perfectly — we
+  refresh the VPS client cert weekly via an automated job, so we
+  never need long-lived certs anyway. **This is the recommended
+  default.**
+- **General-purpose mode** ($400/mo) is needed only if you'd
+  issue certs valid longer than 7 days. We don't.
+- **Self-managed CA + HSM** is the cheapest steady-state option
+  but adds operator complexity (HSM lifecycle, CA-key rotation,
+  CRL hosting). Only worth it if the operator team can own that
+  weight.
+
+KMS mainnet pricing — to be explicit: a multi-region KMS key with
+one replica in a second region is **two billable KMS keys**, not
+"two replicas of one key." Each replica is independently priced at
+the standard KMS rate (~$1/key/mo for asymmetric secp256k1).
 
 Engineering time for the migration: ~5–7 working days spread over a
 few weeks.

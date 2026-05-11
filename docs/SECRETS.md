@@ -65,9 +65,13 @@ honest trust-boundary analysis.
 
 | Secret class | Where it lives | How runtime gets it |
 |---|---|---|
-| App secrets (JWT secret, RPC URLs, Pimlico, Sentry, GH PAT, Subscan, webhooks) | 1Password Business → `Averray/Production/Backend` vault | `op inject` renders env at deploy time to tmpfs; per-runtime service token (`prod-vps-backend`); plaintext on tmpfs only |
-| GitHub Actions secrets (`VPS_SSH_KEY`, `ADMIN_JWT`, `APP_BASIC_AUTH_*`) | 1Password Business → `Averray/Production/CI` vault | Synced via `1password/load-secrets-action`; per-runtime service token (`prod-ci-deploy`); production deploys gated by GitHub Environment with required reviewers |
+| Backend app secrets (JWT secret, RPC URLs, KMS key id) | 1Password Business → `Averray/Production/Backend` vault | `op inject` renders env at deploy time to tmpfs; per-runtime service token (`prod-vps-backend`); plaintext on tmpfs only |
+| Backend vendor tokens (Pimlico, Sentry DSN, Subscan, RPC provider, webhook) | 1Password Business → `Averray/Production/BackendExternal` vault | Same `prod-vps-backend` service token (it has read on Backend + BackendExternal only) |
+| GitHub Actions deploy secrets (`VPS_SSH_KEY`, `APP_BASIC_AUTH_PASSWORD_HASH`) | 1Password Business → `Averray/Production/CI` vault | Synced via `1password/load-secrets-action`; per-runtime service token (`prod-ci-deploy`); production deploys gated by GitHub Environment with required reviewers |
+| CI vendor tokens (issue-ingestion PAT, CI-side Resend if used) | 1Password Business → `Averray/Production/CIExternal` vault | Same `prod-ci-deploy` token (CI + CIExternal scope) |
+| Hosted smoke `ADMIN_JWT` | 1Password Business → `Averray/Production/Smoke` vault (dedicated) | `prod-smoke-tests` service token (Smoke vault only) |
 | Indexer env (DB password, RPC URL) | 1Password Business → `Averray/Production/Indexer` vault | Same pattern as backend, with `prod-vps-indexer` service token (scoped to indexer vault only) |
+| Service-account tokens themselves + 1Password recovery + AWS root + Roles Anywhere cert metadata + basic-auth RAW password + pauser seed | 1Password Business → `Averray/Production/Critical` vault | **Human-only.** No runtime service account can read Critical. |
 | Backend signer key | **AWS KMS** secp256k1 key, multi-region (mainnet), IAM Roles Anywhere / OIDC access | ethers.js `AwsKmsSigner` adapter — backend never holds private key bytes; **still holds temporary AWS credentials** (≤1h lifetime) capable of requesting signatures |
 | Operator passwords (basic auth, personal vault items) | 1Password Business → `Averray/Operators` per-user vault | Manual; only used by humans through the 1Password UI |
 | Multisig signer seeds | Three independent humans/devices (existing pattern, see [`MULTISIG_SETUP.md`](MULTISIG_SETUP.md)) | Hardware wallets + sealed-envelope offline backups |
@@ -94,8 +98,16 @@ migration they'll be synced from 1Password.
 | `VPS_USER` | SSH user | Same | Deployer | On account change | Same |
 | `VPS_SSH_KEY` | ED25519 private key | Written to `~/.ssh/id_ed25519` in deploy job | Deployer | **On suspicion of compromise** | Full deploy pipeline access |
 | `APP_BASIC_AUTH_USER` | Username | Caddy basic auth on `app.averray.com` | Operator | On policy change | Operator UI access |
-| `APP_BASIC_AUTH_PASSWORD` | Plain password | Same | Operator | Periodic | Same |
-| `APP_BASIC_AUTH_PASSWORD_HASH` | bcrypt/htpasswd hash | Same (preferred over plain) | Operator | Periodic | Same |
+| `APP_BASIC_AUTH_PASSWORD` | **Raw** password — stored only in `Averray/Production/Critical` (human-only). Never injected by a service-account token. Used by operators to log in via the browser. | Operator vault item only | Periodic | Operator UI access |
+| `APP_BASIC_AUTH_PASSWORD_HASH` | bcrypt/htpasswd hash — this is what CI injects into the Caddy config at deploy time. The raw password is NOT needed in CI. | `Averray/Production/CI` (CI-readable) | Periodic | Same |
+
+**Why split**: the Caddy basic-auth check only needs the hash at
+runtime. The raw password is for humans typing it into a browser
+login dialog. Storing the raw password in the CI-readable vault
+would mean a compromised CI service-account token could read a
+credential that operators use to authenticate — a real privilege
+escalation against the operator UI. Keep raw passwords out of any
+vault a service-account can read.
 | `ADMIN_JWT` | Long-lived JWT | Hosted product-proof smoke + ops scripts | Deployer | On expiry (was 30d, expired today) | Backend admin role |
 | `RESEND_API_KEY` | Email API key | Bootstrap self-report / alert emails | Deployer | On vendor rotation | Alert email delivery |
 
@@ -205,24 +217,33 @@ live in D.
 | Deployer | `0xFd2EAE…6519` | Local one-shot env | Only used during `deploy_contracts.sh`; transferred to multisig at end |
 | Owner (mainnet) | TBD multisig | Three signer set in D | 2-of-3 threshold per `MULTISIG_SETUP.md` |
 | Owner (testnet) | `0x1f8C…b6F9` | Same multisig signer set | |
-| Pauser | `0xFd2EAE…6519` | Local env / hot key | EOA today; can be rotated via `rotate_pauser.sh` |
+| Pauser | `0xFd2EAE…6519` | Local env / hot key (testnet); **multisig-controlled on mainnet** | EOA on testnet, rotated via `rotate_pauser.sh`. **Mainnet**: the pauser must be a separate multisig (or at minimum a separate hardware-protected EOA that is NOT the verifier/arbitrator key). Reusing the verifier key for pause defeats the purpose — a leaked verifier signing capability would otherwise also be able to pause/un-pause arbitrarily. |
 | Verifier | `0xFd2EAE…6519` | `SIGNER_PRIVATE_KEY` (current) → AWS KMS (target) | The hottest key |
-| Arbitrator | `0xFd2EAE…6519` | `SIGNER_PRIVATE_KEY` (current) → AWS KMS (target) | Same key as verifier today; consider splitting |
+| Arbitrator | `0xFd2EAE…6519` | `SIGNER_PRIVATE_KEY` (current) → AWS KMS (target) | **Currently the SAME key as verifier — this is an accepted risk on testnet, NOT acceptable for mainnet.** Mainnet must split verifier and arbitrator into two distinct KMS keys (different IAM roles, different alarm thresholds, different on-chain addresses). A compromised verifier key should not also be able to resolve disputes. Track the split as a Phase 5 prerequisite. |
 
 ### F. External service tokens (vendor portals)
 
-These are the entries you'll find in 1Password's `Averray/Production/External`
-vault. Each has a vendor-side rotation path.
+Revised in v3 per security review: the single `External` vault is
+split into **two** vaults so a leaked CI service-account token
+cannot read backend-runtime vendor tokens, and vice versa.
 
-| Service | What | Vendor portal | Rotation |
-|---|---|---|---|
-| Pimlico | Bundler + paymaster URLs, sponsorship policy ID | dashboard.pimlico.io | On policy change |
-| Sentry | Project DSN | sentry.io | Rare (per project lifetime) |
-| GitHub | Personal access token | github.com/settings/tokens | Per token's `expires_at` (typically 90d) |
-| Subscan | API key | subscan.io | Per their cycle |
-| Resend | API key | resend.com | Periodic |
-| Webhook (alerts) | Slack/Discord/PagerDuty URL | Their respective dashboards | Rare |
-| Dweller / Polkadot RPC | URL (and any auth token) | Provider portal | Rare |
+| Service | What | Vault | Used by | Vendor portal | Rotation |
+|---|---|---|---|---|---|
+| Pimlico | Bundler + paymaster URLs, sponsorship policy ID | `Averray/Production/BackendExternal` | Backend runtime | dashboard.pimlico.io | On policy change |
+| Sentry | Project DSN | `Averray/Production/BackendExternal` | Backend runtime | sentry.io | Rare (per project lifetime) |
+| GitHub | **Fine-grained PAT** for issue ingestion (or GitHub App installation token) — see calendar entry for required scopes | `Averray/Production/CIExternal` | CI / ingestor | github.com/settings/tokens | Per token's `expires_at` (typically 90d) |
+| Subscan | API key | `Averray/Production/BackendExternal` | Backend / indexer | subscan.io | Per their cycle |
+| Resend (backend) | API key for backend self-report mail | `Averray/Production/BackendExternal` | Backend runtime | resend.com | Periodic |
+| Resend (CI) | OPTIONAL: separate API key for CI/deploy notifications | `Averray/Production/CIExternal` | CI | resend.com | Periodic |
+| Webhook (alerts) | Slack/Discord/PagerDuty URL | `Averray/Production/BackendExternal` | Backend alerting | Their respective dashboards | Rare |
+| Dweller / Polkadot RPC | URL (and any auth token) | `Averray/Production/BackendExternal` | Backend / indexer | Provider portal | Rare |
+
+**GitHub PAT scope reduction**: do NOT use a classic PAT with
+`repo`, `read:org`, `workflow`. The issue ingestor needs `Issues:
+Read` (and possibly `Issues: Write`) on a single repository.
+Generate a **fine-grained PAT** restricted to that one repo with
+those minimum permissions. For >1 repo or longer-lived needs, a
+GitHub App installation token is preferred over any PAT.
 
 ---
 
@@ -270,14 +291,32 @@ Add to 1Password as a new field; do **not** delete the old one yet.
 - For one-off revocation: `redis-cli SET revoked:<jti> 1 EX <ttl>`.
 - For a full rotation, use the rotation flow above.
 
-### `ADMIN_JWT` (long-lived JWT for ops scripts)
+### `ADMIN_JWT` (long-lived JWT for ops scripts — TRANSITIONAL)
 
-**Mint with the script**:
+**Transitional**: This long-lived admin JWT exists because the
+hosted smoke and ops scripts predate the asymmetric-KMS JWT work.
+Phase 4b (`SECRETS_INTEGRATION_PLAN.md`) replaces this with
+short-lived JWTs minted per-run from a CI OIDC → KMS path, after
+which this entry retires.
+
+**Mint with the script** (current procedure):
 ```bash
-AUTH_JWT_SECRETS=$(op read "op://Averray/Production/Backend/AUTH_JWT_SECRETS") \
-  node scripts/ops/mint-admin-jwt.mjs --profile testnet --expires-in-days 30 --quiet \
-  | gh secret set ADMIN_JWT
+AUTH_JWT_SECRETS=$(op read "op://Averray/Production/Backend/auth-jwt-secrets/credential") \
+  node scripts/ops/mint-admin-jwt.mjs --profile production --expires-in-days 30 --quiet \
+  | op item edit "op://Averray/Production/Smoke/admin-jwt" credential[password]=-
 ```
+
+Notes:
+- `--profile production` (not `testnet`) for the production smoke target.
+  Earlier instructions referenced `testnet` — that was wrong for
+  the prod smoke loop.
+- Output goes back into **1Password** at
+  `op://Averray/Production/Smoke/admin-jwt`, not directly to a
+  GitHub Actions secret. The smoke workflow reads from that
+  op:// path via the `prod-smoke-tests` service-account token.
+- The op:// path is lowercase. 1Password is case-sensitive for
+  item/section/field names; the earlier `AUTH_JWT_SECRETS`
+  uppercase reference would have failed.
 
 **Rotate**: Mint a new one with the script before the old expires.
 Add a [`SECRETS_CALENDAR.yml`](SECRETS_CALENDAR.yml) entry so CI warns
@@ -358,7 +397,15 @@ When you're ready to launch on mainnet, **every secret in the inventory
 above** gets rotated. Use this as the cutover checklist:
 
 - [ ] Generate fresh `AUTH_JWT_SECRETS` (≥32 chars, never derive from testnet)
-- [ ] Generate fresh `SIGNER_PRIVATE_KEY` — **and put it directly in AWS KMS, never on disk**
+- [ ] **Create a fresh mainnet AWS KMS asymmetric secp256k1 signer
+  key** (`KeySpec=ECC_SECG_P256K1`, `KeyUsage=SIGN_VERIFY`,
+  `Origin=AWS_KMS`, multi-region from creation). **Do NOT generate,
+  export, paste, or store a raw `SIGNER_PRIVATE_KEY` value anywhere
+  for mainnet** — the key material is created inside the HSM and
+  never leaves it; only the public key and its derived EVM
+  address ever appear outside KMS. Mainnet builds set
+  `config.allowLocalKeyFallback = false` so a stray
+  `SIGNER_PRIVATE_KEY` env var cannot be loaded as a fallback.
 - [ ] Generate fresh `VPS_SSH_KEY`
 - [ ] Generate fresh deployer EOA key for the one-shot `deploy_contracts.sh`
 - [ ] Set up new multisig signer seeds (separate seeds from testnet — do **not** reuse)
