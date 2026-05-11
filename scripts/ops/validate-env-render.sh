@@ -140,14 +140,20 @@ fi
 # rows that have "✅ yes" in the critical-nonempty column. The inventory
 # is the source of truth; this script parses it instead of duplicating
 # the list inline.
+#
+# Implementation note: earlier versions used `match()` + `substr()` to
+# pull VAR_NAME out, but the literal-space match was fragile against
+# column-alignment whitespace. Now we split on `|` and trim cols[2].
 critical_vars=$(awk '
   /^\| `[A-Z][A-Z0-9_]*`[[:space:]]+\|/ {
-    # row format: | `VAR_NAME` | op://... | <crit emoji> | owner | notes |
-    match($0, /\| `[A-Z][A-Z0-9_]*` \|/)
-    var = substr($0, RSTART+3, RLENGTH-5)  # strip "| `" prefix and "` |" suffix
-    # split row on `|` and look at the critical-nonempty column (4th)
     n = split($0, cols, "|")
-    if (n >= 4 && cols[4] ~ /yes/) print var
+    if (n < 4) next
+    if (cols[4] !~ /yes/) next
+    # cols[2] is "  `VAR_NAME`  " — strip spaces and backticks
+    var = cols[2]
+    gsub(/[[:space:]]/, "", var)
+    gsub(/`/, "", var)
+    if (var ~ /^[A-Z][A-Z0-9_]+$/) print var
   }
 ' "$inventory")
 
@@ -178,11 +184,14 @@ fi
 # Final tally — counts only, never values.
 total_lines=$(wc -l < "$rendered" | tr -d ' ')
 secret_lines=$(grep -cE '^[A-Z][A-Z0-9_]*=' "$rendered" || true)
+# Count *only non-empty* lines in the critical-vars list so we don't
+# report "1 vars validated" when the awk parse produced an empty result.
+critical_count=$(printf '%s\n' "$critical_vars" | grep -c . || true)
 
 echo "validate-env-render.sh: $runtime template rendered cleanly"
 echo "    template:           $template"
 echo "    rendered (deleted): ${rendered##*/}"
 echo "    total lines:        $total_lines"
 echo "    KEY=value lines:    $secret_lines"
-echo "    critical-nonempty:  $(printf '%s\n' "$critical_vars" | wc -l | tr -d ' ') vars validated"
+echo "    critical-nonempty:  ${critical_count:-0} vars validated (inventory-wide)"
 [ "${STRICT:-}" = "1" ] && echo "    mode:               STRICT (TODO markers banned)" || echo "    mode:               permissive (TODO markers allowed)"
