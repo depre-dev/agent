@@ -6,7 +6,9 @@ the Averray platform depends on. Read this first when:
 - You need to rotate a secret and want to know which surfaces it touches
 - You're onboarding a new operator and they need access
 - You're preparing for mainnet (see also
-  [`SECRETS_MIGRATION.md`](SECRETS_MIGRATION.md))
+  [`SECRETS_MIGRATION.md`](SECRETS_MIGRATION.md) for the phase-by-phase
+  plan and [`SECRETS_INTEGRATION_PLAN.md`](SECRETS_INTEGRATION_PLAN.md)
+  for the security-review-grade design rationale)
 - Something looks suspicious and you need to figure out the blast radius
 
 If you find a secret in the code or config that isn't listed here, **add
@@ -52,12 +54,21 @@ The 4 highest-risk items, ordered by blast radius:
 Each secret class has a target home. The rule of thumb is: **one
 canonical source, synced to runtime by automation, never copy-pasted**.
 
+**Note on runtime plaintext**: `op inject` renders env files at
+deploy time, which means rendered values exist as plaintext on the
+target host (VPS or CI runner) for the duration of the deploy. This
+solves the source-of-truth problem (one place to update) but does
+NOT eliminate runtime plaintext from disk — the KMS migration of
+the signer key is the layer that removes the most valuable runtime
+plaintext. See `SECRETS_INTEGRATION_PLAN.md` Section 4c for the
+honest trust-boundary analysis.
+
 | Secret class | Where it lives | How runtime gets it |
 |---|---|---|
-| App secrets (JWT secret, RPC URLs, Pimlico, Sentry, GH PAT, Subscan, webhooks) | 1Password Business → `Averray/Production/Backend` vault | `op inject` renders the env at deploy time; `op://` URI references in templates, no plain-text on disk |
-| GitHub Actions secrets (`VPS_SSH_KEY`, `ADMIN_JWT`, `APP_BASIC_AUTH_*`) | 1Password Business → `Averray/Production/CI` vault | Synced via `1password/load-secrets-action@v1` per workflow job |
-| Indexer env (DB password, RPC URL) | 1Password Business → `Averray/Production/Indexer` vault | Same pattern as backend |
-| Backend signer key | **AWS KMS** secp256k1 key, region pinned, IAM-controlled | ethers.js `AwsKmsSigner` adapter — backend never sees the private key |
+| App secrets (JWT secret, RPC URLs, Pimlico, Sentry, GH PAT, Subscan, webhooks) | 1Password Business → `Averray/Production/Backend` vault | `op inject` renders env at deploy time to tmpfs; per-runtime service token (`prod-vps-backend`); plaintext on tmpfs only |
+| GitHub Actions secrets (`VPS_SSH_KEY`, `ADMIN_JWT`, `APP_BASIC_AUTH_*`) | 1Password Business → `Averray/Production/CI` vault | Synced via `1password/load-secrets-action`; per-runtime service token (`prod-ci-deploy`); production deploys gated by GitHub Environment with required reviewers |
+| Indexer env (DB password, RPC URL) | 1Password Business → `Averray/Production/Indexer` vault | Same pattern as backend, with `prod-vps-indexer` service token (scoped to indexer vault only) |
+| Backend signer key | **AWS KMS** secp256k1 key, multi-region (mainnet), IAM Roles Anywhere / OIDC access | ethers.js `AwsKmsSigner` adapter — backend never holds private key bytes; **still holds temporary AWS credentials** (≤1h lifetime) capable of requesting signatures |
 | Operator passwords (basic auth, personal vault items) | 1Password Business → `Averray/Operators` per-user vault | Manual; only used by humans through the 1Password UI |
 | Multisig signer seeds | Three independent humans/devices (existing pattern, see [`MULTISIG_SETUP.md`](MULTISIG_SETUP.md)) | Hardware wallets + sealed-envelope offline backups |
 | Burnable deployer key (one-time per deploy) | Generated fresh; transferred away from the deployer EOA via `transferOwnership()` to the multisig at the end of `deploy_contracts.sh` | Never persisted long-term |
@@ -219,19 +230,39 @@ vault. Each has a vendor-side rotation path.
 
 For each secret class, the canonical mint/rotate/revoke flow.
 
-### `AUTH_JWT_SECRETS` (HMAC for SIWE sessions)
+### `AUTH_JWT_SECRETS` (HMAC for SIWE sessions today; asymmetric KMS-signed target for mainnet)
 
-**Mint a new entry**:
+**Today**: HMAC-SHA256 secret stored in `AUTH_JWT_SECRETS` (comma-
+separated list, newest first). A vault leak OR a backend env leak
+means anyone can mint admin JWTs. This is one of the four
+highest-risk items in this doc.
+
+**Target for mainnet** (see Phase 4b of
+[`SECRETS_INTEGRATION_PLAN.md`](SECRETS_INTEGRATION_PLAN.md)):
+asymmetric KMS-signed access tokens with opaque refresh tokens.
+After that migration, a vault leak no longer allows JWT minting —
+only KMS principal compromise does (same protection level as the
+signer key).
+
+If the asymmetric migration is deferred, the **minimum hardening
+for the HMAC path** is:
+- Key ring with `kid` rotation
+- Short access-token TTLs (≤15 min)
+- Documented two-key rotation window with old-key tolerance period
+- Refresh tokens are opaque random values, hashed server-side
+
+**Mint a new HMAC entry**:
 ```bash
 openssl rand -hex 32     # 64-char hex string, ≥32 bytes
 ```
 Add to 1Password as a new field; do **not** delete the old one yet.
 
-**Rotate**:
-1. Update the 1Password entry: prepend the new secret, keep the old one.
+**HMAC rotation**:
+1. Update the 1Password entry: prepend the new secret, keep the
+   old one.
 2. Trigger a redeploy. Backend now signs with new, accepts both.
-3. After 24-48h grace period (allows in-flight tokens to expire),
-   delete the old secret from the 1Password entry.
+3. After 24–48h grace period (allows in-flight tokens to expire
+   naturally), delete the old secret from the 1Password entry.
 4. Trigger a second redeploy. Old tokens now reject.
 
 **Revoke an issued token**:
@@ -254,17 +285,38 @@ you ~7 days out.
 
 ### `SIGNER_PRIVATE_KEY` (backend signer)
 
-**Today** (testnet): plain hex in VPS env. Rotation requires generating
-a new keypair, redeploying contracts (because the verifier address is
-baked into TreasuryPolicy), and updating env. Heavy.
+**Today** (testnet): plain hex in VPS env. Rotation requires
+generating a new keypair, calling `setVerifier(new)` on TreasuryPolicy
+via the multisig, and updating env. Heavy.
 
-**Target** (after Phase 3 of [`SECRETS_MIGRATION.md`](SECRETS_MIGRATION.md)):
-AWS KMS-managed secp256k1 key. Rotation path:
-1. Create a new KMS key.
-2. Import the new public key as the new verifier on TreasuryPolicy via
-   the multisig (`setVerifier(new, true)`).
-3. Update `KMS_KEY_ID` in the backend env via 1Password; redeploy.
-4. After grace period: `setVerifier(old, false)` and `kms.scheduleKeyDeletion(old)`.
+**Target** (after Phase 3 of
+[`SECRETS_MIGRATION.md`](SECRETS_MIGRATION.md)): AWS KMS-managed
+secp256k1 key. AWS does **not** support automatic rotation for
+asymmetric KMS keys.
+
+> **KMS signer key rotation is an on-chain signer migration event,
+> not a routine calendar rotation. IAM/STS credentials rotate
+> frequently; the KMS key rotates only through a planned verifier
+> update via multisig.**
+
+The migration procedure:
+1. Create a new KMS key (same spec, same multi-region setup if
+   mainnet)
+2. Derive the new EVM address from the new key's public key
+3. Multisig signs `setVerifier(newKmsAddress, true)` on TreasuryPolicy
+4. Update `KMS_KEY_ID` env via 1Password; redeploy backend
+5. Grace period (e.g., 24h): both keys are valid verifiers
+6. Multisig signs `setVerifier(oldKmsAddress, false)` to disable
+   the old key
+7. Schedule deletion of the old KMS key (7–30 day pending period)
+8. After deletion period, key is permanently destroyed
+
+The KMS signer key is **explicitly NOT tracked** in
+[`SECRETS_CALENDAR.yml`](SECRETS_CALENDAR.yml) because it rotates
+on-chain, not on calendar.
+
+IAM access credentials (Roles Anywhere certs, OIDC trust
+relationship) DO rotate frequently and are calendar-tracked.
 
 ### `VPS_SSH_KEY`
 
