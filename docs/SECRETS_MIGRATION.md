@@ -929,7 +929,66 @@ legacy `/srv` files on disk untouched. PR 2.6 deletes them after 24h.
 - [ ] Pre-PR-2.5 backup of compose file exists at
       `/srv/agent-stack/docker-compose.yml.pre-pr2.5` for 24h rollback
 
-### PR 2.6 — Cleanup AND rotation
+### PR 2.6 — Retire `/srv` writes + manifest parity CI guard (code-only step)
+
+**Touches**: `scripts/ops/deploy-production.sh`,
+`scripts/ops/check-template-matches-manifest.mjs` (new),
+`.github/workflows/ci.yml`.
+
+**What lands in this PR:**
+
+- Removes `configure_settlement_env`, `configure_bootstrap_instrumentation_env`,
+  `backend_env_requires_deploy`, `upsert_env_values`,
+  `upsert_env_values_if_changed`, and `quote_env_value` from
+  `scripts/ops/deploy-production.sh`. All ~150 lines of dead-after-PR-2.5
+  code that was still writing settlement + instrumentation values to
+  `/srv/agent-stack/backend.env` on every deploy in shell-escape format.
+- Adds `scripts/ops/check-template-matches-manifest.mjs`. Runs
+  `derive-settlement-env.mjs` against `deployments/testnet.json` and asserts
+  the 11 derived keys match `deploy/backend.env.template` byte-for-byte.
+  Fails CI on drift. Wired into the existing
+  `Phase 2 — env template structural lint` job.
+- Updates `should_run backend` regex to include
+  `deploy/backend.env.template` and `deployments/testnet.json` —
+  template-only or manifest-only changes still trigger a backend redeploy
+  via the path-based change detection.
+
+**Why now** — the 2026-05-12 outage. After PR 2.5's cutover made
+`/run/agent-stack/backend.env` authoritative, the `configure_*_env`
+writes to `/srv` were doubly bad: redundant (the template carries the
+same values byte-for-byte, verified in this PR's CI guard) and
+dangerous (a copy-paste from `/srv` into the template leaked the
+shell-escape format `[{\"symbol\":\"USDC\",...}]` which docker
+compose's `env_file:` parser takes literally — see PR #249). Removing
+the writes closes the format-leak vector permanently.
+
+**What does NOT land here** (deferred to PR 2.7, see below):
+
+- Deleting the legacy `/srv/agent-stack/{backend,indexer}.env` files
+  from the VPS. Recommended operator action after 24h of stable deploys
+  on PR 2.6:
+
+  ```sh
+  ssh ubuntu@141.94.121.188 'sudo rm /srv/agent-stack/backend.env /srv/agent-stack/indexer.env /srv/agent-stack/docker-compose.yml.pre-pr2.5'
+  ```
+
+- Deleting GitHub Actions secrets that have been replaced by 1Password
+  references.
+- Rotating secrets that were leaked via GitHub-Actions / shell-history /
+  VPS-backup surfaces.
+
+**Known gap** (not fixed in this PR): `apply_indexer_database_schema`'s
+`INDEXER_FRESH_SCHEMA=1` flow writes a new `DATABASE_SCHEMA=` line to
+`/srv/agent-stack/indexer.env`, which `/run/agent-stack/indexer.env`
+doesn't pick up (the latter is rendered from
+`deploy/indexer.env.template`). The flow has been broken for
+`/run`-authoritative deploys since PR 2.5 but is rarely exercised
+(operators usually pin schema via the workflow input). Tracked for a
+follow-up: either teach the function to also rewrite the template via
+sed and let CI re-render, or move schema rotation into the deploy
+manifest with its own parity guard.
+
+### PR 2.7 — Cleanup of legacy artifacts AND rotation
 
 **Touches**: `.github/workflows/deploy-production.yml`, VPS env files,
 `SECRETS_CALENDAR.yml`.
@@ -975,7 +1034,7 @@ to those surfaces and rotated.
 - [ ] Reboot test green: `/run/agent-stack` recreated; deploy renders
       fresh env files successfully
 
-### PR 2.5 — Smoke auth secret to 1Password
+### PR 2.8 — Smoke auth secret to 1Password
 
 **Touches**: `scripts/ops/check-hosted-stack.sh`,
 `.github/workflows/deploy-production.yml`, `SECRETS_CALENDAR.yml`.
