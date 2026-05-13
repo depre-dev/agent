@@ -7,7 +7,7 @@ import {
   missingCapabilities,
   resolveCapabilities
 } from "./capabilities.js";
-import { mergeGrantCapabilities } from "../core/capability-grants.js";
+import { isGrantActive, mergeGrantCapabilities } from "../core/capability-grants.js";
 import { buildAuthRequirementDetails } from "../core/discovery-manifest.js";
 
 const GRANT_CACHE_TTL_MS = 15_000;
@@ -71,6 +71,25 @@ export function createAuthMiddleware({ authConfig, stateStore, logger = console,
   async function expandCapabilities(claims, baseCapabilities) {
     const subject = String(claims?.sub ?? "").trim();
     if (!subject) return baseCapabilities;
+    if (isServiceTokenClaims(claims)) {
+      const grantId = String(claims?.capabilityGrantId ?? "").trim();
+      if (!grantId || typeof stateStore?.getCapabilityGrant !== "function") {
+        return baseCapabilities;
+      }
+      try {
+        const grant = await stateStore.getCapabilityGrant(grantId);
+        if (!grant || String(grant.subject ?? "").toLowerCase() !== subject.toLowerCase()) {
+          return baseCapabilities;
+        }
+        if (!isGrantActive(grant, { now })) {
+          return baseCapabilities;
+        }
+        return mergeGrantCapabilities(baseCapabilities, [grant], { now });
+      } catch (error) {
+        logger.warn?.({ subject, grantId, error: error?.message }, "auth.service_token_grant_lookup_failed");
+        return baseCapabilities;
+      }
+    }
     const grants = await loadActiveGrantsFor(subject);
     if (!grants.length) return baseCapabilities;
     return mergeGrantCapabilities(baseCapabilities, grants, { now });
@@ -166,6 +185,10 @@ export function createAuthMiddleware({ authConfig, stateStore, logger = console,
       via: headerToken ? "header" : "query_token"
     };
   };
+}
+
+function isServiceTokenClaims(claims = {}) {
+  return claims?.serviceToken === true || claims?.tokenKind === "service";
 }
 
 function enforceRole(claims, requireRole, authDetails = undefined) {

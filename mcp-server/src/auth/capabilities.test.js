@@ -40,6 +40,17 @@ test("resolveCapabilities includes explicit future scopes from signed claims", (
   assert.ok(capabilities.includes("ops:view"));
 });
 
+test("resolveCapabilities does not give service tokens wallet base capabilities", () => {
+  const capabilities = resolveCapabilities({
+    roles: ["admin", "verifier"],
+    tokenKind: "service",
+    serviceToken: true,
+    capabilities: ["jobs:create"],
+    scopes: ["ops:view"]
+  });
+  assert.deepEqual(capabilities, []);
+});
+
 test("capabilityMatrix exposes base and role capability groups", () => {
   const matrix = capabilityMatrix();
   assert.equal(matrix.version, AUTH_POLICY_VERSION);
@@ -85,11 +96,28 @@ test("capabilityMatrix surfaces the capability-grant routes and UI controls (roa
   assert.deepEqual(matrix.routes["/admin/capability-grants/:id/revoke"], [
     "admin:capabilities:revoke"
   ]);
+  assert.deepEqual(matrix.routes["/admin/service-tokens"], [
+    "admin:capabilities:grant",
+    "admin:capabilities:read"
+  ]);
+  assert.deepEqual(matrix.routes["/admin/service-tokens/:id/rotate"], [
+    "admin:capabilities:grant",
+    "admin:capabilities:revoke"
+  ]);
+  assert.deepEqual(matrix.routes["/admin/service-tokens/:id/revoke"], [
+    "admin:capabilities:revoke"
+  ]);
   assert.deepEqual(matrix.uiControls["admin.capabilities.view"], ["admin:capabilities:read"]);
   assert.deepEqual(matrix.uiControls["admin.capabilities.grant"], ["admin:capabilities:grant"]);
   assert.deepEqual(matrix.uiControls["admin.capabilities.revoke"], ["admin:capabilities:revoke"]);
   assert.deepEqual(matrix.automationActions["capability.grant"], ["admin:capabilities:grant"]);
   assert.deepEqual(matrix.automationActions["capability.revoke"], ["admin:capabilities:revoke"]);
+  assert.deepEqual(matrix.automationActions["serviceToken.issue"], ["admin:capabilities:grant"]);
+  assert.deepEqual(matrix.automationActions["serviceToken.rotate"], [
+    "admin:capabilities:grant",
+    "admin:capabilities:revoke"
+  ]);
+  assert.deepEqual(matrix.automationActions["serviceToken.revoke"], ["admin:capabilities:revoke"]);
 });
 
 test("getRouteCapabilityRequirements resolves capability-grant routes by method", () => {
@@ -103,6 +131,22 @@ test("getRouteCapabilityRequirements resolves capability-grant routes by method"
   );
   assert.deepEqual(
     getRouteCapabilityRequirements("POST", "/admin/capability-grants/grant-abc/revoke"),
+    ["admin:capabilities:revoke"]
+  );
+  assert.deepEqual(
+    getRouteCapabilityRequirements("GET", "/admin/service-tokens"),
+    ["admin:capabilities:read"]
+  );
+  assert.deepEqual(
+    getRouteCapabilityRequirements("POST", "/admin/service-tokens"),
+    ["admin:capabilities:grant"]
+  );
+  assert.deepEqual(
+    getRouteCapabilityRequirements("POST", "/admin/service-tokens/grant-abc/rotate"),
+    ["admin:capabilities:grant", "admin:capabilities:revoke"]
+  );
+  assert.deepEqual(
+    getRouteCapabilityRequirements("POST", "/admin/service-tokens/grant-abc/revoke"),
     ["admin:capabilities:revoke"]
   );
 });

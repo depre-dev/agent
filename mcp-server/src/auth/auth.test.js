@@ -572,3 +572,82 @@ test("requireAuth ignores revoked grants when expanding capabilities", async () 
     (error) => error instanceof AuthorizationError && error.code === "missing_capability"
   );
 });
+
+test("requireAuth binds service tokens to exactly one active grant without base capabilities", async () => {
+  const subject = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const stateStore = new MemoryStateStore();
+  await stateStore.upsertCapabilityGrant({
+    id: "grant-service",
+    subject,
+    status: "active",
+    capabilities: ["jobs:lifecycle"],
+    issuedAt: new Date().toISOString(),
+    issuedBy: "0x1111111111111111111111111111111111111111"
+  });
+  await stateStore.upsertCapabilityGrant({
+    id: "grant-other",
+    subject,
+    status: "active",
+    capabilities: ["policies:propose"],
+    issuedAt: new Date().toISOString(),
+    issuedBy: "0x1111111111111111111111111111111111111111"
+  });
+  const authConfig = {
+    secrets: [LONG_SECRET],
+    signingSecret: LONG_SECRET,
+    permissive: false,
+    strict: true
+  };
+  const middleware = createAuthMiddleware({ authConfig, stateStore, logger: silentLogger() });
+  const { token } = signToken({
+    sub: subject,
+    roles: [],
+    tokenKind: "service",
+    serviceToken: true,
+    capabilityGrantId: "grant-service"
+  }, {
+    secret: LONG_SECRET,
+    expiresInSeconds: 60
+  });
+  const request = { method: "POST", headers: { authorization: `Bearer ${token}` } };
+
+  const lifecycle = await middleware(request, new URL("http://localhost/admin/jobs/lifecycle"));
+  assert.deepEqual(lifecycle.claims.roles, []);
+  assert.ok(lifecycle.capabilities.includes("jobs:lifecycle"));
+  assert.equal(lifecycle.capabilities.includes("account:read"), false);
+  assert.equal(lifecycle.capabilities.includes("policies:propose"), false);
+
+  await assert.rejects(
+    () => middleware({ method: "GET", headers: request.headers }, new URL("http://localhost/account")),
+    (error) => {
+      assert.ok(error instanceof AuthorizationError);
+      assert.equal(error.code, "missing_capability");
+      assert.deepEqual(error.details.missingCapabilities, ["account:read"]);
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => middleware({ method: "POST", headers: request.headers }, new URL("http://localhost/policies")),
+    (error) => {
+      assert.ok(error instanceof AuthorizationError);
+      assert.equal(error.code, "missing_capability");
+      assert.deepEqual(error.details.missingCapabilities, ["policies:propose"]);
+      return true;
+    }
+  );
+
+  await stateStore.upsertCapabilityGrant({
+    id: "grant-service",
+    subject,
+    status: "revoked",
+    capabilities: ["jobs:lifecycle"],
+    issuedAt: new Date().toISOString(),
+    revokedAt: new Date().toISOString(),
+    issuedBy: "0x1111111111111111111111111111111111111111"
+  });
+  await assert.rejects(
+    () => middleware(request, new URL("http://localhost/admin/jobs/lifecycle")),
+    (error) => error instanceof AuthorizationError && error.code === "missing_capability"
+  );
+});

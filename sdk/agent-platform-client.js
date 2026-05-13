@@ -365,6 +365,36 @@ export class AgentPlatformClient {
     return this.request("/admin/status");
   }
 
+  async listServiceTokens({ subject = undefined, status = undefined, limit = undefined, offset = undefined } = {}) {
+    const params = new URLSearchParams();
+    if (subject) params.set("subject", subject);
+    if (status) params.set("status", status);
+    if (limit !== undefined) params.set("limit", String(limit));
+    if (offset !== undefined) params.set("offset", String(offset));
+    return this.request(`/admin/service-tokens${params.size ? `?${params.toString()}` : ""}`);
+  }
+
+  async issueServiceToken(payload) {
+    return this.request("/admin/service-tokens", {
+      method: "POST",
+      body: payload
+    });
+  }
+
+  async rotateServiceToken(grantId, payload = {}) {
+    return this.request(`/admin/service-tokens/${encodeURIComponent(grantId)}/rotate`, {
+      method: "POST",
+      body: payload
+    });
+  }
+
+  async revokeServiceToken(grantId, { note = undefined, idempotencyKey = undefined } = {}) {
+    return this.request(`/admin/service-tokens/${encodeURIComponent(grantId)}/revoke`, {
+      method: "POST",
+      body: compact({ note, idempotencyKey })
+    });
+  }
+
   async request(path, { method = "GET", body = undefined, headers = {} } = {}) {
     const requestHeaders = new Headers(headers);
     requestHeaders.set("accept", "application/json");

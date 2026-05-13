@@ -100,6 +100,10 @@ const ROUTE_CAPABILITY_RULES = [
   { method: "GET", path: "/admin/capability-grants", capabilities: ["admin:capabilities:read"] },
   { method: "POST", path: "/admin/capability-grants", capabilities: ["admin:capabilities:grant"] },
   { method: "POST", path: "/admin/capability-grants/:id/revoke", capabilities: ["admin:capabilities:revoke"] },
+  { method: "GET", path: "/admin/service-tokens", capabilities: ["admin:capabilities:read"] },
+  { method: "POST", path: "/admin/service-tokens", capabilities: ["admin:capabilities:grant"] },
+  { method: "POST", path: "/admin/service-tokens/:id/rotate", capabilities: ["admin:capabilities:grant", "admin:capabilities:revoke"] },
+  { method: "POST", path: "/admin/service-tokens/:id/revoke", capabilities: ["admin:capabilities:revoke"] },
   { method: "POST", path: "/admin/xcm/observe", capabilities: ["xcm:observe"] },
   { method: "POST", path: "/admin/xcm/finalize", capabilities: ["xcm:finalize"] },
   { method: "POST", path: "/verifier/replay", capabilities: ["verifier:replay"] },
@@ -119,6 +123,9 @@ const UI_CONTROLS = {
   "admin.capabilities.view": ["admin:capabilities:read"],
   "admin.capabilities.grant": ["admin:capabilities:grant"],
   "admin.capabilities.revoke": ["admin:capabilities:revoke"],
+  "admin.serviceTokens.issue": ["admin:capabilities:grant"],
+  "admin.serviceTokens.rotate": ["admin:capabilities:grant", "admin:capabilities:revoke"],
+  "admin.serviceTokens.revoke": ["admin:capabilities:revoke"],
   "policies.propose": ["policies:propose"],
   "verifier.run": ["verifier:run"],
   "xcm.observe": ["xcm:observe"],
@@ -138,7 +145,10 @@ const AUTOMATION_ACTIONS = {
   "xcm.observe": ["xcm:observe"],
   "xcm.finalize": ["xcm:finalize"],
   "capability.grant": ["admin:capabilities:grant"],
-  "capability.revoke": ["admin:capabilities:revoke"]
+  "capability.revoke": ["admin:capabilities:revoke"],
+  "serviceToken.issue": ["admin:capabilities:grant"],
+  "serviceToken.rotate": ["admin:capabilities:grant", "admin:capabilities:revoke"],
+  "serviceToken.revoke": ["admin:capabilities:revoke"]
 };
 
 /**
@@ -159,17 +169,20 @@ export function listAllKnownCapabilities() {
 }
 
 export function resolveCapabilities(claims = {}) {
-  const capabilities = new Set(BASE_CAPABILITIES);
-  const roles = Array.isArray(claims.roles) ? claims.roles : [];
+  const serviceToken = claims?.serviceToken === true || claims?.tokenKind === "service";
+  const capabilities = new Set(serviceToken ? [] : BASE_CAPABILITIES);
+  const roles = serviceToken ? [] : Array.isArray(claims.roles) ? claims.roles : [];
   for (const role of roles) {
     for (const capability of ROLE_CAPABILITIES[role] ?? []) {
       capabilities.add(capability);
     }
   }
-  const explicitCapabilities = [
-    ...(Array.isArray(claims.capabilities) ? claims.capabilities : []),
-    ...(Array.isArray(claims.scopes) ? claims.scopes : [])
-  ];
+  const explicitCapabilities = serviceToken
+    ? []
+    : [
+        ...(Array.isArray(claims.capabilities) ? claims.capabilities : []),
+        ...(Array.isArray(claims.scopes) ? claims.scopes : [])
+      ];
   for (const capability of explicitCapabilities) {
     if (typeof capability === "string" && capability.trim()) {
       capabilities.add(capability.trim());

@@ -1258,6 +1258,111 @@ test("http smoke: capability revoke idempotency replays and rejects payload drif
   });
 });
 
+test("http smoke: service token issue/rotate/revoke is grant-backed and one-time-secret", { skip: !RUN }, async () => {
+  await runWithServer(async (base) => {
+    const adminToken = issueToken(ADMIN_WALLET, { roles: ["admin"] });
+    const adminHeaders = { "content-type": "application/json", authorization: `Bearer ${adminToken}` };
+    const issuePayload = {
+      subject: STRANGER_WALLET,
+      capabilities: ["jobs:lifecycle"],
+      scope: "external-agent-smoke",
+      issuedAt: "2026-05-01T00:00:00.000Z",
+      nonce: "service-token-issue-smoke",
+      tokenTtlSeconds: 600,
+      idempotencyKey: "service-token-issue-key"
+    };
+
+    const issue = await fetch(`${base}/admin/service-tokens`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify(issuePayload)
+    });
+    assert.equal(issue.status, 201);
+    const issued = await issue.json();
+    assert.equal(typeof issued.token, "string");
+    assert.equal(issued.tokenKind, "service");
+    assert.equal(issued.wallet, STRANGER_WALLET.toLowerCase());
+    assert.deepEqual(issued.capabilities, ["jobs:lifecycle"]);
+
+    const replay = await fetch(`${base}/admin/service-tokens`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify(issuePayload)
+    });
+    assert.equal(replay.status, 200);
+    const replayed = await replay.json();
+    assert.equal(replayed.token, undefined);
+    assert.equal(replayed.tokenAvailable, false);
+    assert.equal(replayed.tokenOmittedReason, "service_token_secret_is_returned_once");
+    assert.equal(replayed.grant.id, issued.grant.id);
+
+    const session = await fetch(`${base}/auth/session`, {
+      headers: { authorization: `Bearer ${issued.token}` }
+    });
+    assert.equal(session.status, 200);
+    const serviceSession = await session.json();
+    assert.equal(serviceSession.tokenKind, "service");
+    assert.equal(serviceSession.serviceToken, true);
+    assert.equal(serviceSession.capabilityGrantId, issued.grant.id);
+    assert.deepEqual(serviceSession.capabilities, ["jobs:lifecycle"]);
+
+    const noBase = await fetch(`${base}/account`, {
+      headers: { authorization: `Bearer ${issued.token}` }
+    });
+    assert.equal(noBase.status, 403);
+
+    const rotate = await fetch(`${base}/admin/service-tokens/${issued.grant.id}/rotate`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        issuedAt: "2026-05-01T00:01:00.000Z",
+        nonce: "service-token-rotate-smoke",
+        tokenTtlSeconds: 600,
+        idempotencyKey: "service-token-rotate-key"
+      })
+    });
+    assert.equal(rotate.status, 201);
+    const rotated = await rotate.json();
+    assert.equal(typeof rotated.token, "string");
+    assert.notEqual(rotated.grant.id, issued.grant.id);
+    assert.equal(rotated.rotatedFrom.id, issued.grant.id);
+    assert.equal(rotated.rotatedFrom.status, "revoked");
+
+    const oldToken = await fetch(`${base}/admin/jobs/lifecycle`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${issued.token}` },
+      body: JSON.stringify({ jobId: "missing", action: "pause" })
+    });
+    assert.equal(oldToken.status, 403);
+
+    const newToken = await fetch(`${base}/auth/session`, {
+      headers: { authorization: `Bearer ${rotated.token}` }
+    });
+    assert.equal(newToken.status, 200);
+    assert.deepEqual((await newToken.json()).capabilities, ["jobs:lifecycle"]);
+
+    const revoke = await fetch(`${base}/admin/service-tokens/${rotated.grant.id}/revoke`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        note: "smoke complete",
+        idempotencyKey: "service-token-revoke-key"
+      })
+    });
+    assert.equal(revoke.status, 200);
+    const revoked = await revoke.json();
+    assert.equal(revoked.status, "revoked");
+    assert.equal(revoked.grant.status, "revoked");
+
+    const revokedToken = await fetch(`${base}/admin/jobs/lifecycle`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${rotated.token}` },
+      body: JSON.stringify({ jobId: "missing", action: "pause" })
+    });
+    assert.equal(revokedToken.status, 403);
+  });
+});
+
 test("http smoke: admin recurring fire idempotency replays and rejects firedAt drift", { skip: !RUN }, async () => {
   await runWithServer(async (base) => {
     const adminToken = issueToken(ADMIN_WALLET, { roles: ["admin"] });
