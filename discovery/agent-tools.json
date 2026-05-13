@@ -99,6 +99,29 @@
           "Native Substrate sign-in is not yet accepted by protected HTTP routes.",
           "Agents should inspect walletModes before choosing an account type."
         ]
+      },
+      {
+        "id": "service-token",
+        "status": "supported_operator_issued",
+        "addressFormat": "0x-prefixed 20-byte service subject address",
+        "supportedWallets": [
+          "operator-issued JWT"
+        ],
+        "authScheme": "SERVICE_TOKEN_JWT",
+        "setup": {
+          "accountGuidance": "Ask an operator to issue a grant-backed token through /admin/service-tokens for the exact capabilities required.",
+          "secretHandling": "The raw service token is returned once. Store it in a secret manager and rotate through /admin/service-tokens/:id/rotate.",
+          "revocationGuidance": "Revoking the bound capability grant removes the token's route capabilities without changing the wallet's normal SIWE session."
+        },
+        "readinessChecks": [
+          "scoped-service-token",
+          "preflight-job"
+        ],
+        "notes": [
+          "Service tokens do not inherit wallet base capabilities.",
+          "A service token is bound to one capabilityGrantId and does not inherit other grants on the same subject wallet.",
+          "Use this mode for external agents that should not receive an admin or full wallet JWT."
+        ]
       }
     ],
     "actionRequirements": [
@@ -270,6 +293,19 @@
           "/jobs/submit",
           "/account",
           "/sessions"
+        ]
+      },
+      {
+        "id": "scoped-service-token",
+        "description": "Operators can issue /admin/service-tokens for external agents that should receive only the grant-backed capabilities they need.",
+        "authScheme": "SERVICE_TOKEN_JWT",
+        "walletModes": [
+          "service-token"
+        ],
+        "blockingFor": [
+          "/jobs/claim",
+          "/jobs/submit",
+          "/jobs/preflight"
         ]
       },
       {
@@ -445,6 +481,18 @@
     {
       "path": "/admin/jobs/ingest/wikipedia",
       "description": "Admin-gated Wikipedia maintenance ingestion preview/create endpoint."
+    },
+    {
+      "path": "/admin/service-tokens",
+      "description": "Admin-gated issue/list surface for grant-backed scoped service tokens."
+    },
+    {
+      "path": "/admin/service-tokens/:id/rotate",
+      "description": "Admin-gated rotate flow: revoke old grant and return one new service-token secret."
+    },
+    {
+      "path": "/admin/service-tokens/:id/revoke",
+      "description": "Admin-gated revoke flow for a grant-backed service token."
     },
     {
       "path": "/content/:hash",

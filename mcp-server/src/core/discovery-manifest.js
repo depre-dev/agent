@@ -48,6 +48,9 @@ const DISCOVERY_AUTHENTICATED_ENDPOINTS = [
   { path: "/admin/jobs/ingest/open-data", description: "Admin-gated Data.gov open-data quality audit ingestion preview/create endpoint." },
   { path: "/admin/jobs/ingest/osv", description: "Admin-gated OSV npm advisory ingestion preview/create endpoint." },
   { path: "/admin/jobs/ingest/wikipedia", description: "Admin-gated Wikipedia maintenance ingestion preview/create endpoint." },
+  { path: "/admin/service-tokens", description: "Admin-gated issue/list surface for grant-backed scoped service tokens." },
+  { path: "/admin/service-tokens/:id/rotate", description: "Admin-gated rotate flow: revoke old grant and return one new service-token secret." },
+  { path: "/admin/service-tokens/:id/revoke", description: "Admin-gated revoke flow for a grant-backed service token." },
   { path: "/content/:hash", description: "Hash-addressed content blob with read-time disclosure visibility." },
   { path: "/content/:hash/publish", description: "Owner/admin one-way early publish for private hash-addressed content." },
   { path: "/disputes", description: "Operator dispute queue derived from sessions requiring human review." },
@@ -83,6 +86,13 @@ const WALLET_READINESS_CHECKS = [
     authScheme: "SIWE_JWT",
     walletModes: ["evm-siwe"],
     blockingFor: ["/jobs/claim", "/jobs/submit", "/account", "/sessions"]
+  },
+  {
+    id: "scoped-service-token",
+    description: "Operators can issue /admin/service-tokens for external agents that should receive only the grant-backed capabilities they need.",
+    authScheme: "SERVICE_TOKEN_JWT",
+    walletModes: ["service-token"],
+    blockingFor: ["/jobs/claim", "/jobs/submit", "/jobs/preflight"]
   },
   {
     id: "wallet-funded",
@@ -158,6 +168,27 @@ const WALLET_MODES = [
     notes: [
       "Native Substrate sign-in is not yet accepted by protected HTTP routes.",
       "Agents should inspect walletModes before choosing an account type."
+    ]
+  },
+  {
+    id: "service-token",
+    status: "supported_operator_issued",
+    addressFormat: "0x-prefixed 20-byte service subject address",
+    supportedWallets: ["operator-issued JWT"],
+    authScheme: "SERVICE_TOKEN_JWT",
+    setup: {
+      accountGuidance:
+        "Ask an operator to issue a grant-backed token through /admin/service-tokens for the exact capabilities required.",
+      secretHandling:
+        "The raw service token is returned once. Store it in a secret manager and rotate through /admin/service-tokens/:id/rotate.",
+      revocationGuidance:
+        "Revoking the bound capability grant removes the token's route capabilities without changing the wallet's normal SIWE session."
+    },
+    readinessChecks: ["scoped-service-token", "preflight-job"],
+    notes: [
+      "Service tokens do not inherit wallet base capabilities.",
+      "A service token is bound to one capabilityGrantId and does not inherit other grants on the same subject wallet.",
+      "Use this mode for external agents that should not receive an admin or full wallet JWT."
     ]
   }
 ];

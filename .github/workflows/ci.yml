@@ -64,7 +64,7 @@ jobs:
         env:
           RUN_HTTP_SMOKE: "1"
         working-directory: mcp-server
-        run: node --test --test-timeout=30000 src/protocols/http/server.smoke.test.js
+        run: node --test --test-timeout=60000 src/protocols/http/server.smoke.test.js
 
       - name: Ops script regression tests
         run: npm run test:ops

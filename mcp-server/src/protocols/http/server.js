@@ -91,6 +91,7 @@ const METRICS_BEARER_TOKEN = process.env.METRICS_BEARER_TOKEN?.trim() || undefin
 const port = Number(process.env.PORT ?? 8787);
 
 const SIWE_STATEMENT = "Sign in to the Agent Platform.";
+const SERVICE_TOKEN_MAX_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 function respond(response, statusCode, payload, extraHeaders = {}) {
   const headers = {
@@ -1433,6 +1434,93 @@ function assertIssuerCanGrantCapabilities(grant, auth) {
   }
 }
 
+function normalizeServiceTokenTtlSeconds(payload, grant) {
+  const requested = payload?.tokenTtlSeconds === undefined || payload?.tokenTtlSeconds === null
+    ? authConfig.tokenTtlSeconds
+    : Number(payload.tokenTtlSeconds);
+  if (!Number.isInteger(requested) || requested <= 0) {
+    throw new ValidationError("tokenTtlSeconds must be a positive integer.");
+  }
+  let ttlSeconds = Math.min(requested, SERVICE_TOKEN_MAX_TTL_SECONDS);
+  if (grant?.expiresAt) {
+    const remaining = Math.floor((Date.parse(grant.expiresAt) - Date.now()) / 1000);
+    if (remaining <= 0) {
+      throw new ValidationError("Cannot issue a service token for an expired grant.", {
+        grantId: grant.id,
+        expiresAt: grant.expiresAt
+      });
+    }
+    ttlSeconds = Math.min(ttlSeconds, remaining);
+  }
+  return Math.max(1, ttlSeconds);
+}
+
+function signServiceToken(grant, payload = {}) {
+  if (!authConfig.signingSecret) {
+    throw new AuthenticationError(
+      "Auth not configured — set AUTH_JWT_SECRETS to issue service tokens.",
+      "auth_not_configured"
+    );
+  }
+  const ttlSeconds = normalizeServiceTokenTtlSeconds(payload, grant);
+  return signToken(
+    {
+      sub: grant.subject,
+      roles: [],
+      tokenKind: "service",
+      serviceToken: true,
+      capabilityGrantId: grant.id,
+      ...(grant.scope ? { serviceScope: grant.scope } : {})
+    },
+    { secret: authConfig.signingSecret, expiresInSeconds: ttlSeconds }
+  );
+}
+
+function serviceTokenIssueResponse({ grant, token, claims, rotatedFrom = undefined }) {
+  return {
+    token,
+    tokenType: "Bearer",
+    tokenKind: "service",
+    tokenAvailable: true,
+    wallet: grant.subject,
+    capabilities: [...grant.capabilities],
+    expiresAt: new Date(claims.exp * 1000).toISOString(),
+    grant: projectGrant(grant),
+    ...(rotatedFrom ? { rotatedFrom: projectGrant(rotatedFrom) } : {}),
+    usage: {
+      header: "Authorization: Bearer <token>"
+    }
+  };
+}
+
+function serviceTokenReplayResponse(payload) {
+  if (!payload || typeof payload !== "object") {
+    return payload;
+  }
+  const { token, ...rest } = payload;
+  void token;
+  return {
+    ...rest,
+    tokenAvailable: false,
+    tokenOmittedReason: "service_token_secret_is_returned_once"
+  };
+}
+
+async function revokeCapabilityGrantRecord({ grantId, auth, note }) {
+  const current = await stateStore.getCapabilityGrant?.(grantId);
+  if (!current) {
+    throw new ValidationError("Unknown grant id.", { grantId });
+  }
+  const { record, alreadyRevoked } = applyRevocation(current, {
+    revokedBy: auth.wallet,
+    revokeNote: note
+  });
+  if (!alreadyRevoked) {
+    await stateStore.upsertCapabilityGrant?.(record);
+  }
+  return { current, record, alreadyRevoked };
+}
+
 function buildLaneAttention({ shares, isMock, debtTotal, borrowCapacity, deploymentShareBps }) {
   if (!(shares > 0)) {
     return undefined;
@@ -2342,6 +2430,9 @@ const server = createServer(async (request, response) => {
       return respond(response, 200, {
         wallet: auth.wallet,
         roles: auth.claims?.roles ?? [],
+        tokenKind: auth.claims?.tokenKind ?? (auth.claims?.serviceToken === true ? "service" : "wallet"),
+        serviceToken: auth.claims?.serviceToken === true,
+        ...(auth.claims?.capabilityGrantId ? { capabilityGrantId: auth.claims.capabilityGrantId } : {}),
         capabilities: auth.capabilities ?? [],
         capabilityMatrix: authCapabilities.capabilityMatrix()
       });
@@ -3372,6 +3463,212 @@ const server = createServer(async (request, response) => {
         }
       });
       return respond(response, 201, projection);
+    }
+
+    if (request.method === "GET" && pathname === "/admin/service-tokens") {
+      await authMiddleware(request, url, { requireRole: "admin" });
+      const subject = (url.searchParams.get("subject") ?? "").trim().toLowerCase() || undefined;
+      const status = (url.searchParams.get("status") ?? "").trim().toLowerCase() || undefined;
+      const limit = parseLimit(url, 50, 200);
+      const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0);
+      const grants = (await stateStore.listCapabilityGrants?.({ subject, status, limit, offset })) ?? [];
+      return respond(response, 200, {
+        items: grants.map((grant) => ({
+          tokenKind: "service",
+          tokenAvailable: false,
+          grant: projectGrant(grant)
+        })).filter((entry) => entry.grant),
+        limit,
+        offset
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/admin/service-tokens") {
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const payload = await readJsonBody(request);
+      const idempotencyKey = parseIdempotencyKey(payload);
+      const mutationKey = idempotencyKey ? `${auth.wallet}:${idempotencyKey}` : undefined;
+      const requestHash = buildMutationRequestHash({
+        route: "/admin/service-tokens",
+        wallet: auth.wallet,
+        payload
+      });
+      const replay = await getIdempotentMutationReplay({
+        bucket: "service_token_issue",
+        key: mutationKey,
+        requestHash
+      });
+      if (replay) {
+        return respond(response, replay.statusCode, replay.body);
+      }
+      const grant = buildCapabilityGrant(payload ?? {}, {
+        knownCapabilities: listAllKnownCapabilities(),
+        issuerWallet: auth.wallet
+      });
+      assertIssuerCanGrantCapabilities(grant, auth);
+      await stateStore.upsertCapabilityGrant?.(grant);
+      const { token, claims } = signServiceToken(grant, payload);
+      const body = serviceTokenIssueResponse({ grant, token, claims });
+      await storeIdempotentMutationReceipt({
+        bucket: "service_token_issue",
+        key: mutationKey,
+        requestHash,
+        response: serviceTokenReplayResponse(body),
+        statusCode: 201
+      });
+      eventBus?.publish({
+        id: `service-token-issue-${grant.id}-${Date.now()}`,
+        topic: "service-token.issue",
+        wallet: auth.wallet,
+        wallets: [auth.wallet, grant.subject],
+        timestamp: new Date().toISOString(),
+        data: {
+          grantId: grant.id,
+          subject: grant.subject,
+          capabilities: grant.capabilities,
+          scope: grant.scope ?? null,
+          tokenExpiresAt: body.expiresAt
+        }
+      });
+      return respond(response, 201, body);
+    }
+
+    if (request.method === "POST" && pathname.startsWith("/admin/service-tokens/") && pathname.endsWith("/rotate")) {
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const grantId = decodeURIComponent(pathname.slice("/admin/service-tokens/".length, -"/rotate".length));
+      if (!grantId) {
+        throw new ValidationError("grantId is required.");
+      }
+      const payload = await readJsonBody(request);
+      const idempotencyKey = parseIdempotencyKey(payload);
+      const mutationKey = idempotencyKey ? `${auth.wallet}:${grantId}:${idempotencyKey}` : undefined;
+      const requestHash = buildMutationRequestHash({
+        route: "/admin/service-tokens/:id/rotate",
+        wallet: auth.wallet,
+        payload: { grantId, ...payload }
+      });
+      const replay = await getIdempotentMutationReplay({
+        bucket: "service_token_rotate",
+        key: mutationKey,
+        requestHash
+      });
+      if (replay) {
+        return respond(response, replay.statusCode, replay.body);
+      }
+      const current = await stateStore.getCapabilityGrant?.(grantId);
+      if (!current) {
+        throw new ValidationError("Unknown grant id.", { grantId });
+      }
+      if (current.status !== GRANT_STATUS.active) {
+        throw new ConflictError("Cannot rotate a revoked service token grant.", "service_token_grant_revoked", {
+          grantId
+        });
+      }
+      const nextGrant = buildCapabilityGrant({
+        subject: current.subject,
+        capabilities: payload?.capabilities ?? current.capabilities,
+        scope: payload?.scope ?? current.scope,
+        note: payload?.note ?? current.note,
+        expiresAt: payload?.expiresAt ?? current.expiresAt,
+        issuedAt: payload?.issuedAt,
+        nonce: payload?.nonce
+      }, {
+        knownCapabilities: listAllKnownCapabilities(),
+        issuerWallet: auth.wallet
+      });
+      assertIssuerCanGrantCapabilities(nextGrant, auth);
+      const { record: revoked } = await revokeCapabilityGrantRecord({
+        grantId,
+        auth,
+        note: payload?.revokeNote ?? "rotated service token"
+      });
+      await stateStore.upsertCapabilityGrant?.(nextGrant);
+      const { token, claims } = signServiceToken(nextGrant, payload);
+      const body = serviceTokenIssueResponse({ grant: nextGrant, token, claims, rotatedFrom: revoked });
+      await storeIdempotentMutationReceipt({
+        bucket: "service_token_rotate",
+        key: mutationKey,
+        requestHash,
+        response: serviceTokenReplayResponse(body),
+        statusCode: 201
+      });
+      eventBus?.publish({
+        id: `service-token-rotate-${nextGrant.id}-${Date.now()}`,
+        topic: "service-token.rotate",
+        wallet: auth.wallet,
+        wallets: [auth.wallet, nextGrant.subject],
+        timestamp: new Date().toISOString(),
+        data: {
+          previousGrantId: grantId,
+          grantId: nextGrant.id,
+          subject: nextGrant.subject,
+          capabilities: nextGrant.capabilities,
+          scope: nextGrant.scope ?? null,
+          tokenExpiresAt: body.expiresAt
+        }
+      });
+      return respond(response, 201, body);
+    }
+
+    if (request.method === "POST" && pathname.startsWith("/admin/service-tokens/") && pathname.endsWith("/revoke")) {
+      const auth = await authMiddleware(request, url, { requireRole: "admin" });
+      await enforceLimit("admin_jobs", auth.wallet, rateLimitConfig.adminJobs);
+      const grantId = decodeURIComponent(pathname.slice("/admin/service-tokens/".length, -"/revoke".length));
+      if (!grantId) {
+        throw new ValidationError("grantId is required.");
+      }
+      const payload = (await readJsonBody(request).catch(() => undefined)) ?? {};
+      const idempotencyKey = parseIdempotencyKey(payload);
+      const mutationKey = idempotencyKey ? `${auth.wallet}:${grantId}:${idempotencyKey}` : undefined;
+      const requestHash = buildMutationRequestHash({
+        route: "/admin/service-tokens/:id/revoke",
+        wallet: auth.wallet,
+        payload: { grantId, ...payload }
+      });
+      const replay = await getIdempotentMutationReplay({
+        bucket: "service_token_revoke",
+        key: mutationKey,
+        requestHash
+      });
+      if (replay) {
+        return respond(response, replay.statusCode, replay.body);
+      }
+      const { record, alreadyRevoked } = await revokeCapabilityGrantRecord({
+        grantId,
+        auth,
+        note: payload?.note
+      });
+      const body = {
+        tokenKind: "service",
+        tokenAvailable: false,
+        status: "revoked",
+        alreadyRevoked,
+        grant: projectGrant(record)
+      };
+      await storeIdempotentMutationReceipt({
+        bucket: "service_token_revoke",
+        key: mutationKey,
+        requestHash,
+        response: body,
+        statusCode: 200
+      });
+      if (!alreadyRevoked) {
+        eventBus?.publish({
+          id: `service-token-revoke-${record.id}-${Date.now()}`,
+          topic: "service-token.revoke",
+          wallet: auth.wallet,
+          wallets: [auth.wallet, record.subject],
+          timestamp: new Date().toISOString(),
+          data: {
+            grantId: record.id,
+            subject: record.subject,
+            revokedBy: record.revokedBy ?? auth.wallet
+          }
+        });
+      }
+      return respond(response, 200, body);
     }
 
     if (request.method === "POST" && pathname.startsWith("/admin/capability-grants/") && pathname.endsWith("/revoke")) {
