@@ -148,3 +148,12 @@ jobs:
 
       - name: Structural lint
         run: node scripts/ops/check-env-template-structure.mjs
+
+      # Phase 2 PR 2.6: enforce that deploy/backend.env.template matches
+      # the settlement values derived from deployments/testnet.json. Before
+      # this guard, the runtime configure_settlement_env in
+      # scripts/ops/deploy-production.sh would silently paper over drift
+      # by overwriting /srv/backend.env on every deploy. That function is
+      # retired in PR 2.6 — drift now needs to be caught at CI time.
+      - name: Template matches manifest (settlement values)
+        run: node scripts/ops/check-template-matches-manifest.mjs

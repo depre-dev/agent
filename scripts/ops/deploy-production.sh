@@ -42,12 +42,12 @@ PRODUCT_PROOF_NODE_IMAGE=${PRODUCT_PROOF_NODE_IMAGE:-node:22-bookworm-slim}
 INDEXER_DATABASE_SCHEMA=${INDEXER_DATABASE_SCHEMA:-}
 INDEXER_FRESH_SCHEMA=${INDEXER_FRESH_SCHEMA:-0}
 INDEXER_ENV_FILE=${INDEXER_ENV_FILE:-"$STACK_ROOT/indexer.env"}
-BACKEND_ENV_FILE=${BACKEND_ENV_FILE:-"$STACK_ROOT/backend.env"}
+# BACKEND_ENV_FILE: removed in PR 2.6 — backend env now rendered to
+# /run/agent-stack/backend.env by render_runtime_envs (1Password →
+# op inject → /run); /srv/agent-stack/backend.env is no longer written.
 
 SITE_BUILD_RUNNER=${SITE_BUILD_RUNNER:-auto}
 SITE_NODE_IMAGE=${SITE_NODE_IMAGE:-node:22-bookworm-slim}
-BOOTSTRAP_INSTRUMENTATION_ENV_UPDATED=0
-SETTLEMENT_ENV_UPDATED=0
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -135,158 +135,33 @@ initialize_component_state() {
   done
 }
 
-quote_env_value() {
-  local value="$1"
-  value=${value//$'\n'/}
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  printf '"%s"' "$value"
-}
-
-upsert_env_values() {
-  local env_file="$1"
-  shift
-  mkdir -p "$(dirname "$env_file")"
-  touch "$env_file"
-
-  local key_pattern=""
-  local pair key
-  for pair in "$@"; do
-    key="${pair%%=*}"
-    if [[ -z "$key_pattern" ]]; then
-      key_pattern="$key"
-    else
-      key_pattern="$key_pattern|$key"
-    fi
-  done
-
-  local tmp="${env_file}.tmp.$$"
-  grep -Ev "^(${key_pattern})=" "$env_file" > "$tmp" || true
-  for pair in "$@"; do
-    key="${pair%%=*}"
-    printf '%s=%s\n' "$key" "$(quote_env_value "${pair#*=}")" >> "$tmp"
-  done
-  mv "$tmp" "$env_file"
-}
-
-upsert_env_values_if_changed() {
-  local env_file="$1"
-  shift
-  mkdir -p "$(dirname "$env_file")"
-  touch "$env_file"
-
-  local key_pattern=""
-  local pair key
-  for pair in "$@"; do
-    key="${pair%%=*}"
-    if [[ -z "$key_pattern" ]]; then
-      key_pattern="$key"
-    else
-      key_pattern="$key_pattern|$key"
-    fi
-  done
-
-  local tmp="${env_file}.tmp.$$"
-  grep -Ev "^(${key_pattern})=" "$env_file" > "$tmp" || true
-  for pair in "$@"; do
-    key="${pair%%=*}"
-    printf '%s=%s\n' "$key" "$(quote_env_value "${pair#*=}")" >> "$tmp"
-  done
-
-  if cmp -s "$tmp" "$env_file"; then
-    rm -f "$tmp"
-    return 1
-  fi
-
-  mv "$tmp" "$env_file"
-  return 0
-}
-
-configure_settlement_env() {
-  local manifest="$APP_ROOT/deployments/testnet.json"
-  if [[ ! -f "$manifest" ]]; then
-    echo "No testnet deployment manifest found; leaving backend.env settlement settings unchanged."
-    return
-  fi
-
-  local derive_script="$APP_ROOT/scripts/ops/derive-settlement-env.mjs"
-  local generated
-  if command -v node >/dev/null 2>&1; then
-    generated=$(node "$derive_script" "$manifest")
-  else
-    local relative_manifest="${manifest#$APP_ROOT/}"
-    local relative_script="${derive_script#$APP_ROOT/}"
-    generated=$(docker run --rm \
-      -v "$APP_ROOT:/workspace" \
-      -w /workspace \
-      "$PRODUCT_PROOF_NODE_IMAGE" \
-      node "$relative_script" "$relative_manifest")
-  fi
-
-  if [[ -z "$generated" ]]; then
-    echo "Failed to derive settlement env from $manifest." >&2
-    exit 1
-  fi
-
-  local pairs=()
-  local line
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    pairs+=("$line")
-  done <<< "$generated"
-
-  if [[ "${#pairs[@]}" -eq 0 ]]; then
-    echo "Settlement env derivation returned no values." >&2
-    exit 1
-  fi
-
-  echo "Ensuring backend settlement settings in $BACKEND_ENV_FILE match $manifest"
-  if upsert_env_values_if_changed "$BACKEND_ENV_FILE" "${pairs[@]}"; then
-    SETTLEMENT_ENV_UPDATED=1
-  fi
-}
-
-configure_bootstrap_instrumentation_env() {
-  if [[ -z "${RESEND_API_KEY:-}" || -z "${BOOTSTRAP_SELF_REPORT_TO:-}" ]]; then
-    echo "Bootstrap self-report secrets are incomplete; leaving backend.env instrumentation settings unchanged."
-    return
-  fi
-
-  local send_on_start="false"
-  case "${BOOTSTRAP_SELF_REPORT_SEND_ON_START:-0}" in
-    1|true|yes) send_on_start="true" ;;
-    0|false|no|"") send_on_start="false" ;;
-    *)
-      echo "Invalid BOOTSTRAP_SELF_REPORT_SEND_ON_START toggle: $BOOTSTRAP_SELF_REPORT_SEND_ON_START" >&2
-      exit 1
-      ;;
-  esac
-
-  echo "Writing bootstrap instrumentation settings to $BACKEND_ENV_FILE"
-  upsert_env_values "$BACKEND_ENV_FILE" \
-    "UPSTREAM_STATUS_POLLER_ENABLED=true" \
-    "UPSTREAM_STATUS_POLLER_INTERVAL_MS=86400000" \
-    "UPSTREAM_STATUS_POLLER_BATCH_SIZE=50" \
-    "BOOTSTRAP_SELF_REPORT_ENABLED=true" \
-    "BOOTSTRAP_SELF_REPORT_INTERVAL_MS=604800000" \
-    "BOOTSTRAP_SELF_REPORT_SEND_ON_START=$send_on_start" \
-    "BOOTSTRAP_SELF_REPORT_FROM=${BOOTSTRAP_SELF_REPORT_FROM:-ops@averray.com}" \
-    "BOOTSTRAP_SELF_REPORT_TO=$BOOTSTRAP_SELF_REPORT_TO" \
-    "BOOTSTRAP_SELF_REPORT_SUBJECT_PREFIX=Averray bootstrap self-report" \
-    "RESEND_API_KEY=$RESEND_API_KEY" \
-    "RESEND_API_BASE_URL=https://api.resend.com"
-  BOOTSTRAP_INSTRUMENTATION_ENV_UPDATED=1
-}
-
-backend_env_requires_deploy() {
-  if [[ "$BOOTSTRAP_INSTRUMENTATION_ENV_UPDATED" != "1" && "$SETTLEMENT_ENV_UPDATED" != "1" ]]; then
-    return 1
-  fi
-  case "$RUN_BACKEND" in
-    0|false|no) return 1 ;;
-    *) return 0 ;;
-  esac
-}
+# quote_env_value / upsert_env_values / upsert_env_values_if_changed /
+# configure_settlement_env / configure_bootstrap_instrumentation_env /
+# backend_env_requires_deploy: all retired in Phase 2 PR 2.6.
+#
+# Why: these wrote derived settlement (RPC URLs, contract addresses,
+# SUPPORTED_ASSETS_JSON) and bootstrap instrumentation (RESEND_API_KEY,
+# BOOTSTRAP_SELF_REPORT_*, UPSTREAM_STATUS_POLLER_*) to
+# /srv/agent-stack/backend.env using shell-escape format (`KEY="\""val\""..."`).
+# That format round-trips fine through `set -a; . file; set +a` but
+# breaks docker-compose's env_file: parser, which takes the value
+# literally after stripping surrounding quotes. With PR 2.5's cutover
+# making /run/agent-stack/backend.env the authoritative compose source,
+# the /srv writes were both redundant (the template has the same values
+# byte-for-byte) AND dangerous (a copy-paste from /srv into the template
+# leaked the broken escape format and caused the 19:33Z outage on
+# 2026-05-12 — see PR #249).
+#
+# The template (deploy/backend.env.template) is now the single source
+# of truth for settlement + instrumentation values. CI guards against
+# drift between deployments/testnet.json and the template via
+# scripts/ops/check-template-matches-manifest.mjs.
+#
+# Caller-side change: backend_env_requires_deploy was a redeploy
+# trigger when /srv/backend.env got rewritten. Without those writes,
+# the trigger now is: deploy/backend.env.template or
+# deployments/testnet.json changed since the last good backend deploy.
+# See should_run backend below.
 
 component_changed_matches() {
   local component="$1"
@@ -727,14 +602,20 @@ deploy() {
 
   initialize_component_state
   apply_indexer_database_schema
-  configure_settlement_env
-  configure_bootstrap_instrumentation_env
 
   # Phase 2 PR 2.5: render /run/agent-stack/*.env from 1Password.
   # FAIL-CLOSED — render failure aborts the deploy before containers
   # restart. Compose's env_file: now points at /run, so a stale or
   # missing render would be operationally bad. Parity check against
   # the legacy /srv file is informational only (no longer authoritative).
+  #
+  # Phase 2 PR 2.6: removed configure_settlement_env and
+  # configure_bootstrap_instrumentation_env calls — those wrote to
+  # /srv/backend.env in shell-escape format, which broke
+  # docker-compose's env_file: parser at PR 2.5 cutover. All values
+  # they wrote are now in deploy/backend.env.template (verified
+  # byte-for-byte) and CI enforces drift via
+  # check-template-matches-manifest.mjs.
   render_runtime_envs
 
   local run_backend=0
@@ -743,7 +624,12 @@ deploy() {
   local run_site=0
   local run_caddy=0
 
-  if backend_env_requires_deploy || should_run backend "$RUN_BACKEND" '^(mcp-server/|sdk/|examples/|docs/schemas/|package(-lock)?\.json|scripts/ops/redeploy-backend\.sh)'; then
+  # Phase 2 PR 2.6: the trigger for backend redeploy is now path-based
+  # only — we added deploy/backend.env.template and
+  # deployments/testnet.json to the regex because changes there can
+  # affect rendered /run/backend.env content even without code changes
+  # (the manifest feeds the template via the CI parity guard).
+  if should_run backend "$RUN_BACKEND" '^(mcp-server/|sdk/|examples/|docs/schemas/|package(-lock)?\.json|scripts/ops/redeploy-backend\.sh|deploy/backend\.env\.template|deployments/testnet\.json)'; then
     run_backend=1
     echo "Deploying backend"
     SKIP_GIT_UPDATE=1 PRE_DEPLOY_SHA="$OLD_SHA" "$APP_ROOT/scripts/ops/redeploy-backend.sh"
