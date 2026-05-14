@@ -246,6 +246,7 @@ export async function createPlatformRuntime() {
   const bootstrapSelfReportScheduler = initStep("init-bootstrap-self-report-scheduler", logger, () =>
     new BootstrapSelfReportSchedulerService(upstreamStatusPoller, eventBus, {
       ...loadBootstrapSelfReportSchedulerConfig(process.env),
+      stateStore,
       logger
     })
   );
