@@ -181,6 +181,12 @@ RUN_SUBSCAN_XCM_VALIDATION=1 ./scripts/ops/check-release-readiness.sh testnet
 
 - [ ] One complete worker loop has been run on the hosted stack:
   discover -> sign in -> preflight -> claim -> submit -> verify -> badge/profile
+- [ ] A schema-native job submission has been validated through
+  `/jobs/validate-submission` and submitted as direct `payload.submission`
+  evidence, with no `submission.output` wrapper.
+- [ ] The phase-0 dispute verdict path has been exercised on the hosted stack
+  with the configured arbitrator/gateway and a recorded on-chain tx state from
+  `POST /disputes/:id/verdict`.
 - [ ] Public discovery, schema, and trust pages reflect the current deployed behavior.
 - [ ] Canonical public discovery manifest matches the API mirror.
 
