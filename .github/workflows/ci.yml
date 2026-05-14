@@ -155,6 +155,16 @@ jobs:
           node-version: "22"
           cache: npm
 
+      # Phase 4d (PR #287 hotfix): the calendar check below needs
+      # `js-yaml` from node_modules, so we now have to install deps
+      # here. Earlier sibling checks (structural lint, manifest parity,
+      # install-script allowlist) use only Node stdlib and didn't
+      # require an install — that's why this job historically had no
+      # `npm ci`. Cost: ~30s install vs. ~12s before; calendar coverage
+      # is worth it.
+      - name: Install workspace dependencies
+        run: npm ci
+
       - name: Structural lint
         run: node scripts/ops/check-env-template-structure.mjs
 
