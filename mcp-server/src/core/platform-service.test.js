@@ -826,9 +826,14 @@ test("getAdminStatus surfaces public source ingestion scheduler status", async (
         enabled: true,
         running: true,
         intervalMs: 604800000,
+        from: "Averray <ops@example.com>",
+        to: ["pascal@example.com"],
         recipientCount: 1,
         providerConfigured: true,
         nextRunAt: "2026-05-08T00:00:00.000Z",
+        lastAttemptedAt: "2026-05-08T00:00:00.000Z",
+        lastSuccessfulAt: "2026-05-08T00:00:00.000Z",
+        lastFailureReason: undefined,
         lastRun: { status: "sent", email: { providerId: "email_123" } }
       };
     }
@@ -870,6 +875,10 @@ test("getAdminStatus surfaces public source ingestion scheduler status", async (
   assert.equal(status.jobStaleSweeper.mode, "live");
   assert.equal(status.jobStaleSweeper.lastRun.updatedCount, 2);
   assert.equal(status.bootstrapSelfReport.providerConfigured, true);
+  assert.equal(status.bootstrapSelfReport.from, "Averray <ops@example.com>");
+  assert.deepEqual(status.bootstrapSelfReport.to, ["pascal@example.com"]);
+  assert.equal(status.bootstrapSelfReport.lastAttemptedAt, "2026-05-08T00:00:00.000Z");
+  assert.equal(status.bootstrapSelfReport.lastSuccessfulAt, "2026-05-08T00:00:00.000Z");
   assert.equal(status.bootstrapSelfReport.lastRun.email.providerId, "email_123");
 
   // Public sanitized counterpart preserves health / mode / counts but

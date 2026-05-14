@@ -529,7 +529,10 @@ should prioritize live-proof and launch-risk items before adding new product
 surface:
 
 1. complete the hosted worker-loop product-proof evidence gate
-2. close bootstrap self-report scheduled email delivery
+2. close bootstrap self-report scheduled email delivery with the hosted smoke's
+   explicit `bootstrapSelfReport` evidence gate (`lastAttemptedAt`,
+   `lastSuccessfulAt`, exact `from`/`to`, fresh sent provider id, no API-key
+   token leakage)
 3. tighten schema-native jobs for the first-wave job families
 4. finish dispute/arbitration launch wiring
 5. capture the native XCM deposit, withdraw, and failure evidence pack
