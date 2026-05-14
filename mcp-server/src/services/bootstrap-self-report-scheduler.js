@@ -1,5 +1,21 @@
 const DEFAULT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_RESEND_API_BASE_URL = "https://api.resend.com";
+const DEFAULT_STATE_SCOPE = "bootstrap-self-report";
+const FAILURE_MESSAGE_MAX_LENGTH = 240;
+
+// Failure-reason codes are stable strings the operator dashboard / launch
+// checklist greps against — keep them in one place so the test, the projection,
+// and the docs all agree on the spelling.
+export const BOOTSTRAP_SELF_REPORT_FAILURE_CODES = Object.freeze({
+  PROVIDER_NON_2XX: "provider_non_2xx",
+  PROVIDER_REQUEST_FAILED: "provider_request_failed",
+  MISSING_API_KEY: "missing_api_key",
+  MISSING_FROM_ADDRESS: "missing_from_address",
+  MISSING_RECIPIENTS: "missing_recipients",
+  MISSING_REPORT_GENERATOR: "missing_report_generator",
+  DISABLED: "disabled",
+  REPORT_GENERATION_FAILED: "report_generation_failed"
+});
 
 export class BootstrapSelfReportSchedulerService {
   constructor(upstreamStatusPoller, eventBus = undefined, {
@@ -13,7 +29,9 @@ export class BootstrapSelfReportSchedulerService {
     resendApiBaseUrl = DEFAULT_RESEND_API_BASE_URL,
     fetchImpl = fetch,
     emailSender = undefined,
-    logger = console
+    logger = console,
+    stateStore = undefined,
+    stateScope = DEFAULT_STATE_SCOPE
   } = {}) {
     this.upstreamStatusPoller = upstreamStatusPoller;
     this.eventBus = eventBus;
@@ -28,10 +46,20 @@ export class BootstrapSelfReportSchedulerService {
     this.fetchImpl = fetchImpl;
     this.emailSender = emailSender;
     this.logger = logger;
+    this.stateStore = stateStore;
+    this.stateScope = stateScope;
     this.running = false;
     this.timer = undefined;
     this.nextRunAt = undefined;
     this.lastRun = undefined;
+    // In-process mirror of the persisted evidence. Used when stateStore is
+    // absent so getStatus still returns the recent attempt; when stateStore
+    // is provided this is refreshed from persisted state on each read.
+    this.evidence = {
+      lastAttemptedAt: undefined,
+      lastSuccessfulAt: undefined,
+      lastFailureReason: undefined
+    };
   }
 
   start() {
@@ -50,16 +78,29 @@ export class BootstrapSelfReportSchedulerService {
   }
 
   async getStatus() {
-    return {
+    const persisted = await this.readPersistedEvidence();
+    const evidence = persisted ?? this.evidence;
+    const status = {
       enabled: this.enabled,
       running: this.running,
       intervalMs: this.intervalMs,
       sendOnStart: this.sendOnStart,
+      from: this.from || undefined,
+      to: [...this.to],
       recipientCount: this.to.length,
       providerConfigured: Boolean(this.emailSender || (this.resendApiKey && this.from && this.to.length)),
       nextRunAt: this.nextRunAt,
-      lastRun: this.lastRun
+      lastRun: this.lastRun,
+      lastAttemptedAt: evidence.lastAttemptedAt,
+      lastSuccessfulAt: evidence.lastSuccessfulAt,
+      lastFailureReason: evidence.lastFailureReason ?? undefined
     };
+    if (!this.stateStore) {
+      // Operators reading this need to know that a fresh process boot zeroes
+      // the timestamps until the next scheduler tick refreshes them.
+      status.evidencePersistenceNote = "in-process state, resets on restart";
+    }
+    return status;
   }
 
   async runOnce(now = new Date()) {
@@ -75,22 +116,44 @@ export class BootstrapSelfReportSchedulerService {
 
     if (!this.enabled) {
       summary.status = "skipped";
-      summary.skipped.push({ reason: "disabled" });
+      summary.skipped.push({ reason: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.DISABLED });
       return this.finishRun(summary);
     }
     if (!this.upstreamStatusPoller?.generateWeeklyReport) {
       summary.status = "skipped";
-      summary.skipped.push({ reason: "missing_report_generator" });
+      summary.skipped.push({ reason: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.MISSING_REPORT_GENERATOR });
+      await this.recordMisconfiguration(now, {
+        code: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.MISSING_REPORT_GENERATOR,
+        message: "Upstream status poller is missing generateWeeklyReport()"
+      });
       return this.finishRun(summary);
     }
-    if (!this.hasEmailConfig()) {
+    const configCheck = this.describeEmailConfigGap();
+    if (configCheck) {
       summary.status = "skipped";
-      summary.skipped.push({ reason: "missing_email_config" });
+      summary.skipped.push({ reason: configCheck.code });
+      await this.recordMisconfiguration(now, configCheck);
+      return this.finishRun(summary);
+    }
+
+    let report;
+    try {
+      report = await this.upstreamStatusPoller.generateWeeklyReport({ now });
+    } catch (error) {
+      summary.status = "failed";
+      summary.errors.push({ message: truncateMessage(error?.message ?? String(error)) });
+      await this.recordAttempt(now, {
+        success: false,
+        failure: {
+          code: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.REPORT_GENERATION_FAILED,
+          message: truncateMessage(error?.message ?? String(error))
+        }
+      });
+      this.logger.warn?.({ err: error }, "bootstrap_self_report.report_generation_failed");
       return this.finishRun(summary);
     }
 
     try {
-      const report = await this.upstreamStatusPoller.generateWeeklyReport({ now });
       const email = buildBootstrapSelfReportEmail(report, {
         now,
         from: this.from,
@@ -107,6 +170,7 @@ export class BootstrapSelfReportSchedulerService {
         subject: email.subject,
         providerId: sendResult?.id ?? sendResult?.data?.id
       };
+      await this.recordAttempt(now, { success: true });
       this.eventBus?.publish?.({
         id: `bootstrap-self-report-${Date.now()}`,
         topic: "bootstrap.self_report.sent",
@@ -119,7 +183,24 @@ export class BootstrapSelfReportSchedulerService {
       });
     } catch (error) {
       summary.status = "failed";
-      summary.errors.push({ message: error?.message ?? String(error) });
+      // ProviderHttpError carries the provider HTTP status code and a
+      // pre-truncated body excerpt; non-HTTP failures (DNS, TLS, abort) land
+      // here as plain Errors and we tag them as provider_request_failed.
+      const failure = error instanceof ProviderHttpError
+        ? {
+            code: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.PROVIDER_NON_2XX,
+            providerStatus: error.providerStatus,
+            message: error.shortMessage
+          }
+        : {
+            code: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.PROVIDER_REQUEST_FAILED,
+            message: truncateMessage(error?.message ?? String(error))
+          };
+      // Push the sanitized failure message rather than the raw error.message —
+      // ProviderHttpError.message interpolates the raw provider body, which
+      // can echo auth headers / API keys back through /admin/status.
+      summary.errors.push({ message: failure.message });
+      await this.recordAttempt(now, { success: false, failure });
       this.logger.warn?.({ err: error }, "bootstrap_self_report.send_failed");
     }
 
@@ -133,7 +214,33 @@ export class BootstrapSelfReportSchedulerService {
   }
 
   hasEmailConfig() {
-    return Boolean(this.emailSender || (this.resendApiKey && this.from && this.to.length));
+    return this.describeEmailConfigGap() === undefined;
+  }
+
+  // Returns undefined when the email path is fully configured, or a
+  // { code, message } describing the precise misconfiguration. Order matches
+  // the boot sequence an operator would debug top-down.
+  describeEmailConfigGap() {
+    if (this.emailSender) return undefined;
+    if (!this.resendApiKey) {
+      return {
+        code: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.MISSING_API_KEY,
+        message: "RESEND_API_KEY (or BOOTSTRAP_SELF_REPORT_RESEND_API_KEY) is not set"
+      };
+    }
+    if (!this.from) {
+      return {
+        code: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.MISSING_FROM_ADDRESS,
+        message: "BOOTSTRAP_SELF_REPORT_FROM is not set"
+      };
+    }
+    if (this.to.length === 0) {
+      return {
+        code: BOOTSTRAP_SELF_REPORT_FAILURE_CODES.MISSING_RECIPIENTS,
+        message: "BOOTSTRAP_SELF_REPORT_TO is empty"
+      };
+    }
+    return undefined;
   }
 
   async sendEmail(email, { idempotencyKey } = {}) {
@@ -163,6 +270,79 @@ export class BootstrapSelfReportSchedulerService {
     summary.finishedAt = new Date().toISOString();
     this.lastRun = summary;
     return summary;
+  }
+
+  async readPersistedEvidence() {
+    if (!this.stateStore?.getServiceState) return undefined;
+    try {
+      const stored = await this.stateStore.getServiceState(this.stateScope);
+      if (!stored) {
+        return {
+          lastAttemptedAt: undefined,
+          lastSuccessfulAt: undefined,
+          lastFailureReason: undefined
+        };
+      }
+      return {
+        lastAttemptedAt: stored.lastAttemptedAt,
+        lastSuccessfulAt: stored.lastSuccessfulAt,
+        lastFailureReason: stored.lastFailureReason
+      };
+    } catch (error) {
+      this.logger.warn?.({ err: error }, "bootstrap_self_report.state_read_failed");
+      return this.evidence;
+    }
+  }
+
+  async recordAttempt(now, { success, failure } = {}) {
+    const attemptedAt = now.toISOString();
+    await this.mergeEvidence(async (current) => {
+      const next = { ...current, lastAttemptedAt: attemptedAt };
+      if (success) {
+        next.lastSuccessfulAt = attemptedAt;
+        next.lastFailureReason = undefined;
+      } else if (failure) {
+        next.lastFailureReason = sanitizeFailureReason(failure);
+      }
+      return next;
+    });
+  }
+
+  // Misconfigurations don't count as "attempts that hit the provider", but the
+  // operator still needs to see *why* the scheduler isn't sending. We surface
+  // them in lastFailureReason and leave lastAttemptedAt / lastSuccessfulAt
+  // alone so the freshness check still reflects real network attempts.
+  async recordMisconfiguration(now, failure) {
+    await this.mergeEvidence(async (current) => ({
+      ...current,
+      lastFailureReason: sanitizeFailureReason(failure)
+    }));
+  }
+
+  async mergeEvidence(mutator) {
+    // Read-modify-write against either the persisted state or the in-process
+    // mirror, so callers like recordAttempt(failure) can update one field
+    // without zeroing out the others (e.g. a failed attempt must NOT drop
+    // a previously stored lastSuccessfulAt).
+    const persisted = await this.readPersistedEvidence();
+    const current = persisted ?? this.evidence;
+    const next = await mutator({
+      lastAttemptedAt: current.lastAttemptedAt,
+      lastSuccessfulAt: current.lastSuccessfulAt,
+      lastFailureReason: current.lastFailureReason
+    });
+    this.evidence = {
+      lastAttemptedAt: next.lastAttemptedAt,
+      lastSuccessfulAt: next.lastSuccessfulAt,
+      lastFailureReason: next.lastFailureReason
+    };
+    if (this.stateStore?.upsertServiceState) {
+      try {
+        await this.stateStore.upsertServiceState(this.stateScope, this.evidence);
+      } catch (error) {
+        this.logger.warn?.({ err: error }, "bootstrap_self_report.state_write_failed");
+      }
+    }
   }
 }
 
@@ -229,6 +409,19 @@ export function buildBootstrapSelfReportEmail(report, {
   };
 }
 
+// Carries the HTTP status and a pre-truncated body excerpt back to the
+// scheduler's catch block so the projection can surface a clean failure
+// reason without leaking the full provider response (which can echo the
+// authorization header back in error envelopes).
+class ProviderHttpError extends Error {
+  constructor({ status, message, shortMessage }) {
+    super(message);
+    this.name = "ProviderHttpError";
+    this.providerStatus = status;
+    this.shortMessage = shortMessage;
+  }
+}
+
 export async function sendResendEmail(email, {
   apiKey,
   apiBaseUrl = DEFAULT_RESEND_API_BASE_URL,
@@ -259,7 +452,12 @@ export async function sendResendEmail(email, {
     body = { raw: bodyText };
   }
   if (!response.ok) {
-    throw new Error(`Resend email send failed (${response.status}): ${bodyText}`);
+    const shortMessage = truncateMessage(extractProviderMessage(body, bodyText));
+    throw new ProviderHttpError({
+      status: response.status,
+      message: `Resend email send failed (${response.status}): ${bodyText}`,
+      shortMessage
+    });
   }
   return body;
 }
@@ -338,4 +536,33 @@ function parseBooleanEnv(raw) {
 function parsePositiveInt(raw, fallback) {
   const value = Number(raw);
   return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function truncateMessage(value) {
+  const text = typeof value === "string" ? value : String(value ?? "");
+  if (text.length <= FAILURE_MESSAGE_MAX_LENGTH) return text;
+  return `${text.slice(0, FAILURE_MESSAGE_MAX_LENGTH)}...`;
+}
+
+function extractProviderMessage(parsedBody, rawBody) {
+  if (parsedBody && typeof parsedBody === "object") {
+    if (typeof parsedBody.message === "string" && parsedBody.message) return parsedBody.message;
+    if (typeof parsedBody.error === "string" && parsedBody.error) return parsedBody.error;
+    if (parsedBody.error && typeof parsedBody.error === "object" && typeof parsedBody.error.message === "string") {
+      return parsedBody.error.message;
+    }
+  }
+  return rawBody || "provider returned non-2xx with empty body";
+}
+
+function sanitizeFailureReason(failure) {
+  if (!failure || typeof failure !== "object") return undefined;
+  const result = {
+    code: typeof failure.code === "string" ? failure.code : "unknown",
+    message: truncateMessage(failure.message ?? "")
+  };
+  if (typeof failure.providerStatus === "number") {
+    result.providerStatus = failure.providerStatus;
+  }
+  return result;
 }

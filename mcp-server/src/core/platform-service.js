@@ -312,10 +312,16 @@ export class PlatformService {
         running: false,
         intervalMs: 0,
         sendOnStart: false,
+        from: undefined,
+        to: [],
         recipientCount: 0,
         providerConfigured: false,
         nextRunAt: undefined,
-        lastRun: undefined
+        lastRun: undefined,
+        lastAttemptedAt: undefined,
+        lastSuccessfulAt: undefined,
+        lastFailureReason: undefined,
+        evidencePersistenceNote: "scheduler not initialised"
       },
       this.jobStaleSweeper?.getStatus?.() ?? {
         enabled: false,

@@ -137,7 +137,11 @@ SSH/basic-auth/admin-JWT cutovers, and the basic hosted smoke is green.
   discover -> sign in -> preflight -> claim -> submit -> verify -> badge/profile.
 - Rerun the product-proof gate with worker-loop evidence.
 - Finish bootstrap self-report scheduled email delivery and first-delivery
-  proof.
+  proof. Code path is wired (`mcp-server/src/services/bootstrap-self-report-scheduler.js`);
+  the remaining gate is operational: `/admin/status.bootstrapSelfReport`
+  now exposes `lastAttemptedAt`, `lastSuccessfulAt`, `lastFailureReason`,
+  and the `from`/`to` pair, and `PRODUCTION_CHECKLIST.md` section 5 names
+  the exact `curl | jq` evidence required to flip the box.
 - Confirm `/admin/status` with a live admin JWT reports async XCM watcher posture
   cleanly.
 - Rehearse pauser pause/unpause from the hot key.
@@ -252,7 +256,10 @@ correlation and settlement path.
 ## Recommended Next Queue
 
 1. Complete the hosted worker-loop product-proof evidence gate.
-2. Close bootstrap self-report scheduled email delivery.
+2. Close bootstrap self-report scheduled email delivery against the live
+   production stack (the code path and `/admin/status` evidence fields are
+   landed; see `PRODUCTION_CHECKLIST.md` section 5 for the `curl | jq`
+   sign-off).
 3. Tighten schema-native jobs for first-wave job families.
 4. Finish dispute/arbitration launch path.
 5. Run the native XCM evidence pack captures.

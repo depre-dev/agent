@@ -151,6 +151,19 @@ RUN_SUBSCAN_XCM_VALIDATION=1 ./scripts/ops/check-release-readiness.sh testnet
 - [ ] Structured logs are visible from the current deploy target.
 - [ ] An alert destination is configured for hosted smoke-check failures.
 - [ ] [INCIDENT_RESPONSE.md](./INCIDENT_RESPONSE.md) has named on-call ownership.
+- [ ] Bootstrap self-report email has actually delivered. Flip this box only
+  when ALL of the following are true against the production stack with a
+  valid `ADMIN_JWT`:
+  - `curl -fsS -H "Authorization: Bearer $ADMIN_JWT" https://api.averray.com/admin/status \
+    | jq -r '.bootstrapSelfReport.lastSuccessfulAt'`
+    returns a non-null ISO timestamp within the last 8 days.
+  - `... | jq '.bootstrapSelfReport.providerConfigured'` returns `true`.
+  - `... | jq -r '.bootstrapSelfReport.lastFailureReason // "none"'` returns
+    `none` (or a stale failure whose timestamp is older than
+    `lastSuccessfulAt`).
+  - `... | jq -r '.bootstrapSelfReport.from'` and
+    `... | jq -r '.bootstrapSelfReport.to[]'` match the intended recipient
+    pair from `backend.env` (no `null`s, no test addresses).
 
 ---
 
