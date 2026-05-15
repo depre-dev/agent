@@ -139,10 +139,12 @@ SSH/basic-auth/admin-JWT cutovers, and the basic hosted smoke is green.
 - Rerun the product-proof gate with worker-loop evidence.
 - Finish bootstrap self-report scheduled email delivery and first-delivery
   proof. Code path is wired (`mcp-server/src/services/bootstrap-self-report-scheduler.js`);
-  the remaining gate is operational: `/admin/status.bootstrapSelfReport`
-  now exposes `lastAttemptedAt`, `lastSuccessfulAt`, `lastFailureReason`,
-  and the `from`/`to` pair, and `PRODUCTION_CHECKLIST.md` section 5 names
-  the exact `curl | jq` evidence required to flip the box.
+  the remaining gate is operational: `scripts/ops/check-hosted-stack.sh`
+  checks `/admin/status.bootstrapSelfReport` for `lastAttemptedAt`,
+  `lastSuccessfulAt`, the `from`/`to` pair, recipient-count consistency,
+  a fresh latest sent provider id, and absence of provider/API-key-shaped
+  tokens. `PRODUCTION_CHECKLIST.md` section 5 names the exact env-gated smoke
+  command required to flip the box.
 - Confirm `/admin/status` with a live admin JWT reports async XCM watcher posture
   cleanly.
 - Rehearse pauser pause/unpause from the hot key.
@@ -277,9 +279,10 @@ correlation and settlement path.
 
 1. Complete the hosted worker-loop product-proof evidence gate.
 2. Close bootstrap self-report scheduled email delivery against the live
-   production stack (the code path and `/admin/status` evidence fields are
-   landed; see `PRODUCTION_CHECKLIST.md` section 5 for the `curl | jq`
-   sign-off).
+   production stack by running `check-hosted-stack.sh` with
+   `CHECK_BOOTSTRAP_INSTRUMENTATION=1`,
+   `CHECK_BOOTSTRAP_SELF_REPORT_SENT=1`, and the exact expected `from`/`to`
+   envs from `backend.env`.
 3. Prove the hosted schema-native validation path and external helper adoption.
 4. Prove the dispute verdict path live and decide `/release` semantics.
 5. Run the native XCM evidence pack captures.

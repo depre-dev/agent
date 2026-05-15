@@ -41,3 +41,52 @@ test("docker product-proof gate can read hosted worker-loop evidence", async () 
     "docker fallback should pass the dynamic volume list to docker run"
   );
 });
+
+test("bootstrap self-report gate requires delivery evidence and guards secrets", async () => {
+  const script = await readFile(CHECK_SCRIPT, "utf8");
+
+  assert.match(
+    script,
+    /BOOTSTRAP_SELF_REPORT_EXPECTED_FROM=/u,
+    "smoke should support an explicit expected sender check"
+  );
+  assert.match(
+    script,
+    /BOOTSTRAP_SELF_REPORT_EXPECTED_TO=/u,
+    "smoke should support an explicit expected recipient check"
+  );
+  assert.match(
+    script,
+    /\.bootstrapSelfReport\.from \| type\) == "string"/u,
+    "bootstrap instrumentation should require a concrete sender"
+  );
+  assert.match(
+    script,
+    /\.bootstrapSelfReport\.to \| type\) == "array"/u,
+    "bootstrap instrumentation should require a concrete recipient list"
+  );
+  assert.match(
+    script,
+    /\.bootstrapSelfReport\.recipientCount == \(\.bootstrapSelfReport\.to \| length\)/u,
+    "recipientCount should agree with the visible recipient list"
+  );
+  assert.ok(
+    script.includes('test("Bearer\\\\s+[^\\\\s,}\\\\]]+|re_[A-Za-z0-9_-]{12,}"; "i")'),
+    "bootstrap status should be scanned for API-key-shaped tokens"
+  );
+  assert.match(
+    script,
+    /\.bootstrapSelfReport\.lastAttemptedAt \| type\) == "string"/u,
+    "sent gate should require lastAttemptedAt"
+  );
+  assert.match(
+    script,
+    /\.bootstrapSelfReport\.lastSuccessfulAt \| type\) == "string"/u,
+    "sent gate should require lastSuccessfulAt"
+  );
+  assert.match(
+    script,
+    /BOOTSTRAP_SELF_REPORT_MAX_AGE_SEC/u,
+    "sent gate should bound the freshness of lastSuccessfulAt"
+  );
+});

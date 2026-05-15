@@ -84,12 +84,16 @@ ADMIN_JWT='<admin-jwt>' ./scripts/ops/check-hosted-stack.sh
 # self-report recipient list, and email provider configured.
 ADMIN_JWT='<admin-jwt>' \
 CHECK_BOOTSTRAP_INSTRUMENTATION=1 \
+BOOTSTRAP_SELF_REPORT_EXPECTED_FROM='<exact backend.env from>' \
+BOOTSTRAP_SELF_REPORT_EXPECTED_TO='<exact backend.env to>' \
 ./scripts/ops/check-hosted-stack.sh
 
 # First-delivery verification: require that the weekly report has actually sent.
 ADMIN_JWT='<admin-jwt>' \
 CHECK_BOOTSTRAP_INSTRUMENTATION=1 \
 CHECK_BOOTSTRAP_SELF_REPORT_SENT=1 \
+BOOTSTRAP_SELF_REPORT_EXPECTED_FROM='<exact backend.env from>' \
+BOOTSTRAP_SELF_REPORT_EXPECTED_TO='<exact backend.env to>' \
 ./scripts/ops/check-hosted-stack.sh
 
 # Component-scoped deploys can skip indexer checks when the indexer was not
@@ -154,16 +158,26 @@ RUN_SUBSCAN_XCM_VALIDATION=1 ./scripts/ops/check-release-readiness.sh testnet
 - [ ] Bootstrap self-report email has actually delivered. Flip this box only
   when ALL of the following are true against the production stack with a
   valid `ADMIN_JWT`:
-  - `curl -fsS -H "Authorization: Bearer $ADMIN_JWT" https://api.averray.com/admin/status \
-    | jq -r '.bootstrapSelfReport.lastSuccessfulAt'`
-    returns a non-null ISO timestamp within the last 8 days.
-  - `... | jq '.bootstrapSelfReport.providerConfigured'` returns `true`.
-  - `... | jq -r '.bootstrapSelfReport.lastFailureReason // "none"'` returns
-    `none` (or a stale failure whose timestamp is older than
-    `lastSuccessfulAt`).
-  - `... | jq -r '.bootstrapSelfReport.from'` and
-    `... | jq -r '.bootstrapSelfReport.to[]'` match the intended recipient
-    pair from `backend.env` (no `null`s, no test addresses).
+  - This command passes:
+    ```bash
+    ADMIN_JWT='<admin-jwt>' \
+    CHECK_BOOTSTRAP_INSTRUMENTATION=1 \
+    CHECK_BOOTSTRAP_SELF_REPORT_SENT=1 \
+    BOOTSTRAP_SELF_REPORT_EXPECTED_FROM='<exact backend.env from>' \
+    BOOTSTRAP_SELF_REPORT_EXPECTED_TO='<exact backend.env to>' \
+    ./scripts/ops/check-hosted-stack.sh
+    ```
+  - The smoke gate verifies `.bootstrapSelfReport.enabled`,
+    `.running`, `.providerConfigured`, `from`, `to`, `recipientCount`,
+    `lastAttemptedAt`, `lastSuccessfulAt`, and the latest sent provider id.
+    `lastSuccessfulAt` must be an ISO timestamp within 8 days by default
+    (`BOOTSTRAP_SELF_REPORT_MAX_AGE_SEC` can tighten or relax this window).
+  - The visible `from`/`to` pair matches production `backend.env` exactly
+    (comma-separate `BOOTSTRAP_SELF_REPORT_EXPECTED_TO` for multiple
+    recipients; no `null`s, no test addresses).
+  - `/admin/status.bootstrapSelfReport` does not contain API-key-shaped
+    tokens such as `Bearer ...` or `re_...`; only the boolean
+    `providerConfigured` may reveal that the provider is configured.
 
 ---
 

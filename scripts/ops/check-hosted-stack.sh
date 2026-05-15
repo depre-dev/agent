@@ -17,6 +17,9 @@ INDEXER_RETRY_SLEEP_SEC=${INDEXER_RETRY_SLEEP_SEC:-5}
 CHECK_INDEXER=${CHECK_INDEXER:-1}
 CHECK_BOOTSTRAP_INSTRUMENTATION=${CHECK_BOOTSTRAP_INSTRUMENTATION:-0}
 CHECK_BOOTSTRAP_SELF_REPORT_SENT=${CHECK_BOOTSTRAP_SELF_REPORT_SENT:-0}
+BOOTSTRAP_SELF_REPORT_EXPECTED_FROM=${BOOTSTRAP_SELF_REPORT_EXPECTED_FROM:-}
+BOOTSTRAP_SELF_REPORT_EXPECTED_TO=${BOOTSTRAP_SELF_REPORT_EXPECTED_TO:-}
+BOOTSTRAP_SELF_REPORT_MAX_AGE_SEC=${BOOTSTRAP_SELF_REPORT_MAX_AGE_SEC:-691200}
 CHECK_PRODUCT_PROOF_GATE=${CHECK_PRODUCT_PROOF_GATE:-0}
 PRODUCT_PROOF_NODE_IMAGE=${PRODUCT_PROOF_NODE_IMAGE:-node:22-bookworm-slim}
 PRODUCT_PROOF_EVIDENCE_FILE=${PRODUCT_PROOF_EVIDENCE_FILE:-}
@@ -224,17 +227,49 @@ if enabled "$CHECK_BOOTSTRAP_INSTRUMENTATION"; then
     .bootstrapSelfReport.enabled == true and
     .bootstrapSelfReport.running == true and
     .bootstrapSelfReport.providerConfigured == true and
+    (.bootstrapSelfReport.from | type) == "string" and
+    (.bootstrapSelfReport.from | length) > 0 and
+    (.bootstrapSelfReport.to | type) == "array" and
+    all(.bootstrapSelfReport.to[]; type == "string" and length > 0) and
     (.bootstrapSelfReport.recipientCount | type) == "number" and
     .bootstrapSelfReport.recipientCount > 0 and
+    .bootstrapSelfReport.recipientCount == (.bootstrapSelfReport.to | length) and
     (.bootstrapSelfReport.intervalMs | type) == "number" and
     .bootstrapSelfReport.intervalMs <= 604800000
   ' >/dev/null <<<"$admin_status_json"
+  jq -e '
+    (.bootstrapSelfReport | tostring | test("Bearer\\s+[^\\s,}\\]]+|re_[A-Za-z0-9_-]{12,}"; "i") | not)
+  ' >/dev/null <<<"$admin_status_json" || {
+    echo "Bootstrap self-report status appears to contain a provider/API key token." >&2
+    exit 1
+  }
+  if [[ -n "$BOOTSTRAP_SELF_REPORT_EXPECTED_FROM" ]]; then
+    jq -e --arg expectedFrom "$BOOTSTRAP_SELF_REPORT_EXPECTED_FROM" '
+      .bootstrapSelfReport.from == $expectedFrom
+    ' >/dev/null <<<"$admin_status_json"
+  fi
+  if [[ -n "$BOOTSTRAP_SELF_REPORT_EXPECTED_TO" ]]; then
+    jq -e --arg expectedTo "$BOOTSTRAP_SELF_REPORT_EXPECTED_TO" '
+      ($expectedTo | split(",") | map(gsub("^\\s+|\\s+$"; "") | select(length > 0))) as $recipients |
+      .bootstrapSelfReport.to == $recipients
+    ' >/dev/null <<<"$admin_status_json"
+  fi
 
   if enabled "$CHECK_BOOTSTRAP_SELF_REPORT_SENT"; then
     jq -e '
+      (.bootstrapSelfReport.lastAttemptedAt | type) == "string" and
+      (.bootstrapSelfReport.lastAttemptedAt | test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$")) and
+      (.bootstrapSelfReport.lastSuccessfulAt | type) == "string" and
+      (.bootstrapSelfReport.lastSuccessfulAt | test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$")) and
       .bootstrapSelfReport.lastRun.status == "sent" and
       (.bootstrapSelfReport.lastRun.email.providerId | type) == "string" and
       (.bootstrapSelfReport.lastRun.email.providerId | length) > 0
+    ' >/dev/null <<<"$admin_status_json"
+    jq -e --argjson maxAge "$BOOTSTRAP_SELF_REPORT_MAX_AGE_SEC" '
+      .bootstrapSelfReport.lastSuccessfulAt
+      | sub("\\.[0-9]+Z$"; "Z")
+      | fromdateiso8601 as $lastSuccessful
+      | (now - $lastSuccessful) >= 0 and (now - $lastSuccessful) <= $maxAge
     ' >/dev/null <<<"$admin_status_json"
   fi
 fi
