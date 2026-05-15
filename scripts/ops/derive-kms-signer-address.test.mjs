@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import {
   parseSecp256k1Spki,
   addressFromUncompressedPoint
-} from "./derive-kms-signer-address.mjs";
+} from "../../mcp-server/src/blockchain/spki.js";
 
 const hex = (s) => new Uint8Array(Buffer.from(s, "hex"));
 

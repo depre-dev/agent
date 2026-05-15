@@ -23,6 +23,7 @@ import {
   ZERO_BYTES32
 } from "./abis.js";
 import { loadBlockchainConfig } from "./config.js";
+import { KmsSigner } from "./kms-signer.js";
 import { buildXcmRequestPayload } from "./xcm-message-builder.js";
 import { hashCanonicalContent } from "../core/canonical-content.js";
 import {
@@ -80,9 +81,7 @@ export class BlockchainGateway {
     }
 
     this.provider = new JsonRpcProvider(config.rpcUrl);
-    this.signer = config.signerPrivateKey
-      ? new Wallet(config.signerPrivateKey, this.provider)
-      : undefined;
+    this.signer = createSigner(config, this.provider);
     this.accountContract = new Contract(
       config.agentAccountAddress,
       AGENT_ACCOUNT_ABI,
@@ -1568,4 +1567,45 @@ export class BlockchainGateway {
       "unknown_error"
     );
   }
+}
+
+/**
+ * Construct the right signer for the blockchain config. Phase 3 introduces
+ * the `SIGNER_BACKEND` switch:
+ *
+ *   - "local" (default): existing path — `new Wallet(privateKey, provider)`.
+ *     The private key is in process memory; deployment carries the same
+ *     pre-Phase-3 risks (vault leak ⇒ signer compromise).
+ *   - "kms": KmsSigner wrapping an AWS KMS asymmetric key. The private
+ *     key material never leaves KMS. Requires a KMSClient bound to
+ *     `config.awsRegion` and a key id at `config.kmsKeyId`.
+ *
+ * The factory returns `undefined` when neither path is configured (read-only
+ * gateway, no signing capability) — matches the pre-Phase-3 contract where
+ * an empty SIGNER_PRIVATE_KEY would also yield an undefined signer.
+ */
+function createSigner(config, provider) {
+  if (config.signerBackend === "kms") {
+    if (!config.kmsKeyId || !config.awsRegion) {
+      // Should be caught upstream by loadBlockchainConfig's required-field
+      // check, but defend in depth so a partially-loaded config can't
+      // silently construct a half-initialized signer.
+      throw new ConfigError(
+        "SIGNER_BACKEND=kms requires both KMS_KEY_ID and AWS_REGION",
+      );
+    }
+    // KmsSigner lazy-constructs the KMSClient on first signing call,
+    // so importing this module doesn't load the AWS SDK for local-
+    // backend deploys.
+    return new KmsSigner({
+      region: config.awsRegion,
+      keyId: config.kmsKeyId,
+      provider,
+    });
+  }
+  // Default "local" path — unchanged from pre-Phase-3 behavior.
+  if (!config.signerPrivateKey) {
+    return undefined;
+  }
+  return new Wallet(config.signerPrivateKey, provider);
 }

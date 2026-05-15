@@ -178,3 +178,72 @@ test("loadBlockchainConfig rejects malformed optional XCM_WRAPPER_ADDRESS", () =
     /XCM_WRAPPER_ADDRESS must be a 0x \+ 20-byte EVM address/
   );
 });
+
+// ─── Phase 3 SIGNER_BACKEND tests ────────────────────────────────────
+
+test("loadBlockchainConfig defaults SIGNER_BACKEND to 'local'", () => {
+  const config = loadBlockchainConfig({
+    ...baseEnv,
+    RPC_URL: "https://legacy.example"
+  });
+  assert.equal(config.signerBackend, "local");
+  assert.equal(config.signerPrivateKey, "0xabc");
+  assert.equal(config.kmsKeyId, "");
+  assert.equal(config.awsRegion, "");
+});
+
+test("loadBlockchainConfig accepts SIGNER_BACKEND=kms with KMS_KEY_ID + AWS_REGION", () => {
+  const config = loadBlockchainConfig({
+    ...baseEnv,
+    SIGNER_PRIVATE_KEY: "",   // unset; Phase 3 forbids both
+    RPC_URL: "https://legacy.example",
+    SIGNER_BACKEND: "kms",
+    KMS_KEY_ID: "arn:aws:kms:eu-central-1:123:key/abcd",
+    AWS_REGION: "eu-central-1"
+  });
+  assert.equal(config.enabled, true);
+  assert.equal(config.signerBackend, "kms");
+  assert.equal(config.kmsKeyId, "arn:aws:kms:eu-central-1:123:key/abcd");
+  assert.equal(config.awsRegion, "eu-central-1");
+});
+
+test("loadBlockchainConfig rejects unknown SIGNER_BACKEND values", () => {
+  assert.throws(
+    () =>
+      loadBlockchainConfig({
+        ...baseEnv,
+        RPC_URL: "https://legacy.example",
+        SIGNER_BACKEND: "vault"
+      }),
+    /SIGNER_BACKEND must be "local" or "kms".*got "vault"/
+  );
+});
+
+test("loadBlockchainConfig refuses both SIGNER_PRIVATE_KEY and SIGNER_BACKEND=kms (anti-pattern)", () => {
+  assert.throws(
+    () =>
+      loadBlockchainConfig({
+        ...baseEnv,
+        RPC_URL: "https://legacy.example",
+        SIGNER_BACKEND: "kms",
+        SIGNER_PRIVATE_KEY: "0xabc",
+        KMS_KEY_ID: "abcd",
+        AWS_REGION: "eu-central-1"
+      }),
+    /mutually exclusive/
+  );
+});
+
+test("loadBlockchainConfig requires AWS_REGION when SIGNER_BACKEND=kms", () => {
+  assert.throws(
+    () =>
+      loadBlockchainConfig({
+        ...baseEnv,
+        SIGNER_PRIVATE_KEY: "",
+        RPC_URL: "https://legacy.example",
+        SIGNER_BACKEND: "kms",
+        KMS_KEY_ID: "abcd"
+      }),
+    /Missing.*KMS_KEY_ID \+ AWS_REGION/
+  );
+});
