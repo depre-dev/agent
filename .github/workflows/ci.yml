@@ -266,11 +266,13 @@ jobs:
           # On a PR event, scan base..head (the PR's own diff).
           # On a push event, scan event.before..HEAD (the new commits).
           # This focuses on FUTURE leaks instead of re-flagging historical
-          # text we can't un-commit (e.g., shape-check comments that
-          # reference `-----BEGIN PRIVATE KEY-----` as a string assertion
-          # in deploy-production.yml). The pre-commit hook + GitHub push
-          # protection cover the "first-time leak" case before merge; CI
-          # is the last-resort sweep on what's being added.
+          # text we can't un-commit — for example, shape-check comments
+          # in deploy-production.yml's SSH-validation step that quote
+          # PEM header markers as string assertions (the marker text
+          # appears as a literal in the case statement; not a real key).
+          # The pre-commit hook + GitHub push protection cover the
+          # first-leak case before merge; CI is the last-resort sweep
+          # on what's being added.
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
