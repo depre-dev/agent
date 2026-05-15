@@ -34,7 +34,10 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { computeAddress } from "ethers";
+import {
+  parseSecp256k1Spki,
+  addressFromUncompressedPoint,
+} from "../../mcp-server/src/blockchain/spki.js";
 
 const HELP = `Usage:
   AWS_REGION=eu-central-1 node scripts/ops/derive-kms-signer-address.mjs <key-arn-or-id>
@@ -47,132 +50,11 @@ Flags:
   --help, -h           This message.
 `;
 
-// ─── SPKI parsing ────────────────────────────────────────────────────
-
-const OID_EC_PUBLIC_KEY = "1.2.840.10045.2.1";
-const OID_SECP256K1 = "1.3.132.0.10";
-
-/**
- * Parse a DER-encoded SubjectPublicKeyInfo for a secp256k1 public key
- * and return the 65-byte uncompressed point (0x04 || x || y).
- *
- * @param {Uint8Array} der  DER-encoded SPKI as returned by KMS GetPublicKey
- * @returns {Uint8Array}    65-byte uncompressed EC point
- */
-export function parseSecp256k1Spki(der) {
-  if (!(der instanceof Uint8Array)) {
-    throw new TypeError("parseSecp256k1Spki expects a Uint8Array");
-  }
-  const buf = der;
-  let off = 0;
-
-  function readTagLen(expectedTag, label) {
-    if (off >= buf.length) throw new Error(`${label}: truncated DER at byte ${off}`);
-    const tag = buf[off++];
-    if (tag !== expectedTag) {
-      throw new Error(`${label}: expected DER tag 0x${expectedTag.toString(16)}, got 0x${tag.toString(16)} at byte ${off - 1}`);
-    }
-    if (off >= buf.length) throw new Error(`${label}: missing length byte`);
-    let len = buf[off++];
-    if (len & 0x80) {
-      const nLen = len & 0x7f;
-      if (nLen === 0 || nLen > 4) throw new Error(`${label}: unsupported length-of-length ${nLen}`);
-      len = 0;
-      for (let i = 0; i < nLen; i++) {
-        if (off >= buf.length) throw new Error(`${label}: truncated multi-byte length`);
-        len = (len << 8) | buf[off++];
-      }
-    }
-    if (off + len > buf.length) throw new Error(`${label}: declared length ${len} overruns DER at byte ${off}`);
-    return len;
-  }
-
-  function readOid(label) {
-    const len = readTagLen(0x06, `${label} OID`);
-    const bytes = buf.subarray(off, off + len);
-    off += len;
-    // Decode the OID using the standard "first two arcs packed into first
-    // byte" rule: first = floor(b/40), second = b mod 40, then base-128.
-    const arcs = [];
-    arcs.push(Math.floor(bytes[0] / 40));
-    arcs.push(bytes[0] % 40);
-    let acc = 0;
-    for (let i = 1; i < bytes.length; i++) {
-      acc = (acc << 7) | (bytes[i] & 0x7f);
-      if ((bytes[i] & 0x80) === 0) {
-        arcs.push(acc);
-        acc = 0;
-      }
-    }
-    return arcs.join(".");
-  }
-
-  // SubjectPublicKeyInfo ::= SEQUENCE {
-  //   algorithm        AlgorithmIdentifier,
-  //   subjectPublicKey BIT STRING
-  // }
-  readTagLen(0x30, "SPKI outer SEQUENCE");
-
-  // AlgorithmIdentifier ::= SEQUENCE {
-  //   algorithm  OBJECT IDENTIFIER,
-  //   parameters ANY OPTIONAL
-  // }
-  // NB: readTagLen has the side-effect of advancing `off` past the
-  // tag+length bytes, so capture the length FIRST, then add it to the
-  // (now-updated) `off`. Reading `off + readTagLen(...)` evaluates
-  // `off` before the call — a stale value would land us 2 bytes short.
-  const algIdContentLen = readTagLen(0x30, "AlgorithmIdentifier SEQUENCE");
-  const algIdEnd = off + algIdContentLen;
-  const algorithmOid = readOid("AlgorithmIdentifier.algorithm");
-  if (algorithmOid !== OID_EC_PUBLIC_KEY) {
-    throw new Error(`AlgorithmIdentifier.algorithm: expected ecPublicKey (${OID_EC_PUBLIC_KEY}), got ${algorithmOid}`);
-  }
-  // The curve OID is the parameters field, encoded inline as an OID.
-  const curveOid = readOid("AlgorithmIdentifier.parameters (curve)");
-  if (curveOid !== OID_SECP256K1) {
-    throw new Error(`Curve OID: expected secp256k1 (${OID_SECP256K1}), got ${curveOid}. Did you create a key with the wrong KeySpec?`);
-  }
-  if (off !== algIdEnd) {
-    throw new Error(`AlgorithmIdentifier has trailing bytes at ${off}, expected end at ${algIdEnd}`);
-  }
-
-  // BIT STRING. First content byte is the number of unused bits (always
-  // 0 for byte-aligned values like EC public keys).
-  const bitStrLen = readTagLen(0x03, "subjectPublicKey BIT STRING");
-  if (bitStrLen < 2) throw new Error(`BIT STRING too short: ${bitStrLen}`);
-  const unusedBits = buf[off++];
-  if (unusedBits !== 0) {
-    throw new Error(`BIT STRING unused bits should be 0 for EC public keys, got ${unusedBits}`);
-  }
-  const pointBytes = buf.subarray(off, off + bitStrLen - 1);
-  off += bitStrLen - 1;
-
-  // Expect uncompressed point: 0x04 || x (32) || y (32) = 65 bytes.
-  if (pointBytes.length !== 65) {
-    throw new Error(`Public key point: expected 65 bytes (0x04 || x32 || y32), got ${pointBytes.length}`);
-  }
-  if (pointBytes[0] !== 0x04) {
-    throw new Error(`Public key point: expected uncompressed marker 0x04, got 0x${pointBytes[0].toString(16)}`);
-  }
-  return new Uint8Array(pointBytes); // copy out
-}
-
-/**
- * Compute the EVM address (0x-prefixed, EIP-55 checksum) for a 65-byte
- * uncompressed secp256k1 public key.
- *
- * @param {Uint8Array} point  65-byte uncompressed point
- * @returns {string}          0x-prefixed EIP-55-checksummed address
- */
-export function addressFromUncompressedPoint(point) {
-  // ethers v6 `computeAddress` accepts either a private key, a 33-byte
-  // compressed pub key, or a 65-byte uncompressed pub key, all hex-encoded.
-  // Hand it the hex form for clarity.
-  const hex = "0x" + Buffer.from(point).toString("hex");
-  return computeAddress(hex);
-}
-
 // ─── CLI ─────────────────────────────────────────────────────────────
+//
+// SPKI parsing + address derivation now live in
+// mcp-server/src/blockchain/spki.js, shared between this script and
+// the runtime KmsSigner. Below: just the CLI plumbing.
 
 function parseArgs(argv) {
   const out = { positional: [] };

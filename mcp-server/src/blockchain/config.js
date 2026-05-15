@@ -174,13 +174,41 @@ function normalizeOptionalXcmLocation(raw, idx) {
 export function loadBlockchainConfig(env = process.env) {
   const rpcUrl = resolveRpcUrl(env);
   const assetConfigPresent = Boolean(env.SUPPORTED_ASSETS_JSON || env.SUPPORTED_ASSETS);
+
+  // Phase 3 (per docs/SECRETS_MIGRATION.md §"Phase 3 — AWS KMS for the
+  // backend signer"): SIGNER_BACKEND selects which signing path the
+  // gateway constructs. Defaults to "local" for backwards compat —
+  // existing deployments that only set SIGNER_PRIVATE_KEY keep working.
+  // When "kms", we require KMS_KEY_ID + AWS_REGION instead, and the
+  // signer never sees raw key material.
+  const signerBackend = (env.SIGNER_BACKEND ?? "local").trim().toLowerCase();
+  if (signerBackend !== "local" && signerBackend !== "kms") {
+    throw new ConfigError(
+      `SIGNER_BACKEND must be "local" or "kms"; got "${env.SIGNER_BACKEND}"`,
+    );
+  }
+  if (signerBackend === "kms" && env.SIGNER_PRIVATE_KEY) {
+    throw new ConfigError(
+      "SIGNER_BACKEND=kms and SIGNER_PRIVATE_KEY are mutually exclusive. " +
+        "Unset SIGNER_PRIVATE_KEY when using KMS — keeping both is a " +
+        "Phase 3 anti-pattern: a deployed key plus a vault key undoes the " +
+        "non-exportability guarantee.",
+    );
+  }
+
   const requiredFields = [
     {
       key: "RPC_URL",
       configured: Boolean(rpcUrl),
       missingLabel: "RPC_URL (or DWELLER_RPC_URL / POLKADOT_RPC_URL)"
     },
-    { key: "SIGNER_PRIVATE_KEY", configured: Boolean(env.SIGNER_PRIVATE_KEY) },
+    signerBackend === "kms"
+      ? {
+          key: "KMS_KEY_ID",
+          configured: Boolean(env.KMS_KEY_ID) && Boolean(env.AWS_REGION),
+          missingLabel: "KMS_KEY_ID + AWS_REGION (required when SIGNER_BACKEND=kms)",
+        }
+      : { key: "SIGNER_PRIVATE_KEY", configured: Boolean(env.SIGNER_PRIVATE_KEY) },
     { key: "TREASURY_POLICY_ADDRESS", configured: Boolean(env.TREASURY_POLICY_ADDRESS) },
     { key: "AGENT_ACCOUNT_ADDRESS", configured: Boolean(env.AGENT_ACCOUNT_ADDRESS) },
     { key: "ESCROW_CORE_ADDRESS", configured: Boolean(env.ESCROW_CORE_ADDRESS) },
@@ -215,7 +243,10 @@ export function loadBlockchainConfig(env = process.env) {
   return {
     enabled,
     rpcUrl,
+    signerBackend,
     signerPrivateKey: env.SIGNER_PRIVATE_KEY ?? "",
+    kmsKeyId: env.KMS_KEY_ID ?? "",
+    awsRegion: env.AWS_REGION ?? "",
     treasuryPolicyAddress: env.TREASURY_POLICY_ADDRESS ?? "",
     agentAccountAddress: env.AGENT_ACCOUNT_ADDRESS ?? "",
     escrowCoreAddress: env.ESCROW_CORE_ADDRESS ?? "",
