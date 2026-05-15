@@ -1256,11 +1256,9 @@ function findStrategyConfig(strategyId) {
 }
 
 function normalizeAsyncWeight(input = undefined) {
-  const refTime = Number(input?.refTime ?? input?.ref_time ?? 0);
-  const proofSize = Number(input?.proofSize ?? input?.proof_size ?? 0);
   return {
-    refTime: Number.isFinite(refTime) && refTime > 0 ? Math.trunc(refTime) : 0,
-    proofSize: Number.isFinite(proofSize) && proofSize > 0 ? Math.trunc(proofSize) : 0
+    refTime: input?.refTime ?? input?.ref_time ?? 0,
+    proofSize: input?.proofSize ?? input?.proof_size ?? 0
   };
 }
 

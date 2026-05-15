@@ -39,6 +39,7 @@ const REQUEST_STATUS_LABELS = ["unknown", "pending", "succeeded", "failed", "can
 const abiCoder = AbiCoder.defaultAbiCoder();
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const UINT64_MAX = (1n << 64n) - 1n;
 
 function summarizeSupportedAssets(assets = []) {
   return assets.map(summarizeSupportedAsset);
@@ -1414,20 +1415,15 @@ export class BlockchainGateway {
   }
 
   normalizeWeight(weight = undefined) {
-    const refTime = Number(weight?.refTime ?? 0);
-    const proofSize = Number(weight?.proofSize ?? 0);
-    if (!Number.isFinite(refTime) || refTime < 0 || !Number.isFinite(proofSize) || proofSize < 0) {
-      throw new ValidationError("maxWeight.refTime and maxWeight.proofSize must be non-negative numbers.");
-    }
     return {
-      refTime: Math.trunc(refTime),
-      proofSize: Math.trunc(proofSize)
+      refTime: this.normalizeWeightComponent(weight?.refTime ?? weight?.ref_time, "maxWeight.refTime"),
+      proofSize: this.normalizeWeightComponent(weight?.proofSize ?? weight?.proof_size, "maxWeight.proofSize")
     };
   }
 
   async resolveXcmMaxWeight(weight, message, operation) {
     const normalized = this.normalizeWeight(weight);
-    if (normalized.refTime > 0) {
+    if (normalized.refTime > 0n) {
       return normalized;
     }
 
@@ -1436,10 +1432,39 @@ export class BlockchainGateway {
     }
 
     const quoted = this.normalizeWeight(await this.xcmWrapperContract.weighMessage(message));
-    if (quoted.refTime <= 0) {
+    if (quoted.refTime <= 0n) {
       throw new ValidationError(`${operation} requires a non-zero XCM weight quote before queuing.`);
     }
     return quoted;
+  }
+
+  normalizeWeightComponent(value, label) {
+    if (value === undefined || value === null || value === "") {
+      return 0n;
+    }
+
+    let parsed;
+    if (typeof value === "bigint") {
+      parsed = value;
+    } else if (typeof value === "number") {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        throw new ValidationError(`${label} must be an exact non-negative uint64.`);
+      }
+      parsed = BigInt(value);
+    } else if (typeof value === "string") {
+      const normalized = value.trim();
+      if (!/^\d+$/u.test(normalized)) {
+        throw new ValidationError(`${label} must be an exact non-negative uint64.`);
+      }
+      parsed = BigInt(normalized);
+    } else {
+      throw new ValidationError(`${label} must be an exact non-negative uint64.`);
+    }
+
+    if (parsed < 0n || parsed > UINT64_MAX) {
+      throw new ValidationError(`${label} must fit uint64.`);
+    }
+    return parsed;
   }
 
   toBytesPayload(value, label) {

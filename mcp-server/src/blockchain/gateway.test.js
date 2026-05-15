@@ -833,7 +833,47 @@ test("resolveXcmMaxWeight uses caller weight when refTime is non-zero", async ()
 
   assert.deepEqual(
     await gateway.resolveXcmMaxWeight({ refTime: 7, proofSize: 0 }, "0x1234", "requestStrategyDeposit"),
-    { refTime: 7, proofSize: 0 }
+    { refTime: 7n, proofSize: 0n }
+  );
+});
+
+test("resolveXcmMaxWeight preserves exact uint64 string weights", async () => {
+  const gateway = new BlockchainGateway({ enabled: false });
+  const refTime = "9007199254740993";
+
+  assert.deepEqual(
+    await gateway.resolveXcmMaxWeight(
+      { refTime, proofSize: "18446744073709551615" },
+      "0x1234",
+      "requestStrategyDeposit"
+    ),
+    { refTime: 9007199254740993n, proofSize: 18446744073709551615n }
+  );
+});
+
+test("resolveXcmMaxWeight rejects unsafe numeric weights before rounding", async () => {
+  const gateway = new BlockchainGateway({ enabled: false });
+
+  await assert.rejects(
+    () => gateway.resolveXcmMaxWeight(
+      { refTime: Number.MAX_SAFE_INTEGER + 2, proofSize: 0 },
+      "0x1234",
+      "requestStrategyDeposit"
+    ),
+    ValidationError
+  );
+});
+
+test("resolveXcmMaxWeight rejects weights above uint64", async () => {
+  const gateway = new BlockchainGateway({ enabled: false });
+
+  await assert.rejects(
+    () => gateway.resolveXcmMaxWeight(
+      { refTime: "18446744073709551616", proofSize: 0 },
+      "0x1234",
+      "requestStrategyDeposit"
+    ),
+    ValidationError
   );
 });
 
@@ -848,7 +888,7 @@ test("resolveXcmMaxWeight quotes the wrapper when builder weight is zero", async
 
   assert.deepEqual(
     await gateway.resolveXcmMaxWeight({ refTime: 0, proofSize: 0 }, "0x1234", "requestStrategyDeposit"),
-    { refTime: 70, proofSize: 4 }
+    { refTime: 70n, proofSize: 4n }
   );
 });
 
