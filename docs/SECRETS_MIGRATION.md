@@ -1790,6 +1790,26 @@ the backend signer is never on disk, in any vault, or in any backup.
 Compromise of the VPS or 1Password vault no longer implies
 compromise of the signer.
 
+### Phase 3 prep status (as of 2026-05-15)
+
+The offline pieces that don't require AWS account creation are landed.
+The AWS-side day will pick up from here:
+
+| What                                                                 | Status      | Where                                                              |
+| -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------ |
+| AWS KMS SDK as `mcp-server` dependency                              | ✅ landed   | `mcp-server/package.json` → `@aws-sdk/client-kms`                  |
+| EVM-address-from-KMS-public-key script                              | ✅ landed   | `scripts/ops/derive-kms-signer-address.mjs`                        |
+| Offline test fixtures (no AWS account needed)                       | ✅ landed   | `scripts/ops/derive-kms-signer-address.test.mjs` (8 unit tests)    |
+| `averray-signer-prod-role` IAM policy ready to paste                | ✅ landed   | `deploy/iam-policies/averray-signer-prod-role.json` + README       |
+| AWS account creation + KMS key + Roles Anywhere CA + CloudWatch     | ⏳ deferred | Operator runs §3a–§3b–§3c when ready to spend AWS dollars          |
+| `KmsSigner` adapter in backend (ethers-compatible)                  | ⏳ deferred | Follow-up PR once KMS key exists for end-to-end testing            |
+| `SIGNER_BACKEND=kms` cutover flag                                   | ⏳ deferred | Same follow-up PR                                                  |
+
+The Phase 3 prep PR deliberately stays AWS-free and reviewable. Running
+`node scripts/ops/derive-kms-signer-address.mjs --spki-file <captured.der>`
+parses any captured KMS public-key blob locally, which is enough to
+verify the address-derivation path before any real key is provisioned.
+
 **Phase 3 is the custody migration for the backend blockchain signer.**
 After this phase, the backend no longer receives a raw
 `SIGNER_PRIVATE_KEY`. The private key material lives only inside AWS
