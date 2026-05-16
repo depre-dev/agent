@@ -31,6 +31,18 @@ contract MockXcmPrecompile {
     }
 }
 
+contract MockMalformedXcmPrecompile {
+    fallback() external {
+        assembly {
+            mstore(0x00, not(0))
+            mstore(0x20, 0)
+            return(0x00, 0x40)
+        }
+    }
+
+    function send(bytes calldata, bytes calldata) external {}
+}
+
 contract XcmWrapperTest is Test {
     TreasuryPolicy internal policy;
     MockXcmPrecompile internal precompile;
@@ -113,6 +125,28 @@ contract XcmWrapperTest is Test {
         assertEq(record.context.account, address(0));
         require(wrapper.requestDestinationHash(requestId) == bytes32(0), "DEST_HASH_SHOULD_ROLL_BACK");
         require(wrapper.requestMessageHash(requestId) == bytes32(0), "MESSAGE_HASH_SHOULD_ROLL_BACK");
+    }
+
+    function testQueueRequestRejectsMissingPrecompileBeforeRecording() public {
+        XcmWrapper badWrapper = new XcmWrapper(policy, address(0xA11CE));
+        IXcmWrapper.RequestContext memory context = _context(25 ether, 0, 1);
+        bytes32 requestId = badWrapper.previewRequestId(context);
+        bytes memory message = _depositMessage(requestId);
+
+        vm.prank(operator);
+        (bool ok, bytes memory data) = address(badWrapper)
+            .call(
+                abi.encodeCall(
+                    badWrapper.queueRequest,
+                    (context, hex"0102", message, IXcmWrapper.Weight({refTime: 1, proofSize: 2}))
+                )
+            );
+        _assertCustomError(ok, data, XcmWrapper.XcmPrecompileUnavailable.selector);
+
+        IXcmWrapper.RequestRecord memory record = badWrapper.getRequest(requestId);
+        assertEq(record.context.account, address(0));
+        require(badWrapper.requestDestinationHash(requestId) == bytes32(0), "DEST_HASH_SHOULD_NOT_BE_RECORDED");
+        require(badWrapper.requestMessageHash(requestId) == bytes32(0), "MESSAGE_HASH_SHOULD_NOT_BE_RECORDED");
     }
 
     function testQueueRequestRejectsPayloadMismatchForSameContext() public {
@@ -334,6 +368,15 @@ contract XcmWrapperTest is Test {
         IXcmWrapper.Weight memory weight = wrapper.weighMessage(hex"aabbcc");
         assertEq(weight.refTime, 30);
         assertEq(weight.proofSize, 3);
+    }
+
+    function testWeighMessageReturnsZeroForMalformedPrecompileQuote() public {
+        XcmWrapper badWrapper = new XcmWrapper(policy, address(new MockMalformedXcmPrecompile()));
+
+        IXcmWrapper.Weight memory weight = badWrapper.weighMessage(hex"aabbcc");
+
+        assertEq(weight.refTime, 0);
+        assertEq(weight.proofSize, 0);
     }
 
     function _context(uint256 assets, uint256 shares, uint64 nonce)

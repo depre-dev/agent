@@ -11,11 +11,20 @@ import {XcmWrapper} from "../contracts/XcmWrapper.sol";
 import {IXcmWrapper} from "../contracts/interfaces/IXcmWrapper.sol";
 import {XcmVdotAdapter} from "../contracts/strategies/XcmVdotAdapter.sol";
 
+contract AsyncStrategyMockXcmPrecompile {
+    function send(bytes calldata, bytes calldata) external {}
+
+    function weighMessage(bytes calldata message) external pure returns (IXcmWrapper.Weight memory) {
+        return IXcmWrapper.Weight({refTime: uint64(message.length * 10), proofSize: uint64(message.length)});
+    }
+}
+
 contract AgentAccountAsyncStrategyTest is Test {
     TreasuryPolicy internal policy;
     StrategyAdapterRegistry internal registry;
     AgentAccountCore internal accounts;
     MockERC20 internal dot;
+    AsyncStrategyMockXcmPrecompile internal precompile;
     XcmWrapper internal wrapper;
     XcmVdotAdapter internal adapter;
 
@@ -29,7 +38,8 @@ contract AgentAccountAsyncStrategyTest is Test {
         registry = new StrategyAdapterRegistry(policy);
         accounts = new AgentAccountCore(policy, registry);
         dot = new MockERC20("Mock DOT", "mDOT");
-        wrapper = new XcmWrapper(policy, address(0));
+        precompile = new AsyncStrategyMockXcmPrecompile();
+        wrapper = new XcmWrapper(policy, address(precompile));
         adapter = new XcmVdotAdapter(policy, address(dot), STRATEGY_ID, wrapper);
 
         policy.setApprovedAsset(address(dot), true);

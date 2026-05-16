@@ -49,6 +49,7 @@ contract XcmWrapper is IXcmWrapper, ReentrancyGuard {
     error InvalidTransition();
     error InvalidSetTopic();
     error InvalidWeight();
+    error XcmPrecompileUnavailable();
     error PayloadMismatch();
     error XcmDispatchFailed(bytes reason);
 
@@ -83,12 +84,11 @@ contract XcmWrapper is IXcmWrapper, ReentrancyGuard {
     }
 
     function weighMessage(bytes calldata message) external view override returns (Weight memory weight) {
-        (bool ok, bytes memory data) = xcmPrecompile.staticcall(abi.encodeCall(IXcmPrecompile.weighMessage, (message)));
-        if (!ok || data.length == 0) {
+        (bool ok, Weight memory quoted) = _tryWeighMessage(message);
+        if (!ok) {
             return Weight({refTime: 0, proofSize: 0});
         }
-
-        return abi.decode(data, (Weight));
+        return quoted;
     }
 
     function queueRequest(
@@ -113,6 +113,8 @@ contract XcmWrapper is IXcmWrapper, ReentrancyGuard {
             }
             return requestId;
         }
+
+        _validateXcmPrecompileAvailable(message);
 
         requests[requestId] = RequestRecord({
             context: RequestContext({
@@ -205,6 +207,29 @@ contract XcmWrapper is IXcmWrapper, ReentrancyGuard {
     function _dispatchXcm(bytes calldata destination, bytes calldata message) internal {
         (bool ok, bytes memory data) = xcmPrecompile.call(abi.encodeCall(IXcmPrecompile.send, (destination, message)));
         if (!ok) revert XcmDispatchFailed(data);
+    }
+
+    function _validateXcmPrecompileAvailable(bytes calldata message) internal view {
+        (bool ok, Weight memory quoted) = _tryWeighMessage(message);
+        if (!ok || quoted.refTime == 0) revert XcmPrecompileUnavailable();
+    }
+
+    function _tryWeighMessage(bytes calldata message) internal view returns (bool ok, Weight memory weight) {
+        (bool callOk, bytes memory data) =
+            xcmPrecompile.staticcall(abi.encodeCall(IXcmPrecompile.weighMessage, (message)));
+        if (!callOk || data.length < 64) {
+            return (false, Weight({refTime: 0, proofSize: 0}));
+        }
+        uint256 refTime;
+        uint256 proofSize;
+        assembly {
+            refTime := mload(add(data, 32))
+            proofSize := mload(add(data, 64))
+        }
+        if (refTime > type(uint64).max || proofSize > type(uint64).max) {
+            return (false, Weight({refTime: 0, proofSize: 0}));
+        }
+        return (true, Weight({refTime: uint64(refTime), proofSize: uint64(proofSize)}));
     }
 
     function _validateRequestContext(RequestContext calldata context) internal pure {
