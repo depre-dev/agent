@@ -184,10 +184,11 @@ Revocation is **idempotent** — calling it twice returns
 incident-response tooling fire revokes liberally without worrying about
 shape errors.
 
-Once revoked, every subsequent request bearing that token's JWT fails
-with `401`. Existing in-flight requests are not interrupted (the JWT
-verification happens per-request), so a long-running session may have a
-few seconds of grace; design for at-most-one-request leak.
+Once revoked, every subsequent protected-route request bearing that token's JWT
+fails with `403 missing_capability` because the JWT still parses but the bound
+grant resolves to no active capabilities. Existing in-flight requests are not
+interrupted (the grant check happens per-request), so a long-running session
+may have a few seconds of grace; design for at-most-one-request leak.
 
 ### Listing (admin, audit and inventory)
 
@@ -206,6 +207,42 @@ Useful audit queries:
 
 The `token` field is never returned by `listServiceTokens` — it only
 exists in the issue/rotate response and cannot be recovered.
+
+## Hosted proof smoke
+
+The hosted smoke can exercise the full least-privilege loop without exposing
+the raw service token in logs or evidence:
+
+```bash
+CHECK_SERVICE_TOKEN_PROOF=1 \
+ADMIN_JWT="$ADMIN_JWT" \
+SERVICE_TOKEN_PROOF_EVIDENCE_FILE=artifacts/service-token-proof.json \
+./scripts/ops/check-hosted-stack.sh
+```
+
+What it proves:
+
+- the admin token has the `admin` role plus grant/read/revoke capability;
+- a scoped service token can be issued for only the requested capabilities;
+- `GET /auth/session` projects it as `tokenKind: "service"`;
+- an allowed route succeeds and ungranted routes fail;
+- revocation removes the route capability on the next request;
+- `GET /admin/service-tokens` lists the revoked grant without a `token` field.
+
+Optional knobs:
+
+- `SERVICE_TOKEN_PROOF_SUBJECT` — proof wallet address; defaults to a
+  deterministic non-admin subject.
+- `SERVICE_TOKEN_PROOF_CAPABILITIES` — comma-separated least-privilege bundle;
+  defaults to `jobs:recommend`.
+- `SERVICE_TOKEN_PROOF_ALLOWED_PATH` — route that should succeed with the
+  scoped token; defaults to `/jobs/recommendations`.
+- `SERVICE_TOKEN_PROOF_DENIED_PATHS` — comma-separated routes that must fail;
+  defaults to `/account,/admin/status`.
+
+The evidence file intentionally records grant ids, statuses, capabilities, and
+HTTP status codes only. It fails closed if token-shaped material would be
+written.
 
 ## Runbook checklist
 

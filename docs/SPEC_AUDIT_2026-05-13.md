@@ -239,9 +239,13 @@ SSH/basic-auth/admin-JWT cutovers, and the basic hosted smoke is green.
   guidance, `authPolicy.uiControls` UI gating, and audit events are present.
   Grant-cache invalidation now makes operator-issued revokes effective on the
   next request in the serving process, with the middleware TTL only as a
-  cross-process backstop.
-- Remaining: add hosted/live smoke evidence for a scoped external-agent token
-  using only its least-privilege capabilities, and extend delegated-wallet UX
+  cross-process backstop. The hosted smoke now has an opt-in
+  `CHECK_SERVICE_TOKEN_PROOF=1` gate that issues a least-privilege service
+  token, proves allowed vs ungranted routes, revokes the grant, confirms the
+  old token loses access, and writes sanitized evidence without raw token
+  material.
+- Remaining: run the hosted service-token proof against production and attach
+  its sanitized evidence to the launch pack, then extend delegated-wallet UX
   once native Substrate auth lands.
 
 ### Secrets Phase 2+ And Mainnet Custody
@@ -309,6 +313,8 @@ correlation and settlement path.
    adoption.
 4. Prove the dispute verdict path live and decide `/release` semantics.
 5. Run the native XCM evidence pack captures.
-6. Continue folding funding/settlement/dispute events into the canonical
+6. Run the scoped service-token hosted proof with
+   `CHECK_SERVICE_TOKEN_PROOF=1` and archive the sanitized evidence.
+7. Continue folding funding/settlement/dispute events into the canonical
    timeline and finish visible filter adoption where still missing.
-7. Continue Phase 2+ secrets cleanup and signer custody hardening.
+8. Continue Phase 2+ secrets cleanup and signer custody hardening.

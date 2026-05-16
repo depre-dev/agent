@@ -91,6 +91,9 @@ Restore procedures:
   1Password SSH/basic-auth/admin-JWT cutovers.
 - [ ] When an admin JWT is available, `/admin/status` reports the async XCM
   watcher lane cleanly.
+- [ ] Hosted scoped service-token proof passes with sanitized evidence:
+  issue a least-privilege token, prove allowed and denied routes, revoke it,
+  and confirm `listServiceTokens` does not expose raw token material.
 
 Run:
 
@@ -104,6 +107,12 @@ APP_ALLOW_PROTECTED_SHELL=1 ./scripts/ops/check-hosted-stack.sh
 
 # Optional: include the async XCM operator lane in the smoke check
 ADMIN_JWT='<admin-jwt>' ./scripts/ops/check-hosted-stack.sh
+
+# Optional: include the scoped service-token proof and write sanitized evidence
+ADMIN_JWT='<admin-jwt>' \
+CHECK_SERVICE_TOKEN_PROOF=1 \
+SERVICE_TOKEN_PROOF_EVIDENCE_FILE=artifacts/service-token-proof.json \
+./scripts/ops/check-hosted-stack.sh
 
 # Optional: include operator-reporting instrumentation.
 ADMIN_JWT='<admin-jwt>' \
