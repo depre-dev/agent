@@ -10,9 +10,18 @@ import {IXcmStrategyAdapter} from "../contracts/interfaces/IXcmStrategyAdapter.s
 import {XcmWrapper} from "../contracts/XcmWrapper.sol";
 import {XcmVdotAdapter} from "../contracts/strategies/XcmVdotAdapter.sol";
 
+contract VdotAdapterMockXcmPrecompile {
+    function send(bytes calldata, bytes calldata) external {}
+
+    function weighMessage(bytes calldata message) external pure returns (IXcmWrapper.Weight memory) {
+        return IXcmWrapper.Weight({refTime: uint64(message.length * 10), proofSize: uint64(message.length)});
+    }
+}
+
 contract XcmVdotAdapterTest is Test {
     TreasuryPolicy internal policy;
     MockERC20 internal asset;
+    VdotAdapterMockXcmPrecompile internal precompile;
     XcmWrapper internal wrapper;
     XcmVdotAdapter internal adapter;
 
@@ -25,7 +34,8 @@ contract XcmVdotAdapterTest is Test {
     function setUp() public {
         policy = new TreasuryPolicy();
         asset = new MockERC20("DOT", "DOT");
-        wrapper = new XcmWrapper(policy, address(0));
+        precompile = new VdotAdapterMockXcmPrecompile();
+        wrapper = new XcmWrapper(policy, address(precompile));
         adapter = new XcmVdotAdapter(policy, address(asset), STRATEGY_ID, IXcmWrapper(address(wrapper)));
 
         policy.setServiceOperator(operator, true);
