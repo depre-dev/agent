@@ -37,6 +37,30 @@
       "name": "sharp",
       "reason": "Native libvips bindings for image processing. Used by marketing/Astro site build for image optimization. Install downloads precompiled libvips for the runner arch.",
       "added_at": "2026-05-13"
+    },
+    {
+      "path": "node_modules/@acala-network/chopsticks-db/node_modules/sqlite3",
+      "name": "sqlite3",
+      "reason": "Nested sqlite3 under chopsticks-db (Acala fork-testing toolkit). Same package + install behavior as the top-level node_modules/sqlite3 entry — native SQLite bindings via node-gyp. Exposed as a separate path after the Tier 1 security-bumps lockfile regen.",
+      "added_at": "2026-05-16"
+    },
+    {
+      "path": "node_modules/ponder/node_modules/esbuild",
+      "name": "esbuild",
+      "reason": "Nested esbuild under ponder (indexer framework). Same install behavior as the top-level esbuild entry — downloads platform-specific Go binary. Exposed as a separate path after the Tier 1 lockfile regen because ponder pins a different version than the hoisted one.",
+      "added_at": "2026-05-16"
+    },
+    {
+      "path": "node_modules/vite-node/node_modules/esbuild",
+      "name": "esbuild",
+      "reason": "Nested esbuild under vite-node (used by vitest). Same install behavior as the top-level esbuild entry. Exposed as a separate path after the Tier 1 lockfile regen.",
+      "added_at": "2026-05-16"
+    },
+    {
+      "path": "node_modules/vite/node_modules/esbuild",
+      "name": "esbuild",
+      "reason": "Nested esbuild under vite (dev server / app build). Same install behavior as the top-level esbuild entry. Exposed as a separate path after the Tier 1 lockfile regen.",
+      "added_at": "2026-05-16"
     }
   ]
 }
