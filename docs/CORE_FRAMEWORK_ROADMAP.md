@@ -362,12 +362,16 @@ across environment config, JWT roles, and route-level decisions.
 - `/auth/session` and `/admin/status` expose the active capability matrix so
   the operator app and automation clients can render controls from backend
   policy instead of duplicating route rules
+- `scripts/ops/check-service-token-proof.mjs` and
+  `CHECK_SERVICE_TOKEN_PROOF=1 ./scripts/ops/check-hosted-stack.sh` provide an
+  opt-in hosted proof for issue -> use -> deny ungranted routes -> revoke ->
+  list-redacted behavior
 
 ### Remaining gaps
 
 - signed tokens are still issued from coarse environment role lists
-- hosted evidence still needs one least-privilege service token to run a real
-  external-agent flow end to end without an admin wallet token
+- hosted evidence still needs the opt-in service-token proof run against
+  production and attached to the launch evidence pack
 - delegated-wallet UX should expand again once native Substrate auth lands
 
 ### Improve to
@@ -381,8 +385,9 @@ across environment config, JWT roles, and route-level decisions.
 
 ### Concrete next changes
 
-- run a hosted proof with an operator-issued service token that only carries
-  the worker capabilities it needs
+- run the hosted proof with `CHECK_SERVICE_TOKEN_PROOF=1`, an admin JWT, and a
+  `SERVICE_TOKEN_PROOF_EVIDENCE_FILE`, then attach the sanitized JSON evidence
+  to the launch pack
 - keep the service-token grant cache invalidation covered as the revocation
   path evolves
 - revisit delegated-wallet UX when native Substrate sign-in is accepted by

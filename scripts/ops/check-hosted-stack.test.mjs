@@ -95,3 +95,53 @@ test("operator reporting gate keeps email optional and guards secrets", async ()
     "optional sent-email gate should bound the freshness of lastSuccessfulAt"
   );
 });
+
+test("scoped service-token proof gate is opt-in, admin-gated, and supports evidence files", async () => {
+  const script = await readFile(CHECK_SCRIPT, "utf8");
+
+  assert.match(
+    script,
+    /CHECK_SERVICE_TOKEN_PROOF=\$\{CHECK_SERVICE_TOKEN_PROOF:-0\}/u,
+    "service-token proof should be opt-in"
+  );
+  assert.match(
+    script,
+    /CHECK_SERVICE_TOKEN_PROOF=1 requires ADMIN_JWT/u,
+    "service-token proof should fail closed without an admin token"
+  );
+  assert.match(
+    script,
+    /SERVICE_TOKEN_PROOF_EVIDENCE_FILE="\$repo_root\/\$SERVICE_TOKEN_PROOF_EVIDENCE_FILE"/u,
+    "relative service-token evidence paths should be normalized before node or docker checks"
+  );
+  assert.match(
+    script,
+    /service_token_proof_evidence_dir="\$\(dirname "\$SERVICE_TOKEN_PROOF_EVIDENCE_FILE"\)"/u,
+    "docker fallback should derive the service-token evidence host directory"
+  );
+  assert.match(
+    script,
+    /mkdir -p "\$service_token_proof_evidence_dir"/u,
+    "docker fallback should create the service-token evidence host directory"
+  );
+  assert.match(
+    script,
+    /node "\$script_dir\/check-service-token-proof\.mjs"/u,
+    "node path should invoke the service-token proof checker"
+  );
+  assert.match(
+    script,
+    /node scripts\/ops\/check-service-token-proof\.mjs/u,
+    "docker fallback should invoke the service-token proof checker"
+  );
+  assert.match(
+    script,
+    /SERVICE_TOKEN_PROOF_CAPABILITIES="\$SERVICE_TOKEN_PROOF_CAPABILITIES"/u,
+    "service-token proof should pass capability overrides through"
+  );
+  assert.match(
+    script,
+    /service_token_proof_docker_volume_args\+=\(-v "\$service_token_proof_evidence_dir:\$service_token_proof_evidence_dir"\)/u,
+    "docker fallback should mount service-token evidence at the same absolute path"
+  );
+});
