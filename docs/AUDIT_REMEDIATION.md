@@ -51,7 +51,9 @@ This is not complete launch planning. The audit does not surface every open item
 
 ### P1.1 - Money-like actions can succeed in off-chain memory mode
 
-**Status:** Open. **Launch-blocking.**
+**Status:** Closed on 2026-05-17 in `02270db` (PR #403 *Gate money mutations behind chain backend*).
+**Verification:** `node --test mcp-server/src/core/mutation-backend.test.js` (7/7 pass) covers the env / mode / gateway-state matrix; `RUN_HTTP_SMOKE=1 npm --workspace mcp-server test` exercises the integration assertion at `mcp-server/src/protocols/http/server.smoke.test.js:132` (the *http smoke: production money-like routes require a chain backend* case, which iterates all six money-like routes and asserts `503 chain_backend_required` with the documented body shape).
+**Notes:** Implementation in `mcp-server/src/core/mutation-backend.js` (env loader + `assertMutationBackendAvailable`); HTTP wiring via `requireChainBackedMutation()` in `mcp-server/src/protocols/http/server.js`; production defaults in `deployments/mainnet.env.example:9` and `scripts/write_server_env.sh:60`; startup log emitted from `mcp-server/src/services/bootstrap.js:161` as the first `logger.info` call (well within the "first 5 log lines" requirement); `ChainBackendRequiredError` (`mcp-server/src/core/errors.js:47`) carries `statusCode: 503` and `code: "chain_backend_required"`, and the server response formatter hoists `details.reason` to the top-level `reason` field per the close-criteria body shape (`mcp-server/src/protocols/http/server.js:4370`). `/agent/transfer` is still not exposed on `origin/main`; if it is added later, it must inherit `requireChainBackedMutation`. Verified against `origin/main` at HEAD `9d05afa`.
 
 **Audit reference:** `mcp-server/src/core/account-mutation-service.js` (`allocateIdleFunds`, `deallocateIdleFunds`, `borrow`, `repay`, `agentTransfer`), `mcp-server/src/blockchain/gateway.js` (`healthCheck` disabled mode), `mcp-server/src/protocols/http/server.js` routes `/account/fund`, `/account/allocate`, `/account/deallocate`, `/account/borrow`, `/account/repay`, `/payments/send`.
 
@@ -63,13 +65,13 @@ This is not complete launch planning. The audit does not surface every open item
 
 **Close criteria:**
 
-- [ ] New env var `MUTATION_BACKEND=memory|chain|required` introduced. Production default: `required`. Development default: `memory`.
-- [ ] When `MUTATION_BACKEND=required`, or when `MUTATION_BACKEND=chain` and the gateway is unhealthy, the following routes reject with HTTP `503` and error code `chain_backend_required`: `/account/allocate`, `/account/deallocate`, `/account/borrow`, `/account/repay`, `/account/fund`, `/payments/send`.
-- [ ] Error response body includes `{ "error": "chain_backend_required", "reason": <gateway-status-detail> }`.
-- [ ] Production deploy config (`deployments/mainnet.env.example`, `scripts/write_server_env.sh`) sets `MUTATION_BACKEND=required` by default.
-- [ ] Startup log surfaces mutation backend mode prominently in the first 5 log lines: `MUTATION_BACKEND=required, chain status: healthy`.
-- [ ] Integration test: with `NODE_ENV=production` and no blockchain config, every money-like route returns `503 chain_backend_required`.
-- [ ] Integration test: with chain enabled and healthy, those routes can succeed through the chain path.
+- [x] New env var `MUTATION_BACKEND=memory|chain|required` introduced. Production default: `required`. Development default: `memory`.
+- [x] When `MUTATION_BACKEND=required`, or when `MUTATION_BACKEND=chain` and the gateway is unhealthy, the following routes reject with HTTP `503` and error code `chain_backend_required`: `/account/allocate`, `/account/deallocate`, `/account/borrow`, `/account/repay`, `/account/fund`, `/payments/send`.
+- [x] Error response body includes `{ "error": "chain_backend_required", "reason": <gateway-status-detail> }`.
+- [x] Production deploy config (`deployments/mainnet.env.example`, `scripts/write_server_env.sh`) sets `MUTATION_BACKEND=required` by default.
+- [x] Startup log surfaces mutation backend mode prominently in the first 5 log lines: `MUTATION_BACKEND=required, chain status: healthy`.
+- [x] Integration test: with `NODE_ENV=production` and no blockchain config, every money-like route returns `503 chain_backend_required`.
+- [x] Integration test: with chain enabled and healthy, those routes can succeed through the chain path.
 
 **Verification approach:** Boot the server with chain disabled and `MUTATION_BACKEND=required`, hit each money-like endpoint, and assert `503 chain_backend_required`. Boot with chain enabled and healthy, hit the same endpoints, and assert success or the expected domain-level validation error.
 
@@ -395,6 +397,8 @@ The remediation work should be split into narrow branches so multiple agents can
 
 ### Package A - P1.1 mutation backend gate
 
+**Status:** Closed on 2026-05-17 in `02270db` (PR #403). Package B route wiring, Package C health warnings, and Package D idempotency route integration are now unblocked.
+
 **Suggested branch:** `codex/p1-mutation-backend-gate`
 **Can start now:** Yes.
 **Blocks:** Package B route wiring, Package C health warnings, Package D idempotency route integration.
@@ -417,7 +421,7 @@ The remediation work should be split into narrow branches so multiple agents can
 - Route-module refactor work for `P2.3`
 - Idempotency storage/replay implementation beyond leaving a clean hook for it
 
-**Close output:** `MUTATION_BACKEND` exists, production defaults to `required`, disabled/unhealthy chain returns `503 chain_backend_required` for the listed money-like routes, and tests cover disabled-chain production mode.
+**Close output:** `MUTATION_BACKEND` exists, production defaults to `required`, disabled/unhealthy chain returns `503 chain_backend_required` for the listed money-like routes, and tests cover disabled-chain production mode. **Achieved** — see the P1.1 finding section above for the full verification trail.
 
 ### Package B - P1.1b health truth split
 
