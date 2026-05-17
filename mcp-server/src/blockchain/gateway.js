@@ -1213,6 +1213,24 @@ export class BlockchainGateway {
           throw error;
         }
       }
+      if (strategyRequest?.settled) {
+        if (!this.strategySettlementMatches(
+          strategyRequest,
+          normalizedStatus,
+          normalizedSettledAssets,
+          normalizedSettledShares,
+          normalizedRemoteRef,
+          normalizedFailureCode
+        )) {
+          throw new ValidationError("Strategy XCM request is already settled with a different outcome.");
+        }
+        return {
+          ...(await this.getXcmRequest(normalizedRequestId)),
+          strategyRequest,
+          settledVia: "agent_account",
+          alreadySettled: true
+        };
+      }
       this.validateStrategySettlementOutcome(
         strategyRequest,
         normalizedStatus,
@@ -1241,9 +1259,18 @@ export class BlockchainGateway {
       return {
         ...(await this.getXcmRequest(normalizedRequestId)),
         strategyRequest: await this.getStrategyRequest(normalizedRequestId).catch(() => undefined),
-        settledVia: strategyRequest ? "agent_account" : "xcm_wrapper"
+        settledVia: strategyRequest ? "agent_account" : "xcm_wrapper",
+        alreadySettled: false
       };
     });
+  }
+
+  strategySettlementMatches(strategyRequest, status, settledAssets, settledShares, remoteRef, failureCode) {
+    return Number(strategyRequest?.status) === status
+      && BigInt(strategyRequest?.settledAssetsRaw ?? 0) === settledAssets
+      && BigInt(strategyRequest?.settledSharesRaw ?? 0) === settledShares
+      && this.toBytes32Value(strategyRequest?.remoteRef, "remoteRef").toLowerCase() === remoteRef.toLowerCase()
+      && this.toBytes32Value(strategyRequest?.failureCode, "failureCode").toLowerCase() === failureCode.toLowerCase();
   }
 
   validateStrategySettlementOutcome(strategyRequest, status, settledAssets, settledShares) {

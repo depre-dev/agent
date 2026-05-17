@@ -1090,6 +1090,46 @@ test("finalizeXcmRequest records async treasury settlement when the request is s
   assert.equal(account.treasuryTimeline[0].type, "allocate");
 });
 
+test("finalizeXcmRequest skips local treasury settlement for already-settled replays", async () => {
+  const gateway = {
+    isEnabled: () => true,
+    getAccountSummary: async (wallet) => ({
+      wallet,
+      liquid: { DOT: 10 },
+      reserved: {},
+      strategyAllocated: {},
+      collateralLocked: {},
+      jobStakeLocked: {},
+      debtOutstanding: {}
+    }),
+    finalizeXcmRequest: async () => ({
+      requestId: "0xrequest",
+      alreadySettled: true,
+      strategyRequest: {
+        account: WALLET,
+        strategyId: "0xstrategy",
+        assetSymbol: "DOT",
+        kindLabel: "deposit",
+        statusLabel: "succeeded",
+        requestedAssets: 5,
+        settledAssets: 5
+      }
+    })
+  };
+  const service = makePlatformService(gateway);
+
+  const finalized = await service.finalizeXcmRequest("0xrequest", {
+    status: "succeeded",
+    settledAssets: 5,
+    settledShares: 5
+  });
+  const account = await service.getAccountSummary(WALLET);
+
+  assert.equal(finalized.alreadySettled, true);
+  assert.equal(account.strategyAccounting["0xstrategy"], undefined);
+  assert.equal(account.treasuryTimeline.length, 0);
+});
+
 test("getAdminStatus surfaces XCM observation relay status", async () => {
   const service = makePlatformService();
   service.xcmObservationRelay = {

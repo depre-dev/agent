@@ -1056,6 +1056,118 @@ test("finalizeXcmRequest preserves exact uint256 settlement amounts", async () =
   assert.equal(calls[0][3], 18446744073709551616n);
 });
 
+test("finalizeXcmRequest skips matching already-settled strategy requests", async () => {
+  const gateway = new BlockchainGateway({ enabled: false, supportedAssets: [USDC_TRUST_ASSET] });
+  const requestId = `0x${"5".repeat(64)}`;
+  const account = "0x3333333333333333333333333333333333333333";
+  const recipient = "0x4444444444444444444444444444444444444444";
+  let settlementRelayed = false;
+
+  gateway.signer = {};
+  gateway.accountContract = {
+    async strategyRequests(id) {
+      assert.equal(id, requestId);
+      return {
+        strategyId: encodeBytes32String("USDC"),
+        adapter: "0x5555555555555555555555555555555555555555",
+        account,
+        asset: USDC_TRUST_ASSET.address,
+        recipient,
+        kind: 0,
+        status: 2,
+        requestedAssets: 1n,
+        requestedShares: 0n,
+        settledAssets: 5_000_000n,
+        settledShares: 7_000_000n,
+        remoteRef: `0x${"0".repeat(64)}`,
+        failureCode: `0x${"0".repeat(64)}`,
+        settled: true
+      };
+    },
+    async settleStrategyRequest() {
+      settlementRelayed = true;
+      return { async wait() {} };
+    }
+  };
+  gateway.xcmWrapperContract = {
+    async getRequest(id) {
+      assert.equal(id, requestId);
+      return {
+        context: {
+          strategyId: encodeBytes32String("USDC"),
+          kind: 0,
+          account,
+          asset: USDC_TRUST_ASSET.address,
+          recipient,
+          assets: 1n,
+          shares: 0n,
+          nonce: 7n
+        },
+        status: 2,
+        settledAssets: 5_000_000n,
+        settledShares: 7_000_000n,
+        remoteRef: `0x${"0".repeat(64)}`,
+        failureCode: `0x${"0".repeat(64)}`,
+        createdAt: 10n,
+        updatedAt: 12n
+      };
+    }
+  };
+
+  const finalized = await gateway.finalizeXcmRequest(requestId, {
+    status: "succeeded",
+    settledAssets: "5000000",
+    settledShares: "7000000"
+  });
+
+  assert.equal(settlementRelayed, false);
+  assert.equal(finalized.alreadySettled, true);
+  assert.equal(finalized.settledVia, "agent_account");
+  assert.equal(finalized.strategyRequest.settled, true);
+});
+
+test("finalizeXcmRequest rejects conflicting already-settled strategy replays before tx", async () => {
+  const gateway = new BlockchainGateway({ enabled: false, supportedAssets: [USDC_TRUST_ASSET] });
+  const requestId = `0x${"6".repeat(64)}`;
+  let settlementRelayed = false;
+
+  gateway.signer = {};
+  gateway.accountContract = {
+    async strategyRequests() {
+      return {
+        strategyId: encodeBytes32String("USDC"),
+        adapter: "0x5555555555555555555555555555555555555555",
+        account: "0x3333333333333333333333333333333333333333",
+        asset: USDC_TRUST_ASSET.address,
+        recipient: "0x4444444444444444444444444444444444444444",
+        kind: 0,
+        status: 3,
+        requestedAssets: 1n,
+        requestedShares: 0n,
+        settledAssets: 0n,
+        settledShares: 0n,
+        remoteRef: `0x${"0".repeat(64)}`,
+        failureCode: encodeBytes32String("FAILED"),
+        settled: true
+      };
+    },
+    async settleStrategyRequest() {
+      settlementRelayed = true;
+      return { async wait() {} };
+    }
+  };
+
+  await assert.rejects(
+    () => gateway.finalizeXcmRequest(requestId, {
+      status: "succeeded",
+      settledAssets: "5000000",
+      settledShares: "7000000"
+    }),
+    ValidationError
+  );
+  assert.equal(settlementRelayed, false);
+});
+
 test("finalizeXcmRequest rejects unsafe numeric settlement amounts before tx", async () => {
   const gateway = new BlockchainGateway({ enabled: false, supportedAssets: [USDC_TRUST_ASSET] });
   const requestId = `0x${"4".repeat(64)}`;

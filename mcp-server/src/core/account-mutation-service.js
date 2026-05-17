@@ -542,6 +542,12 @@ export class AccountMutationService {
     const pending = this.getStrategyPending(account, strategyId, asset);
     const kind = result?.strategyRequest?.kindLabel;
     const status = result?.strategyRequest?.statusLabel ?? result?.statusLabel ?? "unknown";
+    const requestId = result?.requestId;
+    pending.settledRequestIds = normalizeRequestIds(pending.settledRequestIds);
+    if (hasRequestId(pending.settledRequestIds, requestId)) {
+      this.accounts.set(wallet, account);
+      return account;
+    }
     const requestedAssets = Number(result?.strategyRequest?.requestedAssets ?? 0);
     const requestedShares = Number(result?.strategyRequest?.requestedShares ?? 0);
     const settledAssets = Number(result?.strategyRequest?.settledAssets ?? result?.settledAssets ?? 0);
@@ -564,7 +570,7 @@ export class AccountMutationService {
         pending.pendingDepositAssetsRaw,
         requestedAssetsRaw ?? settledAssetsRaw
       );
-      pending.pendingDepositRequestIds = removeRequestId(pending.pendingDepositRequestIds, result?.requestId);
+      pending.pendingDepositRequestIds = removeRequestId(pending.pendingDepositRequestIds, requestId);
       if (status === "succeeded") {
         this.updateStrategyAccountingOnAllocate(account, strategyId, asset, settledAssets || requestedAssets, {
           amountRaw: settledAssetsRaw ?? requestedAssetsRaw
@@ -576,7 +582,7 @@ export class AccountMutationService {
           asset,
           amount: requestedAssets,
           ...(requestedAssetsRaw !== undefined ? { amountRaw: requestedAssetsRaw } : {}),
-          requestId: result?.requestId,
+          requestId,
           failureCode: result?.strategyRequest?.failureCodeLabel ?? result?.failureCodeLabel
         });
       }
@@ -586,7 +592,7 @@ export class AccountMutationService {
         pending.pendingWithdrawalSharesRaw,
         requestedSharesRaw ?? settledSharesRaw
       );
-      pending.pendingWithdrawalRequestIds = removeRequestId(pending.pendingWithdrawalRequestIds, result?.requestId);
+      pending.pendingWithdrawalRequestIds = removeRequestId(pending.pendingWithdrawalRequestIds, requestId);
       if (status === "succeeded") {
         this.updateStrategyAccountingOnDeallocate(account, strategyId, asset, settledAssets, {
           assetsReturnedRaw: settledAssetsRaw
@@ -608,13 +614,14 @@ export class AccountMutationService {
             : settledSharesRaw !== undefined
               ? { requestedSharesRaw: settledSharesRaw }
               : {}),
-          requestId: result?.requestId,
+          requestId,
           failureCode: result?.strategyRequest?.failureCodeLabel ?? result?.failureCodeLabel
         });
       }
     }
 
-    pending.lastRequestId = result?.requestId;
+    pending.settledRequestIds = addRequestId(pending.settledRequestIds, requestId);
+    pending.lastRequestId = requestId;
     pending.lastStatus = status;
     pending.lastKind = kind;
     pending.updatedAt = new Date().toISOString();
