@@ -1,6 +1,6 @@
 import { getAddress } from "ethers";
 import { AuthenticationError, AuthorizationError } from "../core/errors.js";
-import { verifyToken } from "./jwt.js";
+import { verifyTokenFromConfig } from "./jwt.js";
 import { hasRole, resolveRoles } from "./config.js";
 import {
   getRouteCapabilityRequirements,
@@ -170,7 +170,15 @@ export function createAuthMiddleware({ authConfig, stateStore, logger = console,
       );
     }
 
-    const claims = verifyToken(token, { secrets: authConfig.secrets });
+    // verifyTokenFromConfig is the Phase 4b dispatcher (PR 4b.4). It
+    // routes to the HMAC or KMS backend based on authConfig.jwtBackend
+    // and the alg header — under the default JWT_BACKEND=hmac it is
+    // byte-for-byte equivalent to the previous verifyToken(secrets)
+    // call. ES256 verification is async (it lazy-imports the KMS
+    // signer module on first use), so the dispatcher itself returns
+    // a Promise — Promise.resolve(claims) for the HMAC path keeps the
+    // shape uniform.
+    const claims = await verifyTokenFromConfig(token, authConfig);
     if (!claims?.sub) {
       throw new AuthenticationError("Token missing subject claim.", "missing_subject");
     }
