@@ -19,14 +19,22 @@ Fill these in before calling the system production-ready:
 
 - Primary on-call: <ops@averray.com>
 - Backup on-call: <ops@averray.com>
-- Contract owner signers: `<hot / warm / cold mapping>`
-- Pauser operator: `<name / handle>`
-- External escalation path: `<vendor, consultant, or empty>`
+- Contract owner signers: the three 2-of-3 signatories in
+  [`deployments/testnet-multisig-owner.json`](../deployments/testnet-multisig-owner.json)
+  are currently all hot dev keys (testnet posture). Mainnet adoption of
+  hot / warm / cold custody tiers is a separate launch-readiness item
+  tracked in [`MULTISIG_SETUP.md`](./MULTISIG_SETUP.md).
+- Pauser operator: <ops@averray.com>
+- External escalation path: empty. Intentionally not assigned — no
+  audit firm or incident-response retainer is engaged yet. Update when
+  that changes.
 
-`ops@averray.com` is the operator alias that routes to whoever is on
-duty; both primary and backup land in the same inbox. Contract owner
-signers, pauser operator, and external escalation path are still
-unfilled — see §1 closing line.
+`ops@averray.com` is the operator alias that delivers to whoever is on
+duty; primary on-call, backup on-call, and pauser operator all land in
+the same inbox. The pauser role is `setPaused`-only per
+[`THREAT_MODEL.md`](./THREAT_MODEL.md), so a compromised pauser key can
+grief by pausing but cannot drain funds — sharing the inbox with on-call
+is acceptable for the v1 posture.
 
 If these are blank, you do not have incident ownership yet.
 
