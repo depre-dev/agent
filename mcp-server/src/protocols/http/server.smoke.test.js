@@ -1317,7 +1317,11 @@ test("http smoke: /jobs/estimate-reward surfaces the estimateNetReward tool", { 
     );
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.ok(body.jobId === "tier-smoke-reward-001" || body.id === "tier-smoke-reward-001" || "netReward" in body || "rewardAmount" in body, "expected estimate-reward payload to identify the job or include reward fields");
+    // job-catalog-service.estimateNetReward returns a scalar (the net-
+    // reward number after gas + risk penalties). For the smoke pass we
+    // assert the shape is a finite non-negative number, matching the
+    // implementation contract.
+    assert.ok(typeof body === "number" && Number.isFinite(body) && body >= 0, `expected estimate-reward to return a finite non-negative number, got ${JSON.stringify(body)}`);
   });
 });
 
