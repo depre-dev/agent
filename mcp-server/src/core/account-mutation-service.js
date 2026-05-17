@@ -6,6 +6,69 @@ import {
 } from "./errors.js";
 import { DEFAULT_ESCROW_ASSET_SYMBOL } from "./assets.js";
 
+/**
+ * Classification of every account-level field this service produces or
+ * touches. This is the Phase 1 deliverable for Package C (P1.2 account
+ * overlay durability) — operators and auditors can read this table to
+ * know which fields are authoritative on chain, which are cached, and
+ * which only exist in operator-facing display state.
+ *
+ * Sources:
+ *   - `chain_authoritative`: source of truth is the chain; backend reads
+ *     it via `blockchainGateway.getAccountSummary(wallet)` and the live
+ *     value MUST win over any stored copy.
+ *   - `derived_cache`: source of truth is the chain (or another upstream
+ *     contract like `XcmWrapper`); the in-memory overlay holds a cache
+ *     refreshed by writes. Live wins per-key; stored fills gaps where the
+ *     live read does not surface a particular sub-key.
+ *   - `display_only`: operator-facing breadcrumb (timeline, last-activity
+ *     hints). Not on-chain; not currently in the live `blockchainGateway`
+ *     response shape. Stored is the only source today. A future indexer
+ *     pass can rebuild these from chain events.
+ *
+ * Field table:
+ *   liquid                 → chain_authoritative
+ *   reserved               → chain_authoritative
+ *   strategyAllocated      → chain_authoritative
+ *   collateralLocked       → chain_authoritative
+ *   jobStakeLocked         → chain_authoritative
+ *   debtOutstanding        → chain_authoritative
+ *   strategyShares         → derived_cache  (adapter share balance)
+ *   strategyActivity       → display_only   (last op per strategy)
+ *   strategyPending        → derived_cache  (XcmWrapper pending state)
+ *   strategyAccounting     → derived_cache  (principal+yield+markValue)
+ *   recurringTemplateReserves → derived_cache (template reserve accounting)
+ *   treasuryTimeline       → display_only   (recent treasury-ops event log)
+ *
+ * Precedence rule (enforced by `attachStoredTreasuryMetadata` below):
+ *   - For chain_authoritative + derived_cache fields: live wins per-key;
+ *     stored is a gap-fill ONLY where the live read does not surface the
+ *     sub-key.
+ *   - For display_only fields: stored wins because there is no live
+ *     equivalent; defensive code still prefers live where a future
+ *     gateway response begins providing it.
+ *
+ * The in-memory `accounts` Map this service receives at construction is
+ * still process-local — Phase 2 of Package C will move durable overlay
+ * fields out of process memory (see docs/AUDIT_REMEDIATION.md, Package
+ * C, "Move all non-chain account overlays that operators rely on to
+ * Redis or Postgres").
+ */
+export const ACCOUNT_OVERLAY_CLASSIFICATION = Object.freeze({
+  liquid: "chain_authoritative",
+  reserved: "chain_authoritative",
+  strategyAllocated: "chain_authoritative",
+  collateralLocked: "chain_authoritative",
+  jobStakeLocked: "chain_authoritative",
+  debtOutstanding: "chain_authoritative",
+  strategyShares: "derived_cache",
+  strategyActivity: "display_only",
+  strategyPending: "derived_cache",
+  strategyAccounting: "derived_cache",
+  recurringTemplateReserves: "derived_cache",
+  treasuryTimeline: "display_only"
+});
+
 export class AccountMutationService {
   constructor(accounts, blockchainGateway = undefined, getAccountSummary) {
     this.accounts = accounts;
@@ -29,6 +92,7 @@ export class AccountMutationService {
       strategyActivity: {},
       strategyPending: {},
       strategyAccounting: {},
+      recurringTemplateReserves: {},
       treasuryTimeline: [],
       collateralLocked: {},
       jobStakeLocked: {},
@@ -43,31 +107,63 @@ export class AccountMutationService {
     account.strategyActivity = account.strategyActivity ?? {};
     account.strategyPending = account.strategyPending ?? {};
     account.strategyAccounting = account.strategyAccounting ?? {};
+    account.recurringTemplateReserves = account.recurringTemplateReserves ?? {};
     account.treasuryTimeline = account.treasuryTimeline ?? [];
     return account;
   }
 
+  /**
+   * Merge stored overlay metadata onto a freshly-read live account.
+   *
+   * Precedence per `ACCOUNT_OVERLAY_CLASSIFICATION`:
+   *   - For `derived_cache` fields (strategyShares, strategyPending,
+   *     strategyAccounting, recurringTemplateReserves) the live read wins per-key. Stored fills
+   *     gaps only where the live read does not surface a particular
+   *     sub-key. This was inverted in Package C Phase 1 — the previous
+   *     order let a stale stored value override a fresh chain read.
+   *   - For `display_only` fields (strategyActivity, treasuryTimeline)
+   *     stored is the only source today; defensive code still prefers
+   *     live where a future gateway response begins providing it.
+   *
+   * The returned account is then mutated by callers (markStrategyActivity,
+   * updateStrategyAccounting*, etc.) before being written back to the
+   * stored Map. Phase 2 of Package C moves durable fields off of process
+   * memory.
+   */
   attachStoredTreasuryMetadata(wallet, liveAccount = {}) {
     const stored = this.getStoredAccount(wallet);
     return this.ensureTreasuryMetadata({
       ...liveAccount,
+      // derived_cache: live wins per-key, stored fills gaps
       strategyShares: {
-        ...(liveAccount.strategyShares ?? {}),
-        ...(stored.strategyShares ?? {})
-      },
-      strategyActivity: {
-        ...(liveAccount.strategyActivity ?? {}),
-        ...(stored.strategyActivity ?? {})
+        ...(stored.strategyShares ?? {}),
+        ...(liveAccount.strategyShares ?? {})
       },
       strategyPending: {
-        ...(liveAccount.strategyPending ?? {}),
-        ...(stored.strategyPending ?? {})
+        ...(stored.strategyPending ?? {}),
+        ...(liveAccount.strategyPending ?? {})
       },
       strategyAccounting: {
-        ...(liveAccount.strategyAccounting ?? {}),
-        ...(stored.strategyAccounting ?? {})
+        ...(stored.strategyAccounting ?? {}),
+        ...(liveAccount.strategyAccounting ?? {})
       },
-      treasuryTimeline: [...(stored.treasuryTimeline ?? [])]
+      recurringTemplateReserves: {
+        ...(stored.recurringTemplateReserves ?? {}),
+        ...(liveAccount.recurringTemplateReserves ?? {})
+      },
+      // display_only with defensive live-wins: today liveAccount does
+      // not carry strategyActivity, so stored wins; if a future gateway
+      // response begins surfacing per-strategy activity, that wins.
+      strategyActivity: {
+        ...(stored.strategyActivity ?? {}),
+        ...(liveAccount.strategyActivity ?? {})
+      },
+      // display_only with defensive live-wins for the same reason; the
+      // current gateway never returns a treasuryTimeline, so this
+      // resolves to the stored event log.
+      treasuryTimeline: Array.isArray(liveAccount.treasuryTimeline) && liveAccount.treasuryTimeline.length > 0
+        ? [...liveAccount.treasuryTimeline]
+        : [...(stored.treasuryTimeline ?? [])]
     });
   }
 
