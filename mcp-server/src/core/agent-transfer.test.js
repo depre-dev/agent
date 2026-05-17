@@ -596,6 +596,43 @@ test("recordAsyncStrategySettlement updates accounting and clears pending state"
   assert.equal(updated.treasuryTimeline[0].principalAfterRaw, "6000001");
 });
 
+test("recordAsyncStrategySettlement is idempotent for duplicate settlement results", async () => {
+  const { service, accounts } = makeService();
+  const account = await service.getAccountSummary("0xAlice");
+  account.strategyPending["0xstrategy"] = {
+    asset: "DOT",
+    pendingDepositAssets: 6,
+    pendingDepositAssetsRaw: "6000000",
+    pendingDepositRequestIds: ["0xreq"],
+    pendingWithdrawalShares: 0
+  };
+  accounts.set("0xAlice", account);
+  const settlement = {
+    requestId: "0xreq",
+    strategyRequest: {
+      account: "0xAlice",
+      strategyId: "0xstrategy",
+      assetSymbol: "DOT",
+      kindLabel: "deposit",
+      statusLabel: "succeeded",
+      requestedAssets: 6,
+      requestedAssetsRaw: "6000000",
+      settledAssets: 6,
+      settledAssetsRaw: "6000000"
+    }
+  };
+
+  await service.recordAsyncStrategySettlement(settlement);
+  const replayed = await service.recordAsyncStrategySettlement(settlement);
+
+  assert.equal(replayed.strategyPending["0xstrategy"].pendingDepositAssets, 0);
+  assert.deepEqual(replayed.strategyPending["0xstrategy"].pendingDepositRequestIds, []);
+  assert.deepEqual(replayed.strategyPending["0xstrategy"].settledRequestIds, ["0xreq"]);
+  assert.equal(replayed.strategyAccounting["0xstrategy"].principal, 6);
+  assert.equal(replayed.strategyAccounting["0xstrategy"].principalRaw, "6000000");
+  assert.equal(replayed.treasuryTimeline.filter((event) => event.type === "allocate").length, 1);
+});
+
 test("recordAsyncStrategySettlement preserves raw asset accounting when withdrawals settle", async () => {
   const { service, accounts } = makeService();
   const account = await service.getAccountSummary("0xAlice");
