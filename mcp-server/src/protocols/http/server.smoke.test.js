@@ -105,8 +105,8 @@ function stop(child) {
   });
 }
 
-function issueToken(wallet, { roles = [] } = {}) {
-  return signToken({ sub: wallet, roles }, { secret: LONG_SECRET, expiresInSeconds: 60 }).token;
+function issueToken(wallet, { roles = [], ...claims } = {}) {
+  return signToken({ sub: wallet, roles, ...claims }, { secret: LONG_SECRET, expiresInSeconds: 60 }).token;
 }
 
 async function runWithServer(fn) {
